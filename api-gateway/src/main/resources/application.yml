@@ -1,0 +1,37 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  config:
+    import: "optional:file:../.env[.properties],optional:file:.env[.properties]"
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            # M1: F1 Pedidos y F2 Anulaciones
+            - id: servicio-ventas
+              uri: ${VENTAS_URL:http://localhost:8081}
+              predicates:
+                - Path=/api/*/pedidos/**
+            # M2: F3 a F6. POST /api/v2/eventos no pasa por aquí (M1 llama directo a M2)
+            - id: servicio-postventa
+              uri: ${POSTVENTA_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/*/devoluciones/**,/api/*/reembolsos/**,/api/*/csat/**,/api/*/reclamos/**,/api/*/dashboard/**
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:9000/.well-known/jwks.json}
+
+seguridad:
+  habilitada: ${SEGURIDAD_HABILITADA:true}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
