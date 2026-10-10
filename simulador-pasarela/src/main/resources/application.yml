@@ -1,0 +1,26 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: simulador-pasarela
+  config:
+    import: "optional:file:../.env[.properties],optional:file:.env[.properties]"
+  jackson:
+    time-zone: UTC
+    serialization:
+      write-dates-as-timestamps: false
+
+pasarela:
+  # A quién avisa el resultado del cobro (endpoint 1.2 de M1)
+  ventas-url: ${VENTAS_URL:http://localhost:8081}
+  # Espera antes de avisar a M1, para simular el procesamiento
+  demora-ms: 2000
+  # Reintentos si M1 no responde 200
+  reintentos: 3
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
