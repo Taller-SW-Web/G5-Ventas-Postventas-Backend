@@ -24,6 +24,13 @@ class CodigoPublicoTest {
     }
 
     @Test
+    void codigoTemporalEntraEnVarchar30() {
+        String codigo = CodigoPublico.temporal();
+        assertThat(codigo).startsWith("TMP-").hasSizeLessThanOrEqualTo(30);
+        assertThat(CodigoPublico.temporal()).isNotEqualTo(codigo);
+    }
+
+    @Test
     void rechazaCodigosMalFormados() {
         assertThatThrownBy(() -> CodigoPublico.id("PED-2026-"))
                 .isInstanceOf(SolicitudInvalidaException.class)

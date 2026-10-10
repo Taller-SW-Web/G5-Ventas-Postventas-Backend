@@ -2,6 +2,7 @@ package ventas.pedido;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -18,6 +19,8 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "pedido", schema = "ventas")
@@ -80,7 +83,9 @@ public class Pedido {
 
     private BigDecimal descuento;
 
-    @Column(nullable = false)
+    /** char(3) en la base (PEN, USD) */
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(nullable = false, length = 3)
     private String moneda;
 
     @Column(nullable = false)
@@ -88,6 +93,10 @@ public class Pedido {
 
     @Column(nullable = false)
     private BigDecimal total;
+
+    /** La base pone now() si no se envía */
+    @Column(name = "creado_en", nullable = false, insertable = false, updatable = false)
+    private OffsetDateTime creadoEn;
 
     @OneToMany(mappedBy = "pedido", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<DetallePedido> detalles = new ArrayList<>();

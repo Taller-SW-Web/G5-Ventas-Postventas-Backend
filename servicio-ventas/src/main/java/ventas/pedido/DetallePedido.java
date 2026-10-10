@@ -30,8 +30,14 @@ public class DetallePedido {
     @JoinColumn(name = "id_pedido", nullable = false)
     private Pedido pedido;
 
-    @Column(name = "id_producto", nullable = false)
+    /** Referencia al Módulo F. Puede ser null; el sku siempre va */
+    @Column(name = "id_producto")
     private Long idProducto;
+
+    @Column(nullable = false)
+    private String sku;
+
+    private String descripcion;
 
     @Column(nullable = false)
     private Integer cantidad;
