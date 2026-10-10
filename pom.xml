@@ -22,8 +22,8 @@
         <spring-cloud.version>2025.0.0</spring-cloud.version>
     </properties>
 
-    <!-- Agregar api-gateway cuando exista -->
     <modules>
+        <module>api-gateway</module>
         <module>servicio-ventas</module>
         <module>servicio-postventa</module>
     </modules>
