@@ -1,0 +1,56 @@
+### Peticiones de prueba de F1 (IntelliJ: botón ▶ al lado de cada una)
+### Directo a M1 en 8081. Para pasar por el gateway, cambiar a 8080.
+### Con SEGURIDAD_HABILITADA=false no hace falta token.
+
+### Salud del servicio
+GET http://localhost:8081/actuator/health
+
+### 1.1 Crear pedido (por ahora 501)
+POST http://localhost:8081/api/v1/pedidos
+Content-Type: application/json
+
+{}
+
+### 1.2 Notificación de pago (por ahora 501). Campos según api-ventas.md 1.2
+POST http://localhost:8081/api/v1/pedidos/PED-2026-00001/pagos/notificacion
+Content-Type: application/json
+
+{
+  "transaccionId": "TX-0001",
+  "resultado": "APROBADO",
+  "monto": 129.90,
+  "moneda": "PEN",
+  "fechaPago": "2026-10-10T12:00:00Z"
+}
+
+### 1.3 Consultar pedido (por ahora 501)
+GET http://localhost:8081/api/v1/pedidos/PED-2026-00001
+
+### 1.4 Listar pedidos (por ahora 501)
+GET http://localhost:8081/api/v1/pedidos?pagina=0&tamano=10
+
+### 1.5 Cambiar estado (por ahora 501)
+PATCH http://localhost:8081/api/v1/pedidos/PED-2026-00001/estado
+Content-Type: application/json
+
+{
+  "nuevoEstado": "EN_PREPARACION",
+  "actor": "SISTEMA_LOGISTICA",
+  "motivo": "Inicio de preparación"
+}
+
+### 1.6 Evento de logística (por ahora 501)
+POST http://localhost:8081/api/v1/pedidos/PED-2026-00001/eventos-logistica
+Content-Type: application/json
+
+{
+  "evento": "ENTREGA_FALLIDA_DEFINITIVA",
+  "guiaRemision": "GR-0001",
+  "motivo": "Cliente no ubicado tras 3 intentos"
+}
+
+### Lo mismo pasando por el gateway
+GET http://localhost:8080/api/v1/pedidos/PED-2026-00001
+
+### Ruta que no existe (404 con formato del contrato)
+GET http://localhost:8081/api/v1/no-existe
