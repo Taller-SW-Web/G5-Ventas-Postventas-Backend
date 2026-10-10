@@ -38,6 +38,8 @@ seguridad:
 integracion:
   simulado: ${INTEGRACION_SIMULADA:true}
   ventas-url: ${VENTAS_URL:http://localhost:8081}
+  pasarela-url: ${PASARELA_URL:http://localhost:8083}
+  pasarela-simulada: ${PASARELA_SIMULADA:true}
 
 management:
   endpoints:
