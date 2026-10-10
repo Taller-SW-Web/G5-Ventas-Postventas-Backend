@@ -5,6 +5,6 @@ public enum ResultadoPasarela {
     APROBADO, RECHAZADO;
 
     public EstadoPago aEstadoPago() {
-        return this == APROBADO ? EstadoPago.APROBADO : EstadoPago.RECHAZADO;
+        return this == APROBADO ? EstadoPago.CONFIRMADO : EstadoPago.RECHAZADO;
     }
 }
