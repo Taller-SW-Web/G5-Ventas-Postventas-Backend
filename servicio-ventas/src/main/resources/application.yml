@@ -1,0 +1,43 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: servicio-ventas
+  config:
+    # Lee el .env de la raíz (o del módulo) si existe
+    import: "optional:file:../.env[.properties],optional:file:.env[.properties]"
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate          # nunca update: las tablas las maneja el SQL compartido
+    properties:
+      hibernate:
+        default_schema: ventas
+  jackson:
+    time-zone: UTC
+    serialization:
+      write-dates-as-timestamps: false
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:9000/.well-known/jwks.json}
+
+seguridad:
+  habilitada: ${SEGURIDAD_HABILITADA:true}
+
+integracion:
+  simulado: ${INTEGRACION_SIMULADA:true}
+  eventos:
+    intervalo-ms: 5000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
