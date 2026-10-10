@@ -6,8 +6,6 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Getter;
@@ -25,12 +23,9 @@ import lombok.Setter;
 @NoArgsConstructor
 public class EventoRecibido {
 
+    /** Clave primaria: transaccionId de la pasarela, o guiaRemision:evento de logística */
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-
-    /** transaccionId de la pasarela, o guiaRemision:evento de logística */
-    @Column(name = "id_evento", nullable = false)
+    @Column(name = "id_evento")
     private String idEvento;
 
     @Enumerated(EnumType.STRING)
