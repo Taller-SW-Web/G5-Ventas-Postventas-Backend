@@ -78,7 +78,7 @@ class CrearPedidoServiceTest {
         assertThat(r.pedido().moneda()).isEqualTo("PEN");
         assertThat(r.pedido().fechaCreacion()).isNotNull();
 
-        verify(productos).reservar(eq(CLAVE), anyList());
+        verify(productos).reservar(eq(CLAVE), eq(contacto().clienteId()), anyList());
         verify(maquina).registrarInicial(any(Pedido.class), eq(ActorHistorial.CANAL_CHATBOT),
                 eq(CrearPedidoService.MOTIVO_INICIAL), any(OffsetDateTime.class));
         verify(maquina, never()).cambiar(any(), any(), any(), any(), any());
@@ -210,7 +210,7 @@ class CrearPedidoServiceTest {
     void sinStockDa409YNoSeGuardaElPedido() {
         when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
         doThrow(new ConflictoException("ITEM_SIN_DISPONIBILIDAD", "sin stock"))
-                .when(productos).reservar(eq(CLAVE), anyList());
+                .when(productos).reservar(eq(CLAVE), any(), anyList());
 
         assertThatThrownBy(() -> servicio.crear(CLAVE, ValidadorPedidoTest.chatbot(contacto())))
                 .extracting("codigo").isEqualTo("ITEM_SIN_DISPONIBILIDAD");
@@ -218,14 +218,15 @@ class CrearPedidoServiceTest {
     }
 
     @Test
-    void siFallaElGuardadoSeLiberaLaReserva() {
+    void siFallaElGuardadoNoSeLiberaAunPorqueNoHayReservaId() {
+        // El reservaId llega después por po.sales.q; ahí se libera la reserva sin pedido (acuerdo G6)
         when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
         when(pedidos.saveAndFlush(any(Pedido.class))).thenThrow(new IllegalStateException("base caída"));
 
         assertThatThrownBy(() -> servicio.crear(CLAVE, ValidadorPedidoTest.chatbot(contacto())))
                 .isInstanceOf(IllegalStateException.class);
-        verify(productos).reservar(eq(CLAVE), anyList());
-        verify(productos).liberar(CLAVE);
+        verify(productos).reservar(eq(CLAVE), eq(contacto().clienteId()), anyList());
+        verify(productos, never()).liberar(anyString());
     }
 
     @Test
