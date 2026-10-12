@@ -42,6 +42,7 @@ class MaquinaEstadosTest {
             "CREADO, ANULADO, CANAL_CHATBOT",
             "CREADO, ANULADO, CLIENTE",
             "CREADO, ANULADO, GESTOR",
+            "CREADO, ANULADO, SISTEMA_PRODUCTOS",
             "PAGADO, EN_PREPARACION, SISTEMA_LOGISTICA",
             "PAGADO, ANULADO, CLIENTE",
             "PAGADO, ANULADO, GESTOR",
