@@ -99,19 +99,20 @@ class NotificacionPagoServiceTest {
 
     @Test
     void pagoRechazadoAnulaPorPagoNoCompletadoSinGestor() {
-        pedido.setCanal(CanalVenta.CHATBOT);
         pedidoExiste();
         when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
 
         servicio.procesar(CODIGO, notificacion(ResultadoPasarela.RECHAZADO, "129.90"));
 
         assertThat(pago.getEstado()).isEqualTo(EstadoPago.RECHAZADO);
-        verify(maquina).cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.CANAL_CHATBOT,
+        verify(maquina).cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.PASARELA_PAGOS,
                 NotificacionPagoService.MOTIVO_PAGO_RECHAZADO, FECHA_PAGO);
     }
 
     @Test
-    void rechazoDeMarketplaceLoRegistraLaPasarela() {
+    void rechazoAvisadoPorElChatbotTambienLoRegistraLaPasarela() {
+        // ESP-03 7.2: CANAL_CHATBOT es para el aviso del canal (1.7), no para la notificación de 1.2
+        pedido.setCanal(CanalVenta.CHATBOT);
         pedidoExiste();
         when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
 

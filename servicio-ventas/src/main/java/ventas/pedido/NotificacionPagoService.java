@@ -22,7 +22,8 @@ import ventas.pedido.dto.NotificacionPagoResponse;
 
 /**
  * 1.2 Notificación de pago (ESP-03 7.3). APROBADO: CREADO -> PAGADO.
- * RECHAZADO: CREADO -> ANULADO con motivo PAGO_NO_COMPLETADO, sin Gestor.
+ * RECHAZADO: CREADO -> ANULADO con motivo PAGO_NO_COMPLETADO, sin Gestor. En ambos casos el actor
+ * es PASARELA_PAGOS (ESP-03 7.2 y api-ventas 1.2), también cuando la notificación la envía el chatbot.
  * El transaccionId es la clave de idempotencia: se guarda en evento_recibido y en pago.referencia.
  */
 @Slf4j
@@ -80,7 +81,7 @@ public class NotificacionPagoService {
         if (req.resultado() == ResultadoPasarela.APROBADO) {
             maquina.cambiar(pedido, EstadoPedido.PAGADO, ActorHistorial.PASARELA_PAGOS, MOTIVO_PAGO_OK, fecha);
         } else {
-            maquina.cambiar(pedido, EstadoPedido.ANULADO, actorRechazo(pedido), MOTIVO_PAGO_RECHAZADO, fecha);
+            maquina.cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.PASARELA_PAGOS, MOTIVO_PAGO_RECHAZADO, fecha);
         }
         return new NotificacionPagoResponse(pedido.getCodigo(), pedido.getEstado(), req.transaccionId(), fecha);
     }
@@ -110,11 +111,6 @@ public class NotificacionPagoService {
             throw new SolicitudInvalidaException("MONTOS_INCONSISTENTES",
                     "El monto o la moneda no coinciden con el pedido (%s %s)".formatted(pedido.getTotal(), pedido.getMoneda().trim()));
         }
-    }
-
-    /** ESP-03 nombra CANAL_CHATBOT; para Marketplace el aviso viene de la pasarela (la matriz permite ambos). */
-    private static ActorHistorial actorRechazo(Pedido pedido) {
-        return pedido.getCanal() == CanalVenta.CHATBOT ? ActorHistorial.CANAL_CHATBOT : ActorHistorial.PASARELA_PAGOS;
     }
 
     private static Pago nuevoPago(Pedido pedido) {
