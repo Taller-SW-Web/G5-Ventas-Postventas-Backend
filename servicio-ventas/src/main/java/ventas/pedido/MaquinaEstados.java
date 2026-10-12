@@ -5,6 +5,7 @@ import static ventas.pedido.ActorHistorial.CLIENTE;
 import static ventas.pedido.ActorHistorial.GESTOR;
 import static ventas.pedido.ActorHistorial.PASARELA_PAGOS;
 import static ventas.pedido.ActorHistorial.SISTEMA_LOGISTICA;
+import static ventas.pedido.ActorHistorial.SISTEMA_PRODUCTOS;
 import static ventas.pedido.EstadoPedido.ANULADO;
 import static ventas.pedido.EstadoPedido.CREADO;
 import static ventas.pedido.EstadoPedido.DESPACHADO;
@@ -40,7 +41,7 @@ public class MaquinaEstados {
     /** Matriz de ESP-03 sección 7.2: transición -> actores permitidos. */
     private static final Map<Transicion, Set<ActorHistorial>> PERMITIDAS = Map.of(
             new Transicion(CREADO, PAGADO),             Set.of(PASARELA_PAGOS),
-            new Transicion(CREADO, ANULADO),            Set.of(PASARELA_PAGOS, CANAL_CHATBOT, CLIENTE, GESTOR),
+            new Transicion(CREADO, ANULADO),            Set.of(PASARELA_PAGOS, CANAL_CHATBOT, CLIENTE, GESTOR, SISTEMA_PRODUCTOS),
             new Transicion(PAGADO, EN_PREPARACION),     Set.of(SISTEMA_LOGISTICA),
             new Transicion(PAGADO, ENTREGADO),          Set.of(CLIENTE),   // solo RETAIL (acuerdo G4)
             new Transicion(PAGADO, ANULADO),            Set.of(CLIENTE, GESTOR),

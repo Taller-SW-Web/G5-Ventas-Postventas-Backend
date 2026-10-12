@@ -85,6 +85,10 @@ public class Pedido {
     @Column(name = "idempotency_key", unique = true, length = 128)
     private String idempotencyKey;
 
+    /** reservaId que asigna Productos (G6) al confirmar la reserva. Null mientras está pendiente y en RETAIL. */
+    @Column(name = "reserva_id", length = 100)
+    private String reservaId;
+
     @Column(name = "codigo_cupon")
     private String codigoCupon;
 
