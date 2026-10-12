@@ -150,6 +150,28 @@ class NotificacionPagoServiceTest {
     }
 
     @Test
+    void pagoRechazadoConCuponLoRestaura() {
+        pedido.setCodigoCupon("CYBER2026");
+        pedidoExiste();
+        when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
+
+        servicio.procesar(CODIGO, notificacion(ResultadoPasarela.RECHAZADO, "129.90"));
+
+        verify(productos).restaurarCupon(eq("CYBER2026"), eq(CODIGO), any());
+    }
+
+    @Test
+    void pagoAprobadoNoRestauraElCupon() {
+        pedido.setCodigoCupon("CYBER2026");
+        pedidoExiste();
+        when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
+
+        servicio.procesar(CODIGO, notificacion(ResultadoPasarela.APROBADO, "129.90"));
+
+        verify(productos, never()).restaurarCupon(any(), any(), any());
+    }
+
+    @Test
     void sinReservaIdTodaviaNoSeLlamaAProductos() {
         pedidoExiste();
         when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));

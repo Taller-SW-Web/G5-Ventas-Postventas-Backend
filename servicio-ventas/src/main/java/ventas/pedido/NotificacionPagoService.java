@@ -3,6 +3,7 @@ package ventas.pedido;
 import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.UUID;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,7 +44,8 @@ public class NotificacionPagoService {
     private final TransactionOperations transaccion;
 
     /** Resultado de la transacción. reservaId != null: hay que confirmar o liberar el stock después del commit. */
-    private record Aplicado(NotificacionPagoResponse respuesta, String reservaId, ResultadoPasarela resultado) {}
+    private record Aplicado(NotificacionPagoResponse respuesta, String reservaId, ResultadoPasarela resultado,
+                            String codigoCupon, UUID clienteId) {}
 
     public NotificacionPagoResponse procesar(String pedidoId, NotificacionPagoRequest req) {
         Aplicado hecho;
@@ -53,13 +55,17 @@ public class NotificacionPagoService {
             // La misma notificación llegó dos veces a la vez y la otra ganó: se responde como reintento
             return transaccion.execute(estado -> reintento(buscar(pedidoId), req));
         }
-        // Acuerdo G6: pagado -> se consume la reserva; pago rechazado -> se libera. Fuera de la transacción
+        // Acuerdo G6 y F1 CA-07b: pagado -> se consume la reserva; pago rechazado -> se libera y se
+        // restaura el cupón. Fuera de la transacción
         if (hecho.reservaId() != null) {
             if (hecho.resultado() == ResultadoPasarela.APROBADO) {
                 productos.confirmar(hecho.reservaId());
             } else {
                 productos.liberar(hecho.reservaId());
             }
+        }
+        if (hecho.resultado() == ResultadoPasarela.RECHAZADO && hecho.codigoCupon() != null) {
+            productos.restaurarCupon(hecho.codigoCupon(), hecho.respuesta().pedidoId(), hecho.clienteId());
         }
         return hecho.respuesta();
     }
@@ -68,7 +74,7 @@ public class NotificacionPagoService {
         Pedido pedido = buscar(pedidoId);
 
         if (recibidos.existsByIdEventoAndOrigen(req.transaccionId(), OrigenEvento.PASARELA_PAGOS)) {
-            return new Aplicado(reintento(pedido, req), null, null);
+            return new Aplicado(reintento(pedido, req), null, null, null, null);
         }
         if (pedido.getEstado() != EstadoPedido.CREADO) {
             // ESP-03 7.4 C: notificación tardía, se rechaza y queda en el log para revisión manual
@@ -100,7 +106,7 @@ public class NotificacionPagoService {
         }
         // Si la reserva todavía no llegó (reservaId null), ResultadoReservaService confirma o libera al recibirla
         return new Aplicado(new NotificacionPagoResponse(pedido.getCodigo(), pedido.getEstado(), req.transaccionId(), fecha),
-                pedido.getReservaId(), req.resultado());
+                pedido.getReservaId(), req.resultado(), pedido.getCodigoCupon(), pedido.getIdCliente());
     }
 
     /** Misma transacción ya procesada: no se toca nada y se responde con el estado actual. */
