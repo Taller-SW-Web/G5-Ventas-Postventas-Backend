@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -79,6 +80,65 @@ class MaquinaEstadosTest {
 
         assertThat(p.getEstado()).isEqualTo(origen);
         verifyNoInteractions(pedidos, historial, eventos);
+    }
+
+    @Test
+    void retailPasaDePagadoAEntregadoPorEntregaEnTienda() {
+        Pedido p = pedidoEn(EstadoPedido.PAGADO);
+        p.setCanal(CanalVenta.RETAIL);
+
+        maquina.cambiar(p, EstadoPedido.ENTREGADO, ActorHistorial.CLIENTE, "ENTREGA_INMEDIATA_EN_TIENDA");
+
+        assertThat(p.getEstado()).isEqualTo(EstadoPedido.ENTREGADO);
+        verify(eventos).publicar(eq(TipoEvento.PEDIDO_ENTREGADO), eq(p), any());
+    }
+
+    @Test
+    void marketplaceNoPuedeSaltarDePagadoAEntregado() {
+        Pedido p = pedidoEn(EstadoPedido.PAGADO);
+
+        assertThatThrownBy(() -> maquina.cambiar(p, EstadoPedido.ENTREGADO, ActorHistorial.CLIENTE, "x"))
+                .isInstanceOf(ConflictoException.class)
+                .extracting("codigo").isEqualTo("TRANSICION_NO_PERMITIDA");
+        verifyNoInteractions(pedidos, historial, eventos);
+    }
+
+    @Test
+    void cambiarConFechaGuardaEsaFechaEnElHistorial() {
+        Pedido p = pedidoEn(EstadoPedido.PAGADO);
+        p.setCanal(CanalVenta.RETAIL);
+        OffsetDateTime venta = OffsetDateTime.parse("2026-10-11T18:30:00Z");
+
+        maquina.cambiar(p, EstadoPedido.ENTREGADO, ActorHistorial.CLIENTE, "ENTREGA_INMEDIATA_EN_TIENDA", venta);
+
+        ArgumentCaptor<HistorialEstado> captor = ArgumentCaptor.forClass(HistorialEstado.class);
+        verify(historial).save(captor.capture());
+        assertThat(captor.getValue().getFechaHora()).isEqualTo(venta);
+    }
+
+    @Test
+    void registroInicialGuardaHistorialSinEstadoAnterior() {
+        Pedido p = pedidoEn(EstadoPedido.CREADO);
+        OffsetDateTime ahora = OffsetDateTime.parse("2026-10-12T10:00:00Z");
+
+        maquina.registrarInicial(p, ActorHistorial.CANAL_CHATBOT, "Registro inicial de compra", ahora);
+
+        ArgumentCaptor<HistorialEstado> captor = ArgumentCaptor.forClass(HistorialEstado.class);
+        verify(historial).save(captor.capture());
+        assertThat(captor.getValue().getEstadoAnterior()).isNull();
+        assertThat(captor.getValue().getEstadoNuevo()).isEqualTo(EstadoPedido.CREADO);
+        assertThat(captor.getValue().getActor()).isEqualTo(ActorHistorial.CANAL_CHATBOT);
+        verifyNoInteractions(eventos);
+    }
+
+    @Test
+    void registroInicialPagadoPublicaPedidoPagado() {
+        Pedido p = pedidoEn(EstadoPedido.PAGADO);
+        p.setCanal(CanalVenta.RETAIL);
+
+        maquina.registrarInicial(p, ActorHistorial.CLIENTE, "Registro inicial de compra", OffsetDateTime.now());
+
+        verify(eventos).publicar(eq(TipoEvento.PEDIDO_PAGADO), eq(p), any());
     }
 
     @Test
