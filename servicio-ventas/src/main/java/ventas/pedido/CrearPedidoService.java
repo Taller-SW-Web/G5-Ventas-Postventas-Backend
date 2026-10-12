@@ -9,23 +9,25 @@ import java.util.Objects;
 import java.util.Optional;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 
 import ventas.compartido.CodigoPublico;
 import ventas.compartido.ConflictoException;
-import ventas.integracion.PasarelaClient;
 import ventas.integracion.ProductosClient;
 import ventas.pedido.dto.CrearPedidoRequest;
 import ventas.pedido.dto.CrearPedidoResponse;
 
 /**
  * 1.1 Crear pedido (ESP-01) con idempotencia (acuerdo H-02).
- * Orden: validar -> ¿clave ya usada? -> reservar stock -> guardar todo en una transacción -> cobro.
- * MARKETPLACE: nace CREADO y se pide el cobro a la pasarela. CHATBOT: nace CREADO (el chatbot cobra y avisa por 1.2).
+ * Orden: validar -> ¿clave ya usada? -> reservar stock -> guardar todo en una transacción.
+ * MARKETPLACE: nace CREADO; el cobro se pide cuando se confirma la reserva (ResultadoReservaService).
+ * CHATBOT: nace CREADO (el chatbot cobra y avisa por 1.2).
  * RETAIL: nace PAGADO y pasa a ENTREGADO en la misma transacción (acuerdo G4).
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CrearPedidoService {
@@ -41,7 +43,7 @@ public class CrearPedidoService {
     private final PagoRepository pagos;
     private final MaquinaEstados maquina;
     private final ProductosClient productos;
-    private final PasarelaClient pasarela;
+    private final ResultadoReservaService resultadoReserva;
     private final TransactionOperations transaccion;
 
     public Resultado crear(String clave, CrearPedidoRequest req) {
@@ -55,8 +57,9 @@ public class CrearPedidoService {
 
         // Retail ya vendió en tienda: no se reserva stock (acuerdo G4, R9). La referencia de la reserva
         // es la Idempotency-Key: con ella se encuentra el pedido cuando llega el resultado por po.sales.q
+        Optional<ProductosClient.ResultadoReserva> reserva = Optional.empty();
         if (req.canal() != CanalVenta.RETAIL) {
-            productos.reservar(clave, req.contacto().clienteId(), req.items().stream()
+            reserva = productos.reservar(clave, req.contacto().clienteId(), req.items().stream()
                     .map(i -> new ProductosClient.ItemReserva(i.productoId(), i.sku(), i.cantidad()))
                     .toList());
         }
@@ -70,10 +73,16 @@ public class CrearPedidoService {
             // cuando llegue el resultado de la reserva sin pedido, se libera ahí (acuerdo G6)
             return pedidos.findByIdempotencyKey(clave).map(p -> repetido(p, req)).orElseThrow(() -> e);
         }
-        if (req.canal() == CanalVenta.MARKETPLACE) {
-            // Después del commit: si la pasarela falla, el pedido queda CREADO y se puede reintentar el cobro
-            pasarela.iniciarCobro(pedido.getCodigo(), pedido.getTotal(), pedido.getMoneda().trim(), req.pago().metodoPago());
-        }
+        // En modo simulado el resultado de la reserva llega al instante; en modo real llega por po.sales.q.
+        // Ahí se guarda el reservaId y, en MARKETPLACE, se pide el cobro (con la reserva ya confirmada)
+        reserva.ifPresent(r -> {
+            try {
+                resultadoReserva.procesar(r);
+            } catch (RuntimeException e) {
+                // El pedido ya está guardado: no se responde error al canal por esto
+                log.error("No se pudo aplicar la reserva simulada de {}", pedido.getCodigo(), e);
+            }
+        });
         return new Resultado(respuesta(pedido), true);
     }
 
