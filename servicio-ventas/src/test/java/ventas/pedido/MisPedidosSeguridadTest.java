@@ -66,6 +66,7 @@ class MisPedidosSeguridadTest {
     @Autowired JwtEncoder firmador;
     @MockitoBean PedidoService pedidoService;
     @MockitoBean CrearPedidoService crearPedidoService;
+    @MockitoBean NotificacionPagoService notificacionPagoService;
 
     @TestConfiguration
     static class Claves {
