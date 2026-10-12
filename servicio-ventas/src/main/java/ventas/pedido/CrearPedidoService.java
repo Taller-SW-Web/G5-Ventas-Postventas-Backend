@@ -53,10 +53,10 @@ public class CrearPedidoService {
             return repetido(previo.get(), req);
         }
 
-        // Retail ya vendió en tienda: no se reserva stock (acuerdo G4)
-        boolean reservado = req.canal() != CanalVenta.RETAIL;
-        if (reservado) {
-            productos.reservar(clave, req.items().stream()
+        // Retail ya vendió en tienda: no se reserva stock (acuerdo G4, R9). La referencia de la reserva
+        // es la Idempotency-Key: con ella se encuentra el pedido cuando llega el resultado por po.sales.q
+        if (req.canal() != CanalVenta.RETAIL) {
+            productos.reservar(clave, req.contacto().clienteId(), req.items().stream()
                     .map(i -> new ProductosClient.ItemReserva(i.productoId(), i.sku(), i.cantidad()))
                     .toList());
         }
@@ -65,30 +65,16 @@ public class CrearPedidoService {
         try {
             pedido = transaccion.execute(estado -> registrar(clave, req));
         } catch (DataIntegrityViolationException e) {
-            Optional<Pedido> ganador = pedidos.findByIdempotencyKey(clave);
-            if (ganador.isPresent()) {
-                // Otra petición con la misma clave ganó la carrera. La reserva usa la misma referencia
-                // (la clave), así que es la del pedido ganador: no se libera
-                return repetido(ganador.get(), req);
-            }
-            liberarReserva(reservado, clave);
-            throw e;
-        } catch (RuntimeException e) {
-            // El pedido no se guardó: la reserva quedaría colgada en Productos
-            liberarReserva(reservado, clave);
-            throw e;
+            // Otra petición con la misma clave ganó la carrera: se responde con su pedido.
+            // Si el pedido no se guardó por otro motivo, aquí todavía no hay reservaId para liberar:
+            // cuando llegue el resultado de la reserva sin pedido, se libera ahí (acuerdo G6)
+            return pedidos.findByIdempotencyKey(clave).map(p -> repetido(p, req)).orElseThrow(() -> e);
         }
         if (req.canal() == CanalVenta.MARKETPLACE) {
             // Después del commit: si la pasarela falla, el pedido queda CREADO y se puede reintentar el cobro
             pasarela.iniciarCobro(pedido.getCodigo(), pedido.getTotal(), pedido.getMoneda().trim(), req.pago().metodoPago());
         }
         return new Resultado(respuesta(pedido), true);
-    }
-
-    private void liberarReserva(boolean reservado, String clave) {
-        if (reservado) {
-            productos.liberar(clave);
-        }
     }
 
     private Pedido registrar(String clave, CrearPedidoRequest req) {

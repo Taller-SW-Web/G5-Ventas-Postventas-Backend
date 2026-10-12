@@ -1,6 +1,8 @@
 package ventas.integracion;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -13,9 +15,11 @@ import org.springframework.web.client.RestClientException;
 import ventas.compartido.ConflictoException;
 
 /**
- * Módulo F (Productos, G6): reserva de stock antes de registrar el pedido.
- * POST /api/v1/inventario/reservas -> 202. Con integracion.simulado=true solo deja un log.
- * Responsable de la integración real: Luis Arroyo. Michael lo dejó simulado para 1.1.
+ * Módulo F (Productos, G6), según ACUERDO_G6_PRODUCTOS:
+ * - Reservar: POST /api/v1/inventario/reservas -> 202. El resultado y el reservaId llegan después por RabbitMQ (po.sales.q).
+ * - Confirmar: POST /api/v1/inventario/{reservaId}/confirmar cuando el pedido pasa a PAGADO.
+ * - Liberar: POST /api/v1/inventario/{reservaId}/liberar en anulaciones antes del consumo.
+ * Retail no usa nada de esto (acuerdo G4, R9). Con integracion.simulado=true no se llama a nadie.
  */
 @Slf4j
 @Component
@@ -23,7 +27,11 @@ public class ProductosClient {
 
     public record ItemReserva(String productoId, String sku, int cantidad) {}
 
-    private record ReservaRequest(String referencia, List<ItemReserva> items) {}
+    /** Resultado de una reserva: lo trae po.sales.q, o lo inventa el modo simulado. */
+    public record ResultadoReserva(String referencia, String reservaId, boolean confirmada) {}
+
+    /** customer_ref = UUID sub de Seguridad (acuerdo G6). */
+    private record ReservaRequest(String referencia, UUID customerRef, List<ItemReserva> items) {}
 
     private final boolean simulado;
     private final RestClient http;
@@ -34,17 +42,23 @@ public class ProductosClient {
         this.http = RestClient.builder().baseUrl(url).build();
     }
 
-    /** Reserva todos los ítems o lanza 409 ITEM_SIN_DISPONIBILIDAD. La referencia es la Idempotency-Key. */
-    public void reservar(String referencia, List<ItemReserva> items) {
+    /**
+     * Pide la reserva. La referencia es la Idempotency-Key del pedido: con ella se encuentra el pedido
+     * cuando llega la respuesta. En modo simulado devuelve el resultado al instante (reserva confirmada);
+     * en modo real devuelve vacío porque el resultado llega por RabbitMQ.
+     * Si Productos rechaza el comando en el acto (409/422) lanza 409 ITEM_SIN_DISPONIBILIDAD.
+     */
+    public Optional<ResultadoReserva> reservar(String referencia, UUID customerRef, List<ItemReserva> items) {
         if (simulado) {
             log.info("[simulado] reserva de stock {} -> {}", referencia, items);
-            return;
+            return Optional.of(new ResultadoReserva(referencia, "SIM-" + referencia, true));
         }
         try {
             http.post().uri("/api/v1/inventario/reservas")
-                    .body(new ReservaRequest(referencia, items))
+                    .body(new ReservaRequest(referencia, customerRef, items))
                     .retrieve()
                     .toBodilessEntity();
+            return Optional.empty();
         } catch (HttpClientErrorException e) {
             if (e.getStatusCode() == HttpStatus.CONFLICT || e.getStatusCode() == HttpStatus.UNPROCESSABLE_ENTITY) {
                 throw new ConflictoException("ITEM_SIN_DISPONIBILIDAD", "Uno o más ítems no tienen stock disponible");
@@ -55,22 +69,25 @@ public class ProductosClient {
         }
     }
 
-    /**
-     * Libera una reserva cuando el pedido no llegó a guardarse. Nunca lanza excepción: si falla,
-     * solo queda en el log (la reserva vence sola en Productos).
-     * Ruta por confirmar con G6 (Luis Arroyo).
-     */
-    public void liberar(String referencia) {
+    /** Consume la reserva cuando el pedido se paga. Nunca lanza excepción: si falla, queda en el log. */
+    public void confirmar(String reservaId) {
+        llamar("/api/v1/inventario/{reservaId}/confirmar", reservaId, "confirmar");
+    }
+
+    /** Devuelve el stock reservado cuando el pedido se anula antes del consumo. Nunca lanza excepción. */
+    public void liberar(String reservaId) {
+        llamar("/api/v1/inventario/{reservaId}/liberar", reservaId, "liberar");
+    }
+
+    private void llamar(String ruta, String reservaId, String accion) {
         if (simulado) {
-            log.info("[simulado] liberar reserva de stock {}", referencia);
+            log.info("[simulado] {} reserva {}", accion, reservaId);
             return;
         }
         try {
-            http.delete().uri("/api/v1/inventario/reservas/{referencia}", referencia)
-                    .retrieve()
-                    .toBodilessEntity();
+            http.post().uri(ruta, reservaId).retrieve().toBodilessEntity();
         } catch (RestClientException e) {
-            log.warn("No se pudo liberar la reserva {} en Productos: {}", referencia, e.getMessage());
+            log.warn("No se pudo {} la reserva {} en Productos: {}", accion, reservaId, e.getMessage());
         }
     }
 }
