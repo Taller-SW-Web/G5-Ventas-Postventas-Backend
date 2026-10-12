@@ -88,6 +88,26 @@ public class MaquinaEstados {
         }
     }
 
+    /**
+     * Primer registro del historial (estado_anterior = null) al crear el pedido en 1.1.
+     * Si nace PAGADO (Retail) publica pedido.pagado igual que una transición normal.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void registrarInicial(Pedido pedido, ActorHistorial actor, String motivo, OffsetDateTime fechaHora) {
+        HistorialEstado h = new HistorialEstado();
+        h.setPedido(pedido);
+        h.setEstadoAnterior(null);
+        h.setEstadoNuevo(pedido.getEstado());
+        h.setActor(actor);
+        h.setMotivo(motivo);
+        h.setFechaHora(fechaHora);
+        historial.save(h);
+
+        if (pedido.getEstado() == PAGADO) {
+            eventos.publicar(TipoEvento.PEDIDO_PAGADO, pedido, payload(pedido, TipoEvento.PEDIDO_PAGADO, null, fechaHora));
+        }
+    }
+
     private EventoPedidoPayload payload(Pedido pedido, TipoEvento tipo, String motivo, OffsetDateTime fecha) {
         List<EventoPedidoPayload.Item> items = tipo == TipoEvento.PEDIDO_PAGADO
                 ? pedido.getDetalles().stream()

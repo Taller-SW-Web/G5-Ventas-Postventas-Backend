@@ -100,8 +100,8 @@ public class Pedido {
     @Column(nullable = false)
     private BigDecimal total;
 
-    /** Lo llena la base (default now()); se usa como fechaCreacion en las respuestas. */
-    @Column(name = "creado_en", nullable = false, insertable = false, updatable = false)
+    /** Lo pone CrearPedidoService al registrar; se usa como fechaCreacion en las respuestas. */
+    @Column(name = "creado_en", nullable = false, updatable = false)
     private OffsetDateTime creadoEn;
 
     @OneToMany(mappedBy = "pedido", cascade = CascadeType.ALL, orphanRemoval = true)
