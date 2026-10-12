@@ -20,7 +20,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.support.TransactionOperations;
 
+import ventas.anulacion.AnulacionSistemaService;
 import ventas.integracion.PasarelaClient;
+import ventas.integracion.PostventaClient;
 import ventas.integracion.ProductosClient;
 import ventas.integracion.ProductosClient.ResultadoReserva;
 import ventas.integracion.eventos.EventoRecibidoRepository;
@@ -38,15 +40,17 @@ class ResultadoReservaServiceTest {
     @Mock PagoRepository pagos;
     @Mock EventoRecibidoRepository recibidos;
     @Mock MaquinaEstados maquina;
+    @Mock AnulacionSistemaService anulaciones;
     @Mock ProductosClient productos;
     @Mock PasarelaClient pasarela;
+    @Mock PostventaClient postventa;
 
     ResultadoReservaService servicio;
     Pedido pedido;
 
     @BeforeEach
     void armar() {
-        servicio = new ResultadoReservaService(pedidos, pagos, recibidos, maquina, productos, pasarela,
+        servicio = new ResultadoReservaService(pedidos, pagos, recibidos, maquina, anulaciones, productos, pasarela, postventa,
                 TransactionOperations.withoutTransaction());
         pedido = new Pedido();
         pedido.setId(981L);
@@ -121,13 +125,39 @@ class ResultadoReservaServiceTest {
     }
 
     @Test
-    void rechazadaSobrePedidoPagadoQuedaParaRevision() {
+    void rechazadaSobrePedidoPagadoAnulaYPideReembolso() {
+        // Chatbot cobró antes de que llegara el rechazo (decisión del equipo 2026-10-12, opción A)
+        pedido.setCanal(CanalVenta.CHATBOT);
         pedido.setEstado(EstadoPedido.PAGADO);
+        pedidoExiste();
+        when(anulaciones.registrarEjecutada(981L, ResultadoReservaService.MOTIVO_SIN_STOCK)).thenReturn("ANUL-0007");
+
+        servicio.procesar(RECHAZADA);
+
+        verify(maquina).cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_PRODUCTOS,
+                ResultadoReservaService.MOTIVO_SIN_STOCK);
+        verify(postventa).solicitarReembolso(eq("ANUL-0007"), eq("PED-2026-00981"),
+                eq(new BigDecimal("129.90")), eq("PEN"), anyString());
+        verifyNoInteractions(pasarela, productos);   // no hubo reserva confirmada: nada que liberar
+    }
+
+    @Test
+    void rechazadaSobrePedidoCreadoNoPideReembolso() {
         pedidoExiste();
 
         servicio.procesar(RECHAZADA);
 
-        verifyNoInteractions(maquina, pasarela, productos);
+        verifyNoInteractions(anulaciones, postventa);
+    }
+
+    @Test
+    void rechazadaSobrePedidoYaAnuladoNoHaceNada() {
+        pedido.setEstado(EstadoPedido.ANULADO);
+        pedidoExiste();
+
+        servicio.procesar(RECHAZADA);
+
+        verifyNoInteractions(maquina, anulaciones, postventa, pasarela, productos);
     }
 
     @Test
