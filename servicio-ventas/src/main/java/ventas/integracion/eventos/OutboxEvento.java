@@ -6,8 +6,6 @@ import java.util.UUID;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Getter;
@@ -23,11 +21,9 @@ import org.hibernate.type.SqlTypes;
 @NoArgsConstructor
 public class OutboxEvento {
 
+    /** Clave primaria: la genera M1 (UUID) y viaja como idEvento en el payload */
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-
-    @Column(name = "id_evento", nullable = false, unique = true)
+    @Column(name = "id_evento")
     private UUID idEvento;
 
     @Convert(converter = TipoEventoConverter.class)

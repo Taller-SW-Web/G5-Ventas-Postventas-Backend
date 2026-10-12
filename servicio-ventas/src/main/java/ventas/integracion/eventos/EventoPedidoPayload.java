@@ -15,7 +15,7 @@ public record EventoPedidoPayload(
     public record Datos(
             String canal,
             String clienteId,
-            Long vendedorId,
+            UUID vendedorId,
             BigDecimal total,
             String moneda,
             String motivo,          // obligatorio en pedido.anulado

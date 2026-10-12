@@ -25,7 +25,10 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:9000/.well-known/jwks.json}
+          # Mismo emisor y JWKS que los servicios (kit de Seguridad G7)
+          issuer-uri: ${SECURITY_ISSUER:http://localhost:8080/api/v1/auth}
+          jwk-set-uri: ${SECURITY_JWKS_URL:http://localhost:8080/api/v1/auth/.well-known/jwks.json}
+          jws-algorithms: RS256
 
 seguridad:
   habilitada: ${SEGURIDAD_HABILITADA:true}
