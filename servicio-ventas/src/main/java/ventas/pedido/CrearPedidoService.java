@@ -53,8 +53,9 @@ public class CrearPedidoService {
             return repetido(previo.get(), req);
         }
 
-        if (req.canal() != CanalVenta.RETAIL) {
-            // Retail ya vendió en tienda: no se reserva stock (acuerdo G4)
+        // Retail ya vendió en tienda: no se reserva stock (acuerdo G4)
+        boolean reservado = req.canal() != CanalVenta.RETAIL;
+        if (reservado) {
             productos.reservar(clave, req.items().stream()
                     .map(i -> new ProductosClient.ItemReserva(i.productoId(), i.sku(), i.cantidad()))
                     .toList());
@@ -64,14 +65,30 @@ public class CrearPedidoService {
         try {
             pedido = transaccion.execute(estado -> registrar(clave, req));
         } catch (DataIntegrityViolationException e) {
-            // Otra petición con la misma clave ganó la carrera: se responde con su pedido
-            return pedidos.findByIdempotencyKey(clave).map(p -> repetido(p, req)).orElseThrow(() -> e);
+            Optional<Pedido> ganador = pedidos.findByIdempotencyKey(clave);
+            if (ganador.isPresent()) {
+                // Otra petición con la misma clave ganó la carrera. La reserva usa la misma referencia
+                // (la clave), así que es la del pedido ganador: no se libera
+                return repetido(ganador.get(), req);
+            }
+            liberarReserva(reservado, clave);
+            throw e;
+        } catch (RuntimeException e) {
+            // El pedido no se guardó: la reserva quedaría colgada en Productos
+            liberarReserva(reservado, clave);
+            throw e;
         }
         if (req.canal() == CanalVenta.MARKETPLACE) {
             // Después del commit: si la pasarela falla, el pedido queda CREADO y se puede reintentar el cobro
             pasarela.iniciarCobro(pedido.getCodigo(), pedido.getTotal(), pedido.getMoneda().trim(), req.pago().metodoPago());
         }
         return new Resultado(respuesta(pedido), true);
+    }
+
+    private void liberarReserva(boolean reservado, String clave) {
+        if (reservado) {
+            productos.liberar(clave);
+        }
     }
 
     private Pedido registrar(String clave, CrearPedidoRequest req) {
@@ -97,7 +114,8 @@ public class CrearPedidoService {
         pagos.save(pago);
 
         ActorHistorial actor = req.canal() == CanalVenta.CHATBOT ? ActorHistorial.CANAL_CHATBOT : ActorHistorial.CLIENTE;
-        maquina.registrarInicial(pedido, actor, MOTIVO_INICIAL, fechaHora);
+        // El registro inicial lleva la hora real de la llamada; fechaVenta solo va en PAGADO -> ENTREGADO (acuerdo G4, R8)
+        maquina.registrarInicial(pedido, actor, MOTIVO_INICIAL, ahora);
 
         if (req.canal() == CanalVenta.RETAIL) {
             // Acuerdo G4: el cliente se lleva el producto en el momento
