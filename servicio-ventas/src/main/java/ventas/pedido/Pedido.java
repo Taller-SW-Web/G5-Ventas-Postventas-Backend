@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -47,11 +48,13 @@ public class Pedido {
     @Column(nullable = false)
     private LocalDate fecha;
 
+    /** UUID de Seguridad: claim sub del JWT del cliente (AGENTS.md punto 10). */
     @Column(name = "id_cliente")
-    private Long idCliente;
+    private UUID idCliente;
 
+    /** UUID de Seguridad del vendedor (Retail). */
     @Column(name = "id_vendedor")
-    private Long idVendedor;
+    private UUID idVendedor;
 
     @Column(name = "nombre_contacto")
     private String nombreContacto;
@@ -83,7 +86,6 @@ public class Pedido {
 
     private BigDecimal descuento;
 
-    /** char(3) en la base (PEN, USD) */
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(nullable = false, length = 3)
     private String moneda;
@@ -94,7 +96,7 @@ public class Pedido {
     @Column(nullable = false)
     private BigDecimal total;
 
-    /** La base pone now() si no se envía */
+    /** Lo llena la base (default now()); se usa como fechaCreacion en las respuestas. */
     @Column(name = "creado_en", nullable = false, insertable = false, updatable = false)
     private OffsetDateTime creadoEn;
 

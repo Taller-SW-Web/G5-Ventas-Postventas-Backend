@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
@@ -25,6 +26,9 @@ class PedidoControllerTest {
 
     @Autowired
     MockMvc mvc;
+
+    @MockitoBean
+    PedidoService pedidoService;
 
     @Test
     void losSeisEndpointsDeF1ExistenYResponden501() throws Exception {
