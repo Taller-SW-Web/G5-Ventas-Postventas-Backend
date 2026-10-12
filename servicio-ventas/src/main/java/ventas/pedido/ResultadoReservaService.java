@@ -9,7 +9,9 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 
+import ventas.anulacion.AnulacionSistemaService;
 import ventas.integracion.PasarelaClient;
+import ventas.integracion.PostventaClient;
 import ventas.integracion.ProductosClient;
 import ventas.integracion.ProductosClient.ResultadoReserva;
 import ventas.integracion.eventos.EventoRecibido;
@@ -21,7 +23,9 @@ import ventas.integracion.eventos.OrigenEvento;
  * o, en modo simulado, CrearPedidoService al instante. Es idempotente: cada resultado se guarda
  * en evento_recibido con origen SISTEMA_PRODUCTOS.
  * - Confirmada: guarda reservaId. MARKETPLACE recién ahí pide el cobro (AGENTS.md punto 8).
- * - Rechazada: CREADO -> ANULADO (actor SISTEMA_PRODUCTOS, motivo STOCK_NO_DISPONIBLE, provisional).
+ * - Rechazada: CREADO -> ANULADO (actor SISTEMA_PRODUCTOS, motivo STOCK_NO_DISPONIBLE).
+ *   Si el pedido ya estaba PAGADO (Chatbot cobra por su cuenta), también se anula y se pide el reembolso
+ *   a M2 (decisión del equipo 2026-10-12, opción A; ESP-03 y ESP-05).
  */
 @Slf4j
 @Service
@@ -33,16 +37,19 @@ public class ResultadoReservaService {
     public enum Desenlace { APLICADO, REPETIDO, PEDIDO_NO_ENCONTRADO }
 
     /** Lo que hay que hacer fuera de la transacción (llamadas HTTP). */
-    private enum Accion { NINGUNA, COBRAR, CONFIRMAR, LIBERAR }
+    private enum Accion { NINGUNA, COBRAR, CONFIRMAR, LIBERAR, REEMBOLSAR }
 
-    private record Paso(Desenlace desenlace, Accion accion, Pedido pedido, String metodoPago) {}
+    /** dato: método de pago (COBRAR) o código de la anulación (REEMBOLSAR). */
+    private record Paso(Desenlace desenlace, Accion accion, Pedido pedido, String dato) {}
 
     private final PedidoRepository pedidos;
     private final PagoRepository pagos;
     private final EventoRecibidoRepository recibidos;
     private final MaquinaEstados maquina;
+    private final AnulacionSistemaService anulaciones;
     private final ProductosClient productos;
     private final PasarelaClient pasarela;
+    private final PostventaClient postventa;
     private final TransactionOperations transaccion;
 
     /**
@@ -58,7 +65,9 @@ public class ResultadoReservaService {
         }
         Pedido p = paso.pedido();
         switch (paso.accion()) {
-            case COBRAR -> pasarela.iniciarCobro(p.getCodigo(), p.getTotal(), p.getMoneda().trim(), paso.metodoPago());
+            case COBRAR -> pasarela.iniciarCobro(p.getCodigo(), p.getTotal(), p.getMoneda().trim(), paso.dato());
+            case REEMBOLSAR -> postventa.solicitarReembolso(paso.dato(), p.getCodigo(), p.getTotal(),
+                    p.getMoneda().trim(), "Stock no disponible después del pago; anulación automática de M1");
             case CONFIRMAR -> productos.confirmar(r.reservaId());
             case LIBERAR -> productos.liberar(r.reservaId());
             case NINGUNA -> { }
@@ -86,7 +95,7 @@ public class ResultadoReservaService {
         recibidos.saveAndFlush(new EventoRecibido(idEvento, OrigenEvento.SISTEMA_PRODUCTOS, OffsetDateTime.now(ZoneOffset.UTC)));
 
         if (!r.confirmada()) {
-            return new Paso(Desenlace.APLICADO, Accion.NINGUNA, rechazada(pedido), null);
+            return rechazada(pedido);
         }
         pedido.setReservaId(r.reservaId());
         pedidos.save(pedido);
@@ -105,14 +114,18 @@ public class ResultadoReservaService {
         return new Paso(Desenlace.APLICADO, accion, pedido, metodoPago);
     }
 
-    private Pedido rechazada(Pedido pedido) {
-        if (pedido.getEstado() == EstadoPedido.CREADO) {
-            maquina.cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_PRODUCTOS, MOTIVO_SIN_STOCK);
-        } else {
-            // Ya pagado sin stock: anular y reembolsar es decisión del equipo; por ahora queda para revisión
-            log.warn("Reserva rechazada para {} en estado {}: requiere revisión manual",
+    private Paso rechazada(Pedido pedido) {
+        switch (pedido.getEstado()) {
+            case CREADO -> maquina.cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_PRODUCTOS, MOTIVO_SIN_STOCK);
+            case PAGADO -> {
+                // El Chatbot ya cobró: se anula y se devuelve el dinero. No hay reserva que liberar
+                String anulacionId = anulaciones.registrarEjecutada(pedido.getId(), MOTIVO_SIN_STOCK);
+                maquina.cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_PRODUCTOS, MOTIVO_SIN_STOCK);
+                return new Paso(Desenlace.APLICADO, Accion.REEMBOLSAR, pedido, anulacionId);
+            }
+            default -> log.warn("Reserva rechazada para {} en estado {}: no se cambia el pedido",
                     pedido.getCodigo(), pedido.getEstado());
         }
-        return pedido;
+        return new Paso(Desenlace.APLICADO, Accion.NINGUNA, pedido, null);
     }
 }

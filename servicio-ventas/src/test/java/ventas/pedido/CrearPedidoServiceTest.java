@@ -140,7 +140,8 @@ class CrearPedidoServiceTest {
         ArgumentCaptor<Pedido> captor = ArgumentCaptor.forClass(Pedido.class);
         verify(maquina).registrarInicial(captor.capture(), eq(ActorHistorial.CLIENTE), anyString(), any());
         assertThat(captor.getValue().getEstado()).isEqualTo(EstadoPedido.PAGADO);
-        assertThat(captor.getValue().getDireccion()).isEqualTo("TIENDA-MIRAFLORES");
+        assertThat(captor.getValue().getTiendaId()).isEqualTo("TIENDA-MIRAFLORES");
+        assertThat(captor.getValue().getDireccion()).isNull();
         verify(maquina).cambiar(any(Pedido.class), eq(EstadoPedido.ENTREGADO), eq(ActorHistorial.CLIENTE),
                 eq(CrearPedidoService.MOTIVO_ENTREGA_TIENDA), any(OffsetDateTime.class));
 
@@ -148,6 +149,22 @@ class CrearPedidoServiceTest {
         verify(pagos).save(pago.capture());
         assertThat(pago.getValue().getEstado()).isEqualTo(EstadoPago.CONFIRMADO);
         assertThat(pago.getValue().getReferencia()).isEqualTo("VOU-778");
+    }
+
+    @Test
+    void retailMixtoGuardaLosMontosYLaFechaDeVenta() {
+        when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
+        conIdGenerado(14);
+        OffsetDateTime hace5h = OffsetDateTime.now().minusHours(5);
+
+        servicio.crear(CLAVE, ValidadorPedidoTest.retail("MIXTO", "VOU-1", "29.90", "100.00", hace5h));
+
+        ArgumentCaptor<Pago> pago = ArgumentCaptor.forClass(Pago.class);
+        verify(pagos).save(pago.capture());
+        assertThat(pago.getValue().getMontoEfectivo()).isEqualByComparingTo("29.90");
+        assertThat(pago.getValue().getMontoTarjeta()).isEqualByComparingTo("100.00");
+        assertThat(pago.getValue().getFechaVenta()).isEqualTo(hace5h);
+        assertThat(pago.getValue().getReferencia()).isEqualTo("VOU-1");
     }
 
     @Test
