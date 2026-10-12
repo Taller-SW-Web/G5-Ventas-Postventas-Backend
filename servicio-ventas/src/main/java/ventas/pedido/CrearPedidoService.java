@@ -97,7 +97,8 @@ public class CrearPedidoService {
         pagos.save(pago);
 
         ActorHistorial actor = req.canal() == CanalVenta.CHATBOT ? ActorHistorial.CANAL_CHATBOT : ActorHistorial.CLIENTE;
-        maquina.registrarInicial(pedido, actor, MOTIVO_INICIAL, fechaHora);
+        // El registro inicial lleva la hora real de la llamada; fechaVenta solo va en PAGADO -> ENTREGADO (acuerdo G4, R8)
+        maquina.registrarInicial(pedido, actor, MOTIVO_INICIAL, ahora);
 
         if (req.canal() == CanalVenta.RETAIL) {
             // Acuerdo G4: el cliente se lleva el producto en el momento
