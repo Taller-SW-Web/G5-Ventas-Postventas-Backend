@@ -66,6 +66,7 @@ class MisPedidosSeguridadTest {
     @Autowired JwtEncoder firmador;
     @MockitoBean PedidoService pedidoService;
     @MockitoBean CrearPedidoService crearPedidoService;
+    @MockitoBean NotificacionPagoService notificacionPagoService;
 
     @TestConfiguration
     static class Claves {
@@ -143,6 +144,17 @@ class MisPedidosSeguridadTest {
     void tokenDeServicioSinScopeCrearRecibe403En1_1() throws Exception {
         mvc.perform(post("/api/v1/pedidos").header("Authorization", "Bearer " + servicio("ventas:pedidos:estado")))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void notificacionDePagoExigeScopeWebhook() throws Exception {
+        mvc.perform(post("/api/v1/pedidos/PED-2026-00001/pagos/notificacion")
+                        .header("Authorization", "Bearer " + servicio("ventas:pedidos:crear")))
+                .andExpect(status().isForbidden());
+        // Con el scope de la pasarela pasa la seguridad (400 por cuerpo vacío)
+        mvc.perform(post("/api/v1/pedidos/PED-2026-00001/pagos/notificacion")
+                        .header("Authorization", "Bearer " + servicio("ventas:pagos:webhook")))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

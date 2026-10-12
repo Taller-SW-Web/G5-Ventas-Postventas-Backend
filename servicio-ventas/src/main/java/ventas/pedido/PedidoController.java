@@ -11,6 +11,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -22,6 +23,8 @@ import ventas.compartido.NoImplementadoException;
 import ventas.pedido.dto.CrearPedidoRequest;
 import ventas.pedido.dto.CrearPedidoResponse;
 import ventas.pedido.dto.MisPedidosResponse;
+import ventas.pedido.dto.NotificacionPagoRequest;
+import ventas.pedido.dto.NotificacionPagoResponse;
 
 @RestController
 @RequestMapping("/api/v1/pedidos")
@@ -29,15 +32,18 @@ public class PedidoController {
 
     private final PedidoService pedidoService;
     private final CrearPedidoService crearPedidoService;
+    private final NotificacionPagoService notificacionPagoService;
     private final boolean seguridadHabilitada;
     private final UUID clientePrueba;
 
     public PedidoController(PedidoService pedidoService,
                             CrearPedidoService crearPedidoService,
+                            NotificacionPagoService notificacionPagoService,
                             @Value("${seguridad.habilitada:true}") boolean seguridadHabilitada,
                             @Value("${seguridad.cliente-prueba:11111111-1111-1111-1111-111111111111}") UUID clientePrueba) {
         this.pedidoService = pedidoService;
         this.crearPedidoService = crearPedidoService;
+        this.notificacionPagoService = notificacionPagoService;
         this.seguridadHabilitada = seguridadHabilitada;
         this.clientePrueba = clientePrueba;
     }
@@ -57,9 +63,15 @@ public class PedidoController {
         return ResponseEntity.created(URI.create("/api/v1/pedidos/" + r.pedido().pedidoId())).body(r.pedido());
     }
 
+    /**
+     * 1.2 Notificación de pago. Token de servicio con scope ventas:pagos:webhook (pasarela o chatbot).
+     * Siempre 200 si se aplicó o si es un reintento de la misma transacción.
+     */
     @PostMapping("/{pedidoId}/pagos/notificacion")
-    public ResponseEntity<Void> notificarPago() {
-        throw new NoImplementadoException("1.2 Notificación de pago");
+    public ResponseEntity<NotificacionPagoResponse> notificarPago(
+            @PathVariable String pedidoId,
+            @Valid @RequestBody NotificacionPagoRequest notificacion) {
+        return ResponseEntity.ok(notificacionPagoService.procesar(pedidoId, notificacion));
     }
 
     /**

@@ -27,6 +27,7 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import ventas.compartido.SecurityConfig;
 import ventas.pedido.dto.CrearPedidoResponse;
+import ventas.pedido.dto.NotificacionPagoResponse;
 
 /** Sin base de datos: comprueba rutas, códigos HTTP y el formato de error del contrato. */
 @WebMvcTest(PedidoController.class)
@@ -43,9 +44,11 @@ class PedidoControllerTest {
     @MockitoBean
     CrearPedidoService crearPedidoService;
 
+    @MockitoBean
+    NotificacionPagoService notificacionPagoService;
+
     @Test
     void losEndpointsPendientesDeF1Responden501() throws Exception {
-        esperar501(mvc.perform(post("/api/v1/pedidos/PED-2026-00001/pagos/notificacion")));
         esperar501(mvc.perform(get("/api/v1/pedidos/PED-2026-00001")));
         esperar501(mvc.perform(get("/api/v1/pedidos")));
         esperar501(mvc.perform(patch("/api/v1/pedidos/PED-2026-00001/estado")));
@@ -95,6 +98,38 @@ class PedidoControllerTest {
     }
 
     @Test
+    void notificacionDePagoResponde200() throws Exception {
+        when(notificacionPagoService.procesar(eq("PED-2026-00981"), any())).thenReturn(new NotificacionPagoResponse(
+                "PED-2026-00981", EstadoPedido.PAGADO, "TX-PASARELA-778120", OffsetDateTime.parse("2026-09-23T00:06:00Z")));
+
+        mvc.perform(post("/api/v1/pedidos/PED-2026-00981/pagos/notificacion")
+                        .contentType(MediaType.APPLICATION_JSON).content(NOTIFICACION))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pedidoId").value("PED-2026-00981"))
+                .andExpect(jsonPath("$.nuevoEstado").value("PAGADO"))
+                .andExpect(jsonPath("$.transaccionId").value("TX-PASARELA-778120"))
+                .andExpect(jsonPath("$.fechaTransicion").value("2026-09-23T00:06:00Z"));
+    }
+
+    @Test
+    void notificacionSinTransaccionResponde400() throws Exception {
+        mvc.perform(post("/api/v1/pedidos/PED-2026-00981/pagos/notificacion")
+                        .contentType(MediaType.APPLICATION_JSON).content(NOTIFICACION.replace("TX-PASARELA-778120", "")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.codigo").value("DATOS_INVALIDOS"))
+                .andExpect(jsonPath("$.detalles[0].campo").value("transaccionId"));
+        verifyNoInteractions(notificacionPagoService);
+    }
+
+    @Test
+    void resultadoDesconocidoResponde400() throws Exception {
+        mvc.perform(post("/api/v1/pedidos/PED-2026-00981/pagos/notificacion")
+                        .contentType(MediaType.APPLICATION_JSON).content(NOTIFICACION.replace("APROBADO", "QUIZAS")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.codigo").value("FORMATO_INVALIDO"));
+    }
+
+    @Test
     void rutaInexistenteResponde404ConFormatoDelContrato() throws Exception {
         mvc.perform(get("/api/v1/no-existe"))
                 .andExpect(status().isNotFound())
@@ -136,6 +171,21 @@ class PedidoControllerTest {
                 "metodoPago": "TARJETA_CREDITO", "moneda": "PEN",
                 "subtotal": 129.90, "descuentoCupon": 10.00, "costoEnvio": 10.00, "total": 129.90
               }
+            }
+            """;
+
+    /** Ejemplo de api-ventas.md 1.2. */
+    static final String NOTIFICACION = """
+            {
+              "transaccionId": "TX-PASARELA-778120",
+              "resultado": "APROBADO",
+              "monto": 129.90,
+              "moneda": "PEN",
+              "metodo": "TARJETA_CREDITO",
+              "marcaTarjeta": "VISA",
+              "ultimosCuatroDigitos": "4321",
+              "fechaPago": "2026-09-23T00:06:00Z",
+              "codigoAutorizacion": "AUTH-99021"
             }
             """;
 
