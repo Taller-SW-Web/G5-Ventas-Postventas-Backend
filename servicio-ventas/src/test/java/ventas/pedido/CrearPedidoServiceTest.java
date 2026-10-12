@@ -28,7 +28,6 @@ import org.springframework.transaction.support.TransactionOperations;
 
 import ventas.compartido.ConflictoException;
 import ventas.compartido.SolicitudInvalidaException;
-import ventas.integracion.PasarelaClient;
 import ventas.integracion.ProductosClient;
 import ventas.pedido.dto.CrearPedidoRequest;
 import ventas.pedido.dto.CrearPedidoRequest.Item;
@@ -43,13 +42,13 @@ class CrearPedidoServiceTest {
     @Mock PagoRepository pagos;
     @Mock MaquinaEstados maquina;
     @Mock ProductosClient productos;
-    @Mock PasarelaClient pasarela;
+    @Mock ResultadoReservaService resultadoReserva;
 
     CrearPedidoService servicio;
 
     @BeforeEach
     void armar() {
-        servicio = new CrearPedidoService(new ValidadorPedido(), pedidos, pagos, maquina, productos, pasarela,
+        servicio = new CrearPedidoService(new ValidadorPedido(), pedidos, pagos, maquina, productos, resultadoReserva,
                 TransactionOperations.withoutTransaction());
     }
 
@@ -78,11 +77,11 @@ class CrearPedidoServiceTest {
         assertThat(r.pedido().moneda()).isEqualTo("PEN");
         assertThat(r.pedido().fechaCreacion()).isNotNull();
 
-        verify(productos).reservar(eq(CLAVE), anyList());
+        verify(productos).reservar(eq(CLAVE), eq(contacto().clienteId()), anyList());
         verify(maquina).registrarInicial(any(Pedido.class), eq(ActorHistorial.CANAL_CHATBOT),
                 eq(CrearPedidoService.MOTIVO_INICIAL), any(OffsetDateTime.class));
         verify(maquina, never()).cambiar(any(), any(), any(), any(), any());
-        verifyNoInteractions(pasarela);
+        verifyNoInteractions(resultadoReserva);   // en modo real el resultado llega por po.sales.q
 
         ArgumentCaptor<Pago> pago = ArgumentCaptor.forClass(Pago.class);
         verify(pagos).save(pago.capture());
@@ -113,7 +112,10 @@ class CrearPedidoServiceTest {
     }
 
     @Test
-    void marketplacePideElCobroALaPasarela() {
+    void conReservaInmediataSeAplicaDespuesDeGuardar() {
+        // Modo simulado: ProductosClient devuelve el resultado al instante y se aplica tras el commit
+        ProductosClient.ResultadoReserva reserva = new ProductosClient.ResultadoReserva(CLAVE, "SIM-" + CLAVE, true);
+        when(productos.reservar(eq(CLAVE), any(), anyList())).thenReturn(Optional.of(reserva));
         when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
         conIdGenerado(7);
         CrearPedidoRequest base = ValidadorPedidoTest.chatbot(contacto());
@@ -124,7 +126,7 @@ class CrearPedidoServiceTest {
 
         assertThat(r.pedido().estado()).isEqualTo(EstadoPedido.CREADO);
         verify(maquina).registrarInicial(any(), eq(ActorHistorial.CLIENTE), anyString(), any());
-        verify(pasarela).iniciarCobro(eq(r.pedido().pedidoId()), any(BigDecimal.class), eq("PEN"), eq("TARJETA_CREDITO"));
+        verify(resultadoReserva).procesar(reserva);
     }
 
     @Test
@@ -134,7 +136,7 @@ class CrearPedidoServiceTest {
 
         servicio.crear(CLAVE, ValidadorPedidoTest.retail("TARJETA_POS", "VOU-778", null, null, null));
 
-        verifyNoInteractions(productos, pasarela);
+        verifyNoInteractions(productos, resultadoReserva);
         ArgumentCaptor<Pedido> captor = ArgumentCaptor.forClass(Pedido.class);
         verify(maquina).registrarInicial(captor.capture(), eq(ActorHistorial.CLIENTE), anyString(), any());
         assertThat(captor.getValue().getEstado()).isEqualTo(EstadoPedido.PAGADO);
@@ -175,7 +177,7 @@ class CrearPedidoServiceTest {
         assertThat(r.creado()).isFalse();
         assertThat(r.pedido().pedidoId()).isEqualTo("PED-2026-00981");
         verify(pedidos, never()).saveAndFlush(any());
-        verifyNoInteractions(productos, pagos, maquina, pasarela);
+        verifyNoInteractions(productos, pagos, maquina, resultadoReserva);
     }
 
     @Test
@@ -210,7 +212,7 @@ class CrearPedidoServiceTest {
     void sinStockDa409YNoSeGuardaElPedido() {
         when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
         doThrow(new ConflictoException("ITEM_SIN_DISPONIBILIDAD", "sin stock"))
-                .when(productos).reservar(eq(CLAVE), anyList());
+                .when(productos).reservar(eq(CLAVE), any(), anyList());
 
         assertThatThrownBy(() -> servicio.crear(CLAVE, ValidadorPedidoTest.chatbot(contacto())))
                 .extracting("codigo").isEqualTo("ITEM_SIN_DISPONIBILIDAD");
@@ -218,14 +220,15 @@ class CrearPedidoServiceTest {
     }
 
     @Test
-    void siFallaElGuardadoSeLiberaLaReserva() {
+    void siFallaElGuardadoNoSeLiberaAunPorqueNoHayReservaId() {
+        // El reservaId llega después por po.sales.q; ahí se libera la reserva sin pedido (acuerdo G6)
         when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
         when(pedidos.saveAndFlush(any(Pedido.class))).thenThrow(new IllegalStateException("base caída"));
 
         assertThatThrownBy(() -> servicio.crear(CLAVE, ValidadorPedidoTest.chatbot(contacto())))
                 .isInstanceOf(IllegalStateException.class);
-        verify(productos).reservar(eq(CLAVE), anyList());
-        verify(productos).liberar(CLAVE);
+        verify(productos).reservar(eq(CLAVE), eq(contacto().clienteId()), anyList());
+        verify(productos, never()).liberar(anyString());
     }
 
     @Test
