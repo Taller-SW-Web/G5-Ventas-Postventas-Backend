@@ -15,19 +15,23 @@ import org.springframework.transaction.support.TransactionOperations;
 
 import ventas.compartido.CodigoPublico;
 import ventas.compartido.ConflictoException;
+import ventas.integracion.PasarelaClient;
 import ventas.integracion.ProductosClient;
 import ventas.pedido.dto.CrearPedidoRequest;
 import ventas.pedido.dto.CrearPedidoResponse;
 
 /**
  * 1.1 Crear pedido (ESP-01) con idempotencia (acuerdo H-02).
- * Orden: validar -> ¿clave ya usada? -> reservar stock -> guardar todo en una transacción.
+ * Orden: validar -> ¿clave ya usada? -> reservar stock -> guardar todo en una transacción -> cobro.
+ * MARKETPLACE: nace CREADO y se pide el cobro a la pasarela. CHATBOT: nace CREADO (el chatbot cobra y avisa por 1.2).
+ * RETAIL: nace PAGADO y pasa a ENTREGADO en la misma transacción (acuerdo G4).
  */
 @Service
 @RequiredArgsConstructor
 public class CrearPedidoService {
 
     static final String MOTIVO_INICIAL = "Registro inicial de compra";
+    static final String MOTIVO_ENTREGA_TIENDA = "ENTREGA_INMEDIATA_EN_TIENDA";
 
     /** creado = true si se registró ahora (201); false si es una repetición de la misma clave (200). */
     public record Resultado(CrearPedidoResponse pedido, boolean creado) {}
@@ -37,6 +41,7 @@ public class CrearPedidoService {
     private final PagoRepository pagos;
     private final MaquinaEstados maquina;
     private final ProductosClient productos;
+    private final PasarelaClient pasarela;
     private final TransactionOperations transaccion;
 
     public Resultado crear(String clave, CrearPedidoRequest req) {
@@ -61,6 +66,10 @@ public class CrearPedidoService {
         } catch (DataIntegrityViolationException e) {
             // Otra petición con la misma clave ganó la carrera: se responde con su pedido
             return pedidos.findByIdempotencyKey(clave).map(p -> repetido(p, req)).orElseThrow(() -> e);
+        }
+        if (req.canal() == CanalVenta.MARKETPLACE) {
+            // Después del commit: si la pasarela falla, el pedido queda CREADO y se puede reintentar el cobro
+            pasarela.iniciarCobro(pedido.getCodigo(), pedido.getTotal(), pedido.getMoneda().trim(), req.pago().metodoPago());
         }
         return new Resultado(respuesta(pedido), true);
     }
@@ -89,6 +98,11 @@ public class CrearPedidoService {
 
         ActorHistorial actor = req.canal() == CanalVenta.CHATBOT ? ActorHistorial.CANAL_CHATBOT : ActorHistorial.CLIENTE;
         maquina.registrarInicial(pedido, actor, MOTIVO_INICIAL, fechaHora);
+
+        if (req.canal() == CanalVenta.RETAIL) {
+            // Acuerdo G4: el cliente se lleva el producto en el momento
+            maquina.cambiar(pedido, EstadoPedido.ENTREGADO, ActorHistorial.CLIENTE, MOTIVO_ENTREGA_TIENDA, fechaHora);
+        }
         return pedido;
     }
 
@@ -101,7 +115,7 @@ public class CrearPedidoService {
         pedido.setCodigo(CodigoPublico.temporal());
         pedido.setIdempotencyKey(clave);
         pedido.setCanal(req.canal());
-        // Retail nace pagado (el cobro ya pasó por el POS); los demás esperan la 1.2
+        // Retail nace pagado (el cobro ya pasó por el POS) y se entrega enseguida; los demás esperan la 1.2
         pedido.setEstado(req.canal() == CanalVenta.RETAIL ? EstadoPedido.PAGADO : EstadoPedido.CREADO);
         pedido.setFecha(fechaHora.toLocalDate());
         pedido.setCreadoEn(ahora);
