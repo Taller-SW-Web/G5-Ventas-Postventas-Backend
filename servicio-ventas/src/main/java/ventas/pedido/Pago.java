@@ -48,4 +48,16 @@ public class Pago {
 
     @Column(name = "fecha_proceso")
     private OffsetDateTime fechaProceso;
+
+    /** Solo RETAIL con MIXTO: parte pagada en efectivo (acuerdo G4, R3). */
+    @Column(name = "monto_efectivo")
+    private BigDecimal montoEfectivo;
+
+    /** Solo RETAIL con MIXTO: parte pagada con tarjeta en el POS. */
+    @Column(name = "monto_tarjeta")
+    private BigDecimal montoTarjeta;
+
+    /** Solo RETAIL sin conexión: fecha real de la venta, hasta 72 h atrás (acuerdo G4, R8). */
+    @Column(name = "fecha_venta")
+    private OffsetDateTime fechaVenta;
 }
