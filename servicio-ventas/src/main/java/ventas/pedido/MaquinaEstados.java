@@ -94,8 +94,8 @@ public class MaquinaEstados {
                         .map(d -> new EventoPedidoPayload.Item(d.getIdProducto(), d.getCantidad(), d.getImporte()))
                         .toList()
                 : null;
-        // H7: formato de clienteId pendiente de confirmar con el Módulo G
-        String clienteId = pedido.getIdCliente() == null ? null : "CLI-" + pedido.getIdCliente();
+        // clienteId es el UUID de Seguridad (claim sub), en texto
+        String clienteId = pedido.getIdCliente() == null ? null : pedido.getIdCliente().toString();
         EventoPedidoPayload.Datos datos = new EventoPedidoPayload.Datos(
                 pedido.getCanal().name(), clienteId, pedido.getIdVendedor(),
                 pedido.getTotal(), pedido.getMoneda(),

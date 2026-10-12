@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -152,7 +153,7 @@ class MaquinaEstadosTest {
         p.setCanal(CanalVenta.MARKETPLACE);
         p.setEstado(estado);
         p.setFecha(LocalDate.of(2026, 9, 23));
-        p.setIdCliente(8841L);
+        p.setIdCliente(UUID.fromString("11111111-1111-1111-1111-111111111111"));
         p.setMoneda("PEN");
         p.setSubtotal(new BigDecimal("129.90"));
         p.setTotal(new BigDecimal("129.90"));
