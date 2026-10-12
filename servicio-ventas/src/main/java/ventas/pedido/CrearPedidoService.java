@@ -100,6 +100,9 @@ public class CrearPedidoService {
         pago.setMetodo(p.metodoPago());
         pago.setMonto(p.total());
         pago.setReferencia(p.referenciaOperacion());
+        pago.setMontoEfectivo(p.montoEfectivo());
+        pago.setMontoTarjeta(p.montoTarjeta());
+        pago.setFechaVenta(p.fechaVenta());
         if (pedido.getEstado() == EstadoPedido.PAGADO) {
             pago.setEstado(EstadoPago.CONFIRMADO);
             pago.setFechaProceso(fechaHora);
@@ -139,9 +142,9 @@ public class CrearPedidoService {
         pedido.setTelefono(c.telefono());
         pedido.setEmail(c.email());
         if (req.canal() == CanalVenta.RETAIL) {
-            // La tabla no tiene columna de tienda: se guarda como modalidad + dirección
+            // Venta en tienda (acuerdo G4, R5): sin envío a domicilio
             pedido.setModalidadEnvio("ENTREGA_EN_TIENDA");
-            pedido.setDireccion(e.tiendaId());
+            pedido.setTiendaId(e.tiendaId());
         } else {
             pedido.setModalidadEnvio(e.modalidad());
             pedido.setDestinatario(e.destinatario());
