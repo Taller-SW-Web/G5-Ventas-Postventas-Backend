@@ -36,6 +36,8 @@ seguridad:
 integracion:
   simulado: ${INTEGRACION_SIMULADA:true}
   productos-url: ${PRODUCTOS_URL:http://localhost:8090}     # Módulo F (G6), reserva de stock
+  pasarela-url: ${PASARELA_URL:http://localhost:8083}      # simulador-pasarela (cobro de MARKETPLACE)
+  pasarela-simulada: ${PASARELA_SIMULADA:true}             # true: solo log; false: llama al simulador
   eventos:
     intervalo-ms: 5000
 
