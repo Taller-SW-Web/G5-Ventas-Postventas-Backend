@@ -26,15 +26,15 @@ spring:
     multipart:
       max-file-size: 5MB          # evidencias de devolución (F3)
       max-request-size: 6MB
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          # Pendiente: migrar a la validación de M1 (ver CLAUDE.md, tarea M2-SEG)
-          jwk-set-uri: ${SECURITY_JWKS_URL:http://localhost:8080/api/v1/auth/.well-known/jwks.json}
 
+# Validación del JWT igual que M1 (acuerdo A10). El decoder se arma en compartido/SecurityConfig.java;
+# no usar spring.security.oauth2.* aquí.
 seguridad:
   habilitada: ${SEGURIDAD_HABILITADA:true}
+  issuer: ${SECURITY_ISSUER:http://localhost:8080/api/v1/auth}          # coincidencia exacta con iss
+  jwks-url: ${SECURITY_JWKS_URL:http://localhost:8080/api/v1/auth/.well-known/jwks.json}
+  audiencia: api-postventa                                               # solo tokens de servicio
+  cors-origenes: ${CORS_ORIGINS:http://localhost:5173}                   # separados por coma
 
 integracion:
   simulado: ${INTEGRACION_SIMULADA:true}
