@@ -149,14 +149,17 @@ class CrearPedidoServiceTest {
     }
 
     @Test
-    void retailConFechaVentaUsaEsaFecha() {
+    void retailConFechaVentaLaUsaSoloEnLaEntrega() {
         when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
         conIdGenerado(13);
         OffsetDateTime ayer = OffsetDateTime.now().minusDays(1);
 
         servicio.crear(CLAVE, ValidadorPedidoTest.retail("EFECTIVO", null, null, null, ayer));
 
-        verify(maquina).registrarInicial(any(), any(), anyString(), eq(ayer));
+        // null -> PAGADO con la hora real de la llamada; PAGADO -> ENTREGADO con fechaVenta (acuerdo G4, R8)
+        ArgumentCaptor<OffsetDateTime> inicial = ArgumentCaptor.forClass(OffsetDateTime.class);
+        verify(maquina).registrarInicial(any(), any(), anyString(), inicial.capture());
+        assertThat(inicial.getValue()).isAfter(ayer.plusHours(23));
         verify(maquina).cambiar(any(), eq(EstadoPedido.ENTREGADO), any(), anyString(), eq(ayer));
     }
 
