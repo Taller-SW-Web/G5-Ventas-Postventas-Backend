@@ -81,6 +81,10 @@ public class Pedido {
 
     private String direccion;
 
+    /** Acuerdo H-02: cabecera Idempotency-Key de 1.1. Única; null en pedidos anteriores al acuerdo. */
+    @Column(name = "idempotency_key", unique = true, length = 128)
+    private String idempotencyKey;
+
     @Column(name = "codigo_cupon")
     private String codigoCupon;
 
