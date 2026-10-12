@@ -14,6 +14,7 @@ import ventas.compartido.CodigoPublico;
 import ventas.compartido.ConflictoException;
 import ventas.compartido.RecursoNoEncontradoException;
 import ventas.compartido.SolicitudInvalidaException;
+import ventas.integracion.ProductosClient;
 import ventas.integracion.eventos.EventoRecibido;
 import ventas.integracion.eventos.EventoRecibidoRepository;
 import ventas.integracion.eventos.OrigenEvento;
@@ -38,22 +39,36 @@ public class NotificacionPagoService {
     private final PagoRepository pagos;
     private final EventoRecibidoRepository recibidos;
     private final MaquinaEstados maquina;
+    private final ProductosClient productos;
     private final TransactionOperations transaccion;
 
+    /** Resultado de la transacción. reservaId != null: hay que confirmar o liberar el stock después del commit. */
+    private record Aplicado(NotificacionPagoResponse respuesta, String reservaId, ResultadoPasarela resultado) {}
+
     public NotificacionPagoResponse procesar(String pedidoId, NotificacionPagoRequest req) {
+        Aplicado hecho;
         try {
-            return transaccion.execute(estado -> aplicar(pedidoId, req));
+            hecho = transaccion.execute(estado -> aplicar(pedidoId, req));
         } catch (DataIntegrityViolationException e) {
             // La misma notificación llegó dos veces a la vez y la otra ganó: se responde como reintento
             return transaccion.execute(estado -> reintento(buscar(pedidoId), req));
         }
+        // Acuerdo G6: pagado -> se consume la reserva; pago rechazado -> se libera. Fuera de la transacción
+        if (hecho.reservaId() != null) {
+            if (hecho.resultado() == ResultadoPasarela.APROBADO) {
+                productos.confirmar(hecho.reservaId());
+            } else {
+                productos.liberar(hecho.reservaId());
+            }
+        }
+        return hecho.respuesta();
     }
 
-    private NotificacionPagoResponse aplicar(String pedidoId, NotificacionPagoRequest req) {
+    private Aplicado aplicar(String pedidoId, NotificacionPagoRequest req) {
         Pedido pedido = buscar(pedidoId);
 
         if (recibidos.existsByIdEventoAndOrigen(req.transaccionId(), OrigenEvento.PASARELA_PAGOS)) {
-            return reintento(pedido, req);
+            return new Aplicado(reintento(pedido, req), null, null);
         }
         if (pedido.getEstado() != EstadoPedido.CREADO) {
             // ESP-03 7.4 C: notificación tardía, se rechaza y queda en el log para revisión manual
@@ -83,7 +98,9 @@ public class NotificacionPagoService {
         } else {
             maquina.cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.PASARELA_PAGOS, MOTIVO_PAGO_RECHAZADO, fecha);
         }
-        return new NotificacionPagoResponse(pedido.getCodigo(), pedido.getEstado(), req.transaccionId(), fecha);
+        // Si la reserva todavía no llegó (reservaId null), ResultadoReservaService confirma o libera al recibirla
+        return new Aplicado(new NotificacionPagoResponse(pedido.getCodigo(), pedido.getEstado(), req.transaccionId(), fecha),
+                pedido.getReservaId(), req.resultado());
     }
 
     /** Misma transacción ya procesada: no se toca nada y se responde con el estado actual. */
