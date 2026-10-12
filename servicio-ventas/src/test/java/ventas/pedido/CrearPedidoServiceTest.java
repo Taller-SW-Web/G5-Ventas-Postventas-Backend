@@ -149,14 +149,17 @@ class CrearPedidoServiceTest {
     }
 
     @Test
-    void retailConFechaVentaUsaEsaFecha() {
+    void retailConFechaVentaLaUsaSoloEnLaEntrega() {
         when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
         conIdGenerado(13);
         OffsetDateTime ayer = OffsetDateTime.now().minusDays(1);
 
         servicio.crear(CLAVE, ValidadorPedidoTest.retail("EFECTIVO", null, null, null, ayer));
 
-        verify(maquina).registrarInicial(any(), any(), anyString(), eq(ayer));
+        // null -> PAGADO con la hora real de la llamada; PAGADO -> ENTREGADO con fechaVenta (acuerdo G4, R8)
+        ArgumentCaptor<OffsetDateTime> inicial = ArgumentCaptor.forClass(OffsetDateTime.class);
+        verify(maquina).registrarInicial(any(), any(), anyString(), inicial.capture());
+        assertThat(inicial.getValue()).isAfter(ayer.plusHours(23));
         verify(maquina).cambiar(any(), eq(EstadoPedido.ENTREGADO), any(), anyString(), eq(ayer));
     }
 
@@ -215,6 +218,27 @@ class CrearPedidoServiceTest {
     }
 
     @Test
+    void siFallaElGuardadoSeLiberaLaReserva() {
+        when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
+        when(pedidos.saveAndFlush(any(Pedido.class))).thenThrow(new IllegalStateException("base caída"));
+
+        assertThatThrownBy(() -> servicio.crear(CLAVE, ValidadorPedidoTest.chatbot(contacto())))
+                .isInstanceOf(IllegalStateException.class);
+        verify(productos).reservar(eq(CLAVE), anyList());
+        verify(productos).liberar(CLAVE);
+    }
+
+    @Test
+    void retailQueFallaNoLiberaPorqueNoReservo() {
+        when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
+        when(pedidos.saveAndFlush(any(Pedido.class))).thenThrow(new IllegalStateException("base caída"));
+
+        assertThatThrownBy(() -> servicio.crear(CLAVE, ValidadorPedidoTest.retail("EFECTIVO", null, null, null, null)))
+                .isInstanceOf(IllegalStateException.class);
+        verifyNoInteractions(productos);
+    }
+
+    @Test
     void dosPeticionesSimultaneasConLaMismaClaveDevuelvenElMismoPedido() {
         Pedido ganador = guardado(ValidadorPedidoTest.chatbot(contacto()));
         when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty(), Optional.of(ganador));
@@ -224,6 +248,8 @@ class CrearPedidoServiceTest {
 
         assertThat(r.creado()).isFalse();
         assertThat(r.pedido().pedidoId()).isEqualTo("PED-2026-00981");
+        // la reserva es la del pedido ganador (misma referencia): no se libera
+        verify(productos, never()).liberar(anyString());
     }
 
     @Test

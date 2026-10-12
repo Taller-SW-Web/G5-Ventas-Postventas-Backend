@@ -54,4 +54,23 @@ public class ProductosClient {
             throw new IllegalStateException("No se pudo contactar a Productos", e);
         }
     }
+
+    /**
+     * Libera una reserva cuando el pedido no llegó a guardarse. Nunca lanza excepción: si falla,
+     * solo queda en el log (la reserva vence sola en Productos).
+     * Ruta por confirmar con G6 (Luis Arroyo).
+     */
+    public void liberar(String referencia) {
+        if (simulado) {
+            log.info("[simulado] liberar reserva de stock {}", referencia);
+            return;
+        }
+        try {
+            http.delete().uri("/api/v1/inventario/reservas/{referencia}", referencia)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientException e) {
+            log.warn("No se pudo liberar la reserva {} en Productos: {}", referencia, e.getMessage());
+        }
+    }
 }
