@@ -44,7 +44,7 @@ public class MaquinaEstados {
             new Transicion(CREADO, ANULADO),            Set.of(PASARELA_PAGOS, CANAL_CHATBOT, CLIENTE, GESTOR, SISTEMA_PRODUCTOS),
             new Transicion(PAGADO, EN_PREPARACION),     Set.of(SISTEMA_LOGISTICA),
             new Transicion(PAGADO, ENTREGADO),          Set.of(CLIENTE),   // solo RETAIL (acuerdo G4)
-            new Transicion(PAGADO, ANULADO),            Set.of(CLIENTE, GESTOR),
+            new Transicion(PAGADO, ANULADO),            Set.of(CLIENTE, GESTOR, SISTEMA_PRODUCTOS),   // Productos: Chatbot ya cobró sin stock
             new Transicion(EN_PREPARACION, DESPACHADO), Set.of(SISTEMA_LOGISTICA),
             new Transicion(EN_PREPARACION, ANULADO),    Set.of(GESTOR),
             new Transicion(DESPACHADO, ENTREGADO),      Set.of(SISTEMA_LOGISTICA),
