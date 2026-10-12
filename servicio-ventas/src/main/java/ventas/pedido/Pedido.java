@@ -2,8 +2,10 @@ package ventas.pedido;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -18,6 +20,8 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "pedido", schema = "ventas")
@@ -44,11 +48,13 @@ public class Pedido {
     @Column(nullable = false)
     private LocalDate fecha;
 
+    /** UUID de Seguridad: claim sub del JWT del cliente (AGENTS.md punto 10). */
     @Column(name = "id_cliente")
-    private Long idCliente;
+    private UUID idCliente;
 
+    /** UUID de Seguridad del vendedor (Retail). */
     @Column(name = "id_vendedor")
-    private Long idVendedor;
+    private UUID idVendedor;
 
     @Column(name = "nombre_contacto")
     private String nombreContacto;
@@ -75,12 +81,17 @@ public class Pedido {
 
     private String direccion;
 
+    /** Acuerdo H-02: cabecera Idempotency-Key de 1.1. Única; null en pedidos anteriores al acuerdo. */
+    @Column(name = "idempotency_key", unique = true, length = 128)
+    private String idempotencyKey;
+
     @Column(name = "codigo_cupon")
     private String codigoCupon;
 
     private BigDecimal descuento;
 
-    @Column(nullable = false)
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(nullable = false, length = 3)
     private String moneda;
 
     @Column(nullable = false)
@@ -88,6 +99,10 @@ public class Pedido {
 
     @Column(nullable = false)
     private BigDecimal total;
+
+    /** Lo pone CrearPedidoService al registrar; se usa como fechaCreacion en las respuestas. */
+    @Column(name = "creado_en", nullable = false, updatable = false)
+    private OffsetDateTime creadoEn;
 
     @OneToMany(mappedBy = "pedido", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<DetallePedido> detalles = new ArrayList<>();

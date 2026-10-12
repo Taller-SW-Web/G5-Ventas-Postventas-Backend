@@ -42,6 +42,7 @@ public class MaquinaEstados {
             new Transicion(CREADO, PAGADO),             Set.of(PASARELA_PAGOS),
             new Transicion(CREADO, ANULADO),            Set.of(PASARELA_PAGOS, CANAL_CHATBOT, CLIENTE, GESTOR),
             new Transicion(PAGADO, EN_PREPARACION),     Set.of(SISTEMA_LOGISTICA),
+            new Transicion(PAGADO, ENTREGADO),          Set.of(CLIENTE),   // solo RETAIL (acuerdo G4)
             new Transicion(PAGADO, ANULADO),            Set.of(CLIENTE, GESTOR),
             new Transicion(EN_PREPARACION, DESPACHADO), Set.of(SISTEMA_LOGISTICA),
             new Transicion(EN_PREPARACION, ANULADO),    Set.of(GESTOR),
@@ -54,16 +55,28 @@ public class MaquinaEstados {
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void cambiar(Pedido pedido, EstadoPedido destino, ActorHistorial actor, String motivo) {
+        cambiar(pedido, destino, actor, motivo, OffsetDateTime.now(ZoneOffset.UTC));
+    }
+
+    /** Igual que cambiar, con la fecha real del hecho (Retail sin conexión manda su fechaVenta). */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void cambiar(Pedido pedido, EstadoPedido destino, ActorHistorial actor, String motivo,
+                        OffsetDateTime fechaHora) {
         Set<ActorHistorial> actores = PERMITIDAS.get(new Transicion(pedido.getEstado(), destino));
         if (actores == null || !actores.contains(actor)) {
             throw new ConflictoException("TRANSICION_NO_PERMITIDA",
                     "No se permite pasar de %s a %s con actor %s".formatted(pedido.getEstado(), destino, actor));
         }
+        // Entrega inmediata en tienda: el pedido no pasa por logística
+        if (pedido.getEstado() == PAGADO && destino == ENTREGADO && pedido.getCanal() != CanalVenta.RETAIL) {
+            throw new ConflictoException("TRANSICION_NO_PERMITIDA",
+                    "Solo los pedidos RETAIL pasan de PAGADO a ENTREGADO directamente");
+        }
         if (destino == ANULADO && (motivo == null || motivo.isBlank())) {
             throw new SolicitudInvalidaException("MOTIVO_REQUERIDO", "Toda anulación exige un motivo tipificado");
         }
 
-        OffsetDateTime ahora = OffsetDateTime.now(ZoneOffset.UTC);
+        OffsetDateTime ahora = fechaHora;
         EstadoPedido anterior = pedido.getEstado();
         pedido.setEstado(destino);
         pedidos.save(pedido);
@@ -88,14 +101,34 @@ public class MaquinaEstados {
         }
     }
 
+    /**
+     * Primer registro del historial (estado_anterior = null) al crear el pedido en 1.1.
+     * Si nace PAGADO (Retail) publica pedido.pagado igual que una transición normal.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void registrarInicial(Pedido pedido, ActorHistorial actor, String motivo, OffsetDateTime fechaHora) {
+        HistorialEstado h = new HistorialEstado();
+        h.setPedido(pedido);
+        h.setEstadoAnterior(null);
+        h.setEstadoNuevo(pedido.getEstado());
+        h.setActor(actor);
+        h.setMotivo(motivo);
+        h.setFechaHora(fechaHora);
+        historial.save(h);
+
+        if (pedido.getEstado() == PAGADO) {
+            eventos.publicar(TipoEvento.PEDIDO_PAGADO, pedido, payload(pedido, TipoEvento.PEDIDO_PAGADO, null, fechaHora));
+        }
+    }
+
     private EventoPedidoPayload payload(Pedido pedido, TipoEvento tipo, String motivo, OffsetDateTime fecha) {
         List<EventoPedidoPayload.Item> items = tipo == TipoEvento.PEDIDO_PAGADO
                 ? pedido.getDetalles().stream()
                         .map(d -> new EventoPedidoPayload.Item(d.getIdProducto(), d.getCantidad(), d.getImporte()))
                         .toList()
                 : null;
-        // H7: formato de clienteId pendiente de confirmar con el Módulo G
-        String clienteId = pedido.getIdCliente() == null ? null : "CLI-" + pedido.getIdCliente();
+        // clienteId es el UUID de Seguridad (claim sub), en texto
+        String clienteId = pedido.getIdCliente() == null ? null : pedido.getIdCliente().toString();
         EventoPedidoPayload.Datos datos = new EventoPedidoPayload.Datos(
                 pedido.getCanal().name(), clienteId, pedido.getIdVendedor(),
                 pedido.getTotal(), pedido.getMoneda(),
