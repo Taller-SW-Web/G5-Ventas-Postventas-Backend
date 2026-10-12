@@ -65,6 +65,7 @@ class MisPedidosSeguridadTest {
     @Autowired MockMvc mvc;
     @Autowired JwtEncoder firmador;
     @MockitoBean PedidoService pedidoService;
+    @MockitoBean CrearPedidoService crearPedidoService;
 
     @TestConfiguration
     static class Claves {
@@ -133,9 +134,21 @@ class MisPedidosSeguridadTest {
 
     @Test
     void tokenDeServicioConScopeCrearPasaLaSeguridadDe1_1() throws Exception {
-        // 1.1 todavía no está programado: 501 significa que la seguridad lo dejó pasar
+        // Sin cuerpo: 400 significa que la seguridad lo dejó pasar y falló la validación
         mvc.perform(post("/api/v1/pedidos").header("Authorization", "Bearer " + servicio("ventas:pedidos:crear")))
-                .andExpect(status().isNotImplemented());
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void tokenDeServicioSinScopeCrearRecibe403En1_1() throws Exception {
+        mvc.perform(post("/api/v1/pedidos").header("Authorization", "Bearer " + servicio("ventas:pedidos:estado")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void clienteNoPuedeCrearPedidosDirecto() throws Exception {
+        mvc.perform(post("/api/v1/pedidos").header("Authorization", "Bearer " + usuario(ISSUER, List.of("CLIENTE"))))
+                .andExpect(status().isForbidden());
     }
 
     private String usuario(String issuer, List<String> roles) {

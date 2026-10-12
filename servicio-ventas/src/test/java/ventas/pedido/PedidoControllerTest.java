@@ -30,9 +30,11 @@ class PedidoControllerTest {
     @MockitoBean
     PedidoService pedidoService;
 
+    @MockitoBean
+    CrearPedidoService crearPedidoService;
+
     @Test
-    void losSeisEndpointsDeF1ExistenYResponden501() throws Exception {
-        esperar501(mvc.perform(post("/api/v1/pedidos")));
+    void losEndpointsPendientesDeF1Responden501() throws Exception {
         esperar501(mvc.perform(post("/api/v1/pedidos/PED-2026-00001/pagos/notificacion")));
         esperar501(mvc.perform(get("/api/v1/pedidos/PED-2026-00001")));
         esperar501(mvc.perform(get("/api/v1/pedidos")));

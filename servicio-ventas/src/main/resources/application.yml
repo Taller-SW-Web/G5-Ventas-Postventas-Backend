@@ -35,6 +35,7 @@ seguridad:
 
 integracion:
   simulado: ${INTEGRACION_SIMULADA:true}
+  productos-url: ${PRODUCTOS_URL:http://localhost:8090}     # Módulo F (G6), reserva de stock
   eventos:
     intervalo-ms: 5000
 

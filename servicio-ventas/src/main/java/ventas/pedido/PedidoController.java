@@ -1,6 +1,9 @@
 package ventas.pedido;
 
+import java.net.URI;
 import java.util.UUID;
+
+import jakarta.validation.Valid;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -9,11 +12,15 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import ventas.compartido.NoImplementadoException;
+import ventas.pedido.dto.CrearPedidoRequest;
+import ventas.pedido.dto.CrearPedidoResponse;
 import ventas.pedido.dto.MisPedidosResponse;
 
 @RestController
@@ -21,20 +28,33 @@ import ventas.pedido.dto.MisPedidosResponse;
 public class PedidoController {
 
     private final PedidoService pedidoService;
+    private final CrearPedidoService crearPedidoService;
     private final boolean seguridadHabilitada;
     private final UUID clientePrueba;
 
     public PedidoController(PedidoService pedidoService,
+                            CrearPedidoService crearPedidoService,
                             @Value("${seguridad.habilitada:true}") boolean seguridadHabilitada,
                             @Value("${seguridad.cliente-prueba:11111111-1111-1111-1111-111111111111}") UUID clientePrueba) {
         this.pedidoService = pedidoService;
+        this.crearPedidoService = crearPedidoService;
         this.seguridadHabilitada = seguridadHabilitada;
         this.clientePrueba = clientePrueba;
     }
 
+    /**
+     * 1.1 Crear pedido. Token de servicio con scope ventas:pedidos:crear (lo exige SecurityConfig).
+     * 201 si se registró; 200 con el mismo pedido si la Idempotency-Key ya se usó con el mismo cuerpo.
+     */
     @PostMapping
-    public ResponseEntity<Void> crear() {
-        throw new NoImplementadoException("1.1 Crear pedido");
+    public ResponseEntity<CrearPedidoResponse> crear(
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @Valid @RequestBody CrearPedidoRequest solicitud) {
+        CrearPedidoService.Resultado r = crearPedidoService.crear(idempotencyKey, solicitud);
+        if (!r.creado()) {
+            return ResponseEntity.ok(r.pedido());
+        }
+        return ResponseEntity.created(URI.create("/api/v1/pedidos/" + r.pedido().pedidoId())).body(r.pedido());
     }
 
     @PostMapping("/{pedidoId}/pagos/notificacion")
