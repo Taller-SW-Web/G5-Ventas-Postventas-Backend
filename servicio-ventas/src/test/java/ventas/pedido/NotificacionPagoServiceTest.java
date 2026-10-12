@@ -26,6 +26,7 @@ import org.springframework.transaction.support.TransactionOperations;
 import ventas.compartido.ConflictoException;
 import ventas.compartido.RecursoNoEncontradoException;
 import ventas.compartido.SolicitudInvalidaException;
+import ventas.integracion.ProductosClient;
 import ventas.integracion.eventos.EventoRecibido;
 import ventas.integracion.eventos.EventoRecibidoRepository;
 import ventas.integracion.eventos.OrigenEvento;
@@ -43,6 +44,7 @@ class NotificacionPagoServiceTest {
     @Mock PagoRepository pagos;
     @Mock EventoRecibidoRepository recibidos;
     @Mock MaquinaEstados maquina;
+    @Mock ProductosClient productos;
 
     NotificacionPagoService servicio;
     Pedido pedido;
@@ -50,7 +52,7 @@ class NotificacionPagoServiceTest {
 
     @BeforeEach
     void armar() {
-        servicio = new NotificacionPagoService(pedidos, pagos, recibidos, maquina, TransactionOperations.withoutTransaction());
+        servicio = new NotificacionPagoService(pedidos, pagos, recibidos, maquina, productos, TransactionOperations.withoutTransaction());
         pedido = new Pedido();
         pedido.setId(981L);
         pedido.setCodigo(CODIGO);
@@ -119,6 +121,79 @@ class NotificacionPagoServiceTest {
         servicio.procesar(CODIGO, notificacion(ResultadoPasarela.RECHAZADO, "129.90"));
 
         verify(maquina).cambiar(eq(pedido), eq(EstadoPedido.ANULADO), eq(ActorHistorial.PASARELA_PAGOS), any(), any());
+    }
+
+    // ---------- Reserva de stock (acuerdo G6) ----------
+
+    @Test
+    void pagoAprobadoConfirmaLaReserva() {
+        pedido.setReservaId("RES-778");
+        pedidoExiste();
+        when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
+
+        servicio.procesar(CODIGO, notificacion(ResultadoPasarela.APROBADO, "129.90"));
+
+        verify(productos).confirmar("RES-778");
+        verify(productos, never()).liberar(any());
+    }
+
+    @Test
+    void pagoRechazadoLiberaLaReserva() {
+        pedido.setReservaId("RES-778");
+        pedidoExiste();
+        when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
+
+        servicio.procesar(CODIGO, notificacion(ResultadoPasarela.RECHAZADO, "129.90"));
+
+        verify(productos).liberar("RES-778");
+        verify(productos, never()).confirmar(any());
+    }
+
+    @Test
+    void pagoRechazadoConCuponLoRestaura() {
+        pedido.setCodigoCupon("CYBER2026");
+        pedidoExiste();
+        when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
+
+        servicio.procesar(CODIGO, notificacion(ResultadoPasarela.RECHAZADO, "129.90"));
+
+        verify(productos).restaurarCupon(eq("CYBER2026"), eq(CODIGO), any());
+    }
+
+    @Test
+    void pagoAprobadoNoRestauraElCupon() {
+        pedido.setCodigoCupon("CYBER2026");
+        pedidoExiste();
+        when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
+
+        servicio.procesar(CODIGO, notificacion(ResultadoPasarela.APROBADO, "129.90"));
+
+        verify(productos, never()).restaurarCupon(any(), any(), any());
+    }
+
+    @Test
+    void sinReservaIdTodaviaNoSeLlamaAProductos() {
+        pedidoExiste();
+        when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
+
+        servicio.procesar(CODIGO, notificacion(ResultadoPasarela.APROBADO, "129.90"));
+
+        verifyNoInteractions(productos);
+    }
+
+    @Test
+    void reintentoNoVuelveAConfirmar() {
+        pedido.setEstado(EstadoPedido.PAGADO);
+        pedido.setReservaId("RES-778");
+        pago.setReferencia(TX);
+        pago.setFechaProceso(FECHA_PAGO);
+        pedidoExiste();
+        when(recibidos.existsByIdEventoAndOrigen(TX, OrigenEvento.PASARELA_PAGOS)).thenReturn(true);
+        when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
+
+        servicio.procesar(CODIGO, notificacion(ResultadoPasarela.APROBADO, "129.90"));
+
+        verifyNoInteractions(productos);
     }
 
     // ---------- CA-05: idempotencia ----------

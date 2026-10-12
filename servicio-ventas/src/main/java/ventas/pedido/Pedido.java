@@ -89,6 +89,10 @@ public class Pedido {
     @Column(name = "reserva_id", length = 100)
     private String reservaId;
 
+    /** Solo RETAIL: código de la tienda donde se hizo la venta (acuerdo G4, R5). */
+    @Column(name = "tienda_id", length = 40)
+    private String tiendaId;
+
     @Column(name = "codigo_cupon")
     private String codigoCupon;
 
