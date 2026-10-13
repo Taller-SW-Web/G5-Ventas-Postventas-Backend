@@ -39,14 +39,22 @@ public class ProductosClient {
 
     public record LineaReserva(String sku, int cantidad) {}
 
+    /** Scopes de api-productos (openapi de G6, x-required-scope). Seguridad aún debe registrarlos para modulo-ventas. */
+    static final String SCOPE_RESERVAR = "inventario:reservar";
+    static final String SCOPE_CONSUMIR = "inventario:consumir";
+    static final String SCOPE_LIBERAR = "inventario:liberar";
+
     private final boolean simulado;
     private final RestClient http;
+    private final TokenServicio tokens;
 
     public ProductosClient(@Value("${integracion.simulado:true}") boolean simulado,
                            @Value("${integracion.productos-url:http://localhost:8090}") String url,
-                           RestClient.Builder builder) {
+                           RestClient.Builder builder,
+                           TokenServicio tokens) {
         this.simulado = simulado;
         this.http = builder.baseUrl(url + "/api/v1").build();
+        this.tokens = tokens;
     }
 
     /** Siempre el mismo UUID para la misma operación sobre el mismo pedido. */
@@ -74,12 +82,14 @@ public class ProductosClient {
         cuerpo.put("lines", lineas.stream().map(l -> Map.of("sku", l.sku(), "quantity", l.cantidad())).toList());
         try {
             http.post().uri("/inventario/reservas")
+                    .headers(tokens.autorizacion(SCOPE_RESERVAR))
                     .header("Idempotency-Key", operacion)
                     .body(cuerpo)
                     .retrieve()
                     .toBodilessEntity();
             return Optional.empty();
         } catch (RestClientException e) {
+            tokens.revisar(e, SCOPE_RESERVAR);
             log.error("Productos no admitió la reserva de {}: {}", pedidoId, e.getMessage());
             throw new DependenciaNoDisponibleException("PRODUCTOS_NO_DISPONIBLE",
                     "No se pudo reservar el stock en Productos; intente nuevamente", e);
@@ -98,6 +108,7 @@ public class ProductosClient {
         String operacion = operacionId(Operacion.CONFIRMAR, pedidoId);
         try {
             http.post().uri("/inventario/reservas/{reservaId}/confirmar", reservaId)
+                    .headers(tokens.autorizacion(SCOPE_CONSUMIR))
                     .header("Idempotency-Key", operacion)
                     .body(Map.of("order_id", pedidoId, "operation_id", operacion))
                     .retrieve()
@@ -107,6 +118,7 @@ public class ProductosClient {
             if (e.getStatusCode() == HttpStatus.CONFLICT && e.getResponseBodyAsString().contains("RESERVA_EXPIRADA")) {
                 return ResultadoConfirmacion.RESERVA_EXPIRADA;
             }
+            tokens.revisar(e, SCOPE_CONSUMIR);
             log.warn("Productos rechazó confirmar la reserva {} de {}: {}", reservaId, pedidoId, e.getMessage());
             return ResultadoConfirmacion.NO_ENVIADA;
         } catch (RestClientException e) {
@@ -124,11 +136,13 @@ public class ProductosClient {
         String operacion = operacionId(Operacion.LIBERAR, pedidoId);
         try {
             http.post().uri("/inventario/reservas/{reservaId}/liberar", reservaId)
+                    .headers(tokens.autorizacion(SCOPE_LIBERAR))
                     .header("Idempotency-Key", operacion)
                     .body(Map.of("order_id", pedidoId, "operation_id", operacion, "reason", motivo.name()))
                     .retrieve()
                     .toBodilessEntity();
         } catch (RestClientException e) {
+            tokens.revisar(e, SCOPE_LIBERAR);
             log.warn("No se pudo liberar la reserva {} de {}: {}", reservaId, pedidoId, e.getMessage());
         }
     }

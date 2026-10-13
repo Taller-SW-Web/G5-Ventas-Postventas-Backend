@@ -35,7 +35,7 @@ class PostventaClientTest {
     void armar() {
         RestClient.Builder builder = RestClient.builder();
         servidor = MockRestServiceServer.bindTo(builder).build();
-        cliente = new PostventaClient(false, BASE, builder);
+        cliente = new PostventaClient(false, BASE, builder, TokenServicio.sinCredenciales());
     }
 
     @Test
@@ -119,8 +119,29 @@ class PostventaClientTest {
     }
 
     @Test
+    void mandaElTokenDeServicioConElScopeDeReembolsos() {
+        RestClient.Builder deSeguridad = RestClient.builder();
+        MockRestServiceServer seguridad = MockRestServiceServer.bindTo(deSeguridad).build();
+        seguridad.expect(requestTo("http://seguridad.test/token"))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("scope=postventa%3Areembolsos%3Aprocesar")))
+                .andRespond(withSuccess("{\"access_token\": \"tok-m1\", \"expires_in\": 3600}", MediaType.APPLICATION_JSON));
+        TokenServicio tokens = new TokenServicio("http://seguridad.test/token", "modulo-ventas", "secreto-de-prueba",
+                deSeguridad, java.time.Clock.systemUTC());
+
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer m2 = MockRestServiceServer.bindTo(builder).build();
+        m2.expect(requestTo(BASE + "/api/v2/eventos"))
+                .andExpect(header("Authorization", "Bearer tok-m1"))
+                .andRespond(withSuccess());
+
+        assertThat(new PostventaClient(false, BASE, builder, tokens).enviarEvento(UUID.randomUUID(), "{}"))
+                .isEqualTo(Envio.ACEPTADO);
+        m2.verify();
+    }
+
+    @Test
     void enModoSimuladoNoLlamaAM2() {
-        PostventaClient simulado = new PostventaClient(true, BASE, RestClient.builder());
+        PostventaClient simulado = new PostventaClient(true, BASE, RestClient.builder(), TokenServicio.sinCredenciales());
         assertThat(simulado.solicitarReembolso("ANUL-0012", "PED-2026-00981", BigDecimal.TEN, "PEN", "x").envio())
                 .isEqualTo(Envio.SIMULADO);
         assertThat(simulado.enviarEvento(UUID.randomUUID(), "{}")).isEqualTo(Envio.SIMULADO);
