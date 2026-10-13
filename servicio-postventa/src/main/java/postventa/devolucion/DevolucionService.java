@@ -324,7 +324,7 @@ public class DevolucionService {
     private Optional<String> reembolsar(Devolucion d) {
         String pedidoId = codigoPedido(d);
         PedidoResumen pedido = ventas.consultarPedido(pedidoId)
-                .orElseThrow(() -> new ConflictoException("PEDIDO_NO_ENCONTRADO",
+                .orElseThrow(() -> new ConflictoException("PEDIDO_INCONSISTENTE",
                         "Ventas ya no encuentra el pedido " + pedidoId + "; el reembolso queda pendiente."));
         BigDecimal monto = d.getItems().stream()
                 .map(i -> precio(pedido, i.getIdProducto()).multiply(BigDecimal.valueOf(i.getCantidad())))

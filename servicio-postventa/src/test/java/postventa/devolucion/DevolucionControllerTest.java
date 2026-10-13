@@ -115,6 +115,24 @@ class DevolucionControllerTest {
     }
 
     @Test
+    void paginacionQueNoEsNumeroResponde400PaginacionInvalida() throws Exception {
+        mvc.perform(get("/api/v2/devoluciones/me").param("pagina", "abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.codigo").value("PAGINACION_INVALIDA"));
+        mvc.perform(get("/api/v2/devoluciones").param("clienteId", CLIENTE_PRUEBA.toString()).param("tamano", "diez"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.codigo").value("PAGINACION_INVALIDA"));
+        verifyNoInteractions(devolucionService);
+    }
+
+    @Test
+    void otroParametroMalFormadoSigueSiendoFormatoInvalido() throws Exception {
+        mvc.perform(get("/api/v2/devoluciones").param("clienteId", "no-es-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.codigo").value("FORMATO_INVALIDO"));
+    }
+
+    @Test
     void misDevolucionesUsaElClienteDelTokenYNoDevuelveClienteId() throws Exception {
         when(devolucionService.listar(eq(CLIENTE_PRUEBA), eq(null), eq(null), eq(0), eq(10)))
                 .thenReturn(new ListadoDevolucionesResponse(CLIENTE_PRUEBA, List.of(), 0, 0, 0));
