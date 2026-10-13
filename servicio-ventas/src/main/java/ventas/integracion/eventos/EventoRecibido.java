@@ -23,7 +23,7 @@ import lombok.Setter;
 @NoArgsConstructor
 public class EventoRecibido {
 
-    /** Clave primaria: transaccionId de la pasarela, o guiaRemision:evento de logística */
+    /** Clave primaria: transaccionId de la pasarela, o pedidoId:guiaRemision:evento de logística */
     @Id
     @Column(name = "id_evento")
     private String idEvento;

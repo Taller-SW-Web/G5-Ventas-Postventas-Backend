@@ -24,11 +24,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import ventas.compartido.NoImplementadoException;
 import ventas.pedido.dto.CambiarEstadoRequest;
 import ventas.pedido.dto.CambiarEstadoResponse;
 import ventas.pedido.dto.CrearPedidoRequest;
 import ventas.pedido.dto.CrearPedidoResponse;
+import ventas.pedido.dto.EventoLogisticaRequest;
+import ventas.pedido.dto.EventoLogisticaResponse;
 import ventas.pedido.dto.ListadoPedidosResponse;
 import ventas.pedido.dto.MisPedidosResponse;
 import ventas.pedido.dto.NotificacionPagoRequest;
@@ -44,6 +45,7 @@ public class PedidoController {
     private final NotificacionPagoService notificacionPagoService;
     private final ConsultarPedidoService consultarPedidoService;
     private final CambiarEstadoService cambiarEstadoService;
+    private final EventoLogisticaService eventoLogisticaService;
     private final boolean seguridadHabilitada;
     private final UUID clientePrueba;
 
@@ -52,6 +54,7 @@ public class PedidoController {
                             NotificacionPagoService notificacionPagoService,
                             ConsultarPedidoService consultarPedidoService,
                             CambiarEstadoService cambiarEstadoService,
+                            EventoLogisticaService eventoLogisticaService,
                             @Value("${seguridad.habilitada:true}") boolean seguridadHabilitada,
                             @Value("${seguridad.cliente-prueba:11111111-1111-1111-1111-111111111111}") UUID clientePrueba) {
         this.pedidoService = pedidoService;
@@ -59,6 +62,7 @@ public class PedidoController {
         this.notificacionPagoService = notificacionPagoService;
         this.consultarPedidoService = consultarPedidoService;
         this.cambiarEstadoService = cambiarEstadoService;
+        this.eventoLogisticaService = eventoLogisticaService;
         this.seguridadHabilitada = seguridadHabilitada;
         this.clientePrueba = clientePrueba;
     }
@@ -132,9 +136,11 @@ public class PedidoController {
         return ResponseEntity.ok(cambiarEstadoService.cambiar(pedidoId, solicitud));
     }
 
+    /** 1.6 Eventos de logística (entrega fallida definitiva). Scope ventas:pedidos:estado (lo exige SecurityConfig). */
     @PostMapping("/{pedidoId}/eventos-logistica")
-    public ResponseEntity<Void> eventoLogistica() {
-        throw new NoImplementadoException("1.6 Eventos de logística");
+    public ResponseEntity<EventoLogisticaResponse> eventoLogistica(@PathVariable String pedidoId,
+                                                                   @Valid @RequestBody EventoLogisticaRequest evento) {
+        return ResponseEntity.ok(eventoLogisticaService.procesar(pedidoId, evento));
     }
 
     /**

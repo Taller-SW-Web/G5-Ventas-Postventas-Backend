@@ -73,6 +73,7 @@ class MisPedidosSeguridadTest {
     @MockitoBean NotificacionPagoService notificacionPagoService;
     @MockitoBean ConsultarPedidoService consultarPedidoService;
     @MockitoBean CambiarEstadoService cambiarEstadoService;
+    @MockitoBean EventoLogisticaService eventoLogisticaService;
 
     @TestConfiguration
     static class Claves {
@@ -213,6 +214,19 @@ class MisPedidosSeguridadTest {
                         .contentType(MediaType.APPLICATION_JSON).content(CAMBIO))
                 .andExpect(status().isForbidden());
         verifyNoInteractions(cambiarEstadoService);
+    }
+
+    @Test
+    void eventosDeLogisticaSoloConScopeEstado() throws Exception {
+        String cuerpo = "{\"evento\": \"ENTREGA_FALLIDA_DEFINITIVA\", \"guiaRemision\": \"GR-00892\"}";
+        mvc.perform(post("/api/v1/pedidos/PED-2026-00001/eventos-logistica")
+                        .header("Authorization", "Bearer " + servicio("ventas:pedidos:estado"))
+                        .contentType(MediaType.APPLICATION_JSON).content(cuerpo))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/v1/pedidos/PED-2026-00001/eventos-logistica")
+                        .header("Authorization", "Bearer " + usuario(ISSUER, List.of("ADMIN_VENTAS")))
+                        .contentType(MediaType.APPLICATION_JSON).content(cuerpo))
+                .andExpect(status().isForbidden());
     }
 
     private static final String CAMBIO = "{\"nuevoEstado\": \"DESPACHADO\", \"actor\": \"SISTEMA_LOGISTICA\"}";
