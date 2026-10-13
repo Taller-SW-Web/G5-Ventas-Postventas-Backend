@@ -45,6 +45,7 @@ class NotificacionPagoServiceTest {
     @Mock EventoRecibidoRepository recibidos;
     @Mock MaquinaEstados maquina;
     @Mock ProductosClient productos;
+    @Mock MensajesProductosService mensajesProductos;
 
     NotificacionPagoService servicio;
     Pedido pedido;
@@ -52,7 +53,7 @@ class NotificacionPagoServiceTest {
 
     @BeforeEach
     void armar() {
-        servicio = new NotificacionPagoService(pedidos, pagos, recibidos, maquina, productos, TransactionOperations.withoutTransaction());
+        servicio = new NotificacionPagoService(pedidos, pagos, recibidos, maquina, productos, mensajesProductos, TransactionOperations.withoutTransaction());
         pedido = new Pedido();
         pedido.setId(981L);
         pedido.setCodigo(CODIGO);
@@ -133,8 +134,9 @@ class NotificacionPagoServiceTest {
 
         servicio.procesar(CODIGO, notificacion(ResultadoPasarela.APROBADO, "129.90"));
 
-        verify(productos).confirmar("RES-778");
-        verify(productos, never()).liberar(any());
+        verify(productos).confirmar(CODIGO, "RES-778");
+        verify(productos, never()).liberar(any(), any(), any());
+        verifyNoInteractions(mensajesProductos);
     }
 
     @Test
@@ -145,30 +147,20 @@ class NotificacionPagoServiceTest {
 
         servicio.procesar(CODIGO, notificacion(ResultadoPasarela.RECHAZADO, "129.90"));
 
-        verify(productos).liberar("RES-778");
-        verify(productos, never()).confirmar(any());
+        verify(productos).liberar(CODIGO, "RES-778", ProductosClient.MotivoLiberacion.PAGO_NO_COMPLETADO);
+        verify(productos, never()).confirmar(any(), any());
     }
 
     @Test
-    void pagoRechazadoConCuponLoRestaura() {
-        pedido.setCodigoCupon("CYBER2026");
+    void siLaReservaVencioAntesDelPagoSeAnulaYReembolsa() {
+        pedido.setReservaId("RES-778");
         pedidoExiste();
         when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
-
-        servicio.procesar(CODIGO, notificacion(ResultadoPasarela.RECHAZADO, "129.90"));
-
-        verify(productos).restaurarCupon(eq("CYBER2026"), eq(CODIGO), any());
-    }
-
-    @Test
-    void pagoAprobadoNoRestauraElCupon() {
-        pedido.setCodigoCupon("CYBER2026");
-        pedidoExiste();
-        when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
+        when(productos.confirmar(CODIGO, "RES-778")).thenReturn(ProductosClient.ResultadoConfirmacion.RESERVA_EXPIRADA);
 
         servicio.procesar(CODIGO, notificacion(ResultadoPasarela.APROBADO, "129.90"));
 
-        verify(productos, never()).restaurarCupon(any(), any(), any());
+        verify(mensajesProductos).reservaExpiradaTrasPago(CODIGO);
     }
 
     @Test

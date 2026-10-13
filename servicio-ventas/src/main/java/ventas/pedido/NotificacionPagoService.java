@@ -3,7 +3,6 @@ package ventas.pedido;
 import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.UUID;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +15,8 @@ import ventas.compartido.ConflictoException;
 import ventas.compartido.RecursoNoEncontradoException;
 import ventas.compartido.SolicitudInvalidaException;
 import ventas.integracion.ProductosClient;
+import ventas.integracion.ProductosClient.MotivoLiberacion;
+import ventas.integracion.ProductosClient.ResultadoConfirmacion;
 import ventas.integracion.eventos.EventoRecibido;
 import ventas.integracion.eventos.EventoRecibidoRepository;
 import ventas.integracion.eventos.OrigenEvento;
@@ -41,11 +42,11 @@ public class NotificacionPagoService {
     private final EventoRecibidoRepository recibidos;
     private final MaquinaEstados maquina;
     private final ProductosClient productos;
+    private final MensajesProductosService mensajesProductos;
     private final TransactionOperations transaccion;
 
     /** Resultado de la transacción. reservaId != null: hay que confirmar o liberar el stock después del commit. */
-    private record Aplicado(NotificacionPagoResponse respuesta, String reservaId, ResultadoPasarela resultado,
-                            String codigoCupon, UUID clienteId) {}
+    private record Aplicado(NotificacionPagoResponse respuesta, String reservaId, ResultadoPasarela resultado) {}
 
     public NotificacionPagoResponse procesar(String pedidoId, NotificacionPagoRequest req) {
         Aplicado hecho;
@@ -55,18 +56,20 @@ public class NotificacionPagoService {
             // La misma notificación llegó dos veces a la vez y la otra ganó: se responde como reintento
             return transaccion.execute(estado -> reintento(buscar(pedidoId), req));
         }
-        // Acuerdo G6 y F1 CA-07b: pagado -> se consume la reserva; pago rechazado -> se libera y se
-        // restaura el cupón. Fuera de la transacción
+        // Acuerdo G6 y F1 CA-07b: pagado -> se consume la reserva; pago rechazado -> se libera. Fuera de la transacción
+        String pedido = hecho.respuesta().pedidoId();
         if (hecho.reservaId() != null) {
             if (hecho.resultado() == ResultadoPasarela.APROBADO) {
-                productos.confirmar(hecho.reservaId());
+                if (productos.confirmar(pedido, hecho.reservaId()) == ResultadoConfirmacion.RESERVA_EXPIRADA) {
+                    // La reserva venció antes del pago: se anula y se reembolsa (decisión 1, RESERVA_EXPIRADA)
+                    mensajesProductos.reservaExpiradaTrasPago(pedido);
+                }
             } else {
-                productos.liberar(hecho.reservaId());
+                productos.liberar(pedido, hecho.reservaId(), MotivoLiberacion.PAGO_NO_COMPLETADO);
             }
         }
-        if (hecho.resultado() == ResultadoPasarela.RECHAZADO && hecho.codigoCupon() != null) {
-            productos.restaurarCupon(hecho.codigoCupon(), hecho.respuesta().pedidoId(), hecho.clienteId());
-        }
+        // TODO cupón: restaurarlo aquí cuando exista su consumo por RabbitMQ (kit G6 §18: reserva confirmada ->
+        // consumo del cupón -> pago). Hoy no se consume, así que no hay nada que restaurar
         return hecho.respuesta();
     }
 
@@ -74,7 +77,7 @@ public class NotificacionPagoService {
         Pedido pedido = buscar(pedidoId);
 
         if (recibidos.existsByIdEventoAndOrigen(req.transaccionId(), OrigenEvento.PASARELA_PAGOS)) {
-            return new Aplicado(reintento(pedido, req), null, null, null, null);
+            return new Aplicado(reintento(pedido, req), null, null);
         }
         if (pedido.getEstado() != EstadoPedido.CREADO) {
             // ESP-03 7.4 C: notificación tardía, se rechaza y queda en el log para revisión manual
@@ -104,9 +107,9 @@ public class NotificacionPagoService {
         } else {
             maquina.cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.PASARELA_PAGOS, MOTIVO_PAGO_RECHAZADO, fecha);
         }
-        // Si la reserva todavía no llegó (reservaId null), ResultadoReservaService confirma o libera al recibirla
+        // Si la reserva todavía no llegó (reservaId null), MensajesProductosService confirma o libera al recibirla
         return new Aplicado(new NotificacionPagoResponse(pedido.getCodigo(), pedido.getEstado(), req.transaccionId(), fecha),
-                pedido.getReservaId(), req.resultado(), pedido.getCodigoCupon(), pedido.getIdCliente());
+                pedido.getReservaId(), req.resultado());
     }
 
     /** Misma transacción ya procesada: no se toca nada y se responde con el estado actual. */

@@ -18,6 +18,22 @@ spring:
     properties:
       hibernate:
         default_schema: ventas
+  # RabbitMQ de Productos (G6, rabbitmq-topologia.md). Solo se conecta con INTEGRACION_SIMULADA=false
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    virtual-host: ${RABBITMQ_VHOST:/marketplace}
+    listener:
+      simple:
+        prefetch: 20
+        default-requeue-rejected: false   # agotados los reintentos, va a la DLQ de Productos (nunca en bucle)
+        retry:
+          enabled: true
+          max-attempts: 4                 # el pedido puede no haber terminado de guardarse
+          initial-interval: 2s
+          multiplier: 2
   jackson:
     time-zone: UTC
     serialization:
@@ -39,10 +55,14 @@ integracion:
   pasarela-url: ${PASARELA_URL:http://localhost:8083}      # simulador-pasarela (cobro de MARKETPLACE)
   postventa-url: ${POSTVENTA_URL:http://localhost:8082}     # M2: reembolso de anulaciones
   pasarela-simulada: ${PASARELA_SIMULADA:true}             # true: solo log; false: llama al simulador
+  productos-cola: po.sales.q
   eventos:
     intervalo-ms: 5000
 
 management:
+  health:
+    rabbit:
+      enabled: false   # el broker es de Productos: no tumba el health de M1
   endpoints:
     web:
       exposure:
