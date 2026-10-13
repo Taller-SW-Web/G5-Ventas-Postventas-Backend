@@ -52,6 +52,8 @@ class DevolucionServiceTest {
     static final UUID CLIENTE = UUID.fromString("3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a");
     static final UUID GESTOR = UUID.fromString("22222222-2222-2222-2222-222222222222");
     static final String EVIDENCIA = "http://localhost:8082/uploads/evidencias/foto.jpg";
+    static final OffsetDateTime AHORA_UTC = OffsetDateTime.ofInstant(AHORA, ZoneOffset.UTC);
+    static final OffsetDateTime REGISTRO = OffsetDateTime.parse("2026-10-12T09:30:00Z");
 
     @Mock DevolucionRepository devoluciones;
     @Mock VentasClient ventas;
@@ -90,6 +92,7 @@ class DevolucionServiceTest {
         Devolucion d = guardada.getValue();
         assertThat(d.getIdPedido()).isEqualTo(981L);
         assertThat(d.getIdCliente()).isEqualTo(CLIENTE);
+        assertThat(d.getFechaRegistro()).isEqualTo(AHORA_UTC);
         assertThat(d.getItems()).singleElement().satisfies(i -> {
             assertThat(i.getIdProducto()).isEqualTo(101L);
             assertThat(i.getCantidad()).isEqualTo(1);
@@ -210,10 +213,30 @@ class DevolucionServiceTest {
         assertThat(d.pedidoId()).isEqualTo("PED-2026-00981");
         assertThat(d.clienteId()).isEqualTo(CLIENTE);
         assertThat(d.motivo()).isEqualTo(MotivoDevolucion.PRODUCTO_DEFECTUOSO);
-        assertThat(d.fechaRegistro()).isEqualTo(OffsetDateTime.parse("2026-10-12T00:00:00Z"));
+        assertThat(d.fechaRegistro()).isEqualTo(REGISTRO);
         assertThat(d.estado()).isEqualTo(EstadoDevolucion.SOLICITADA);
         assertThat(d.resolucion()).isNull();
         assertThat(d.evidencias()).hasSize(1);
+    }
+
+    @Test
+    void esp08_ca06_laConsultaMuestraActorFechaYReferenciaDeLaResolucion() {
+        Devolucion d = devolucion(EstadoDevolucion.COMPLETADA, TipoDevolucion.DEVOLUCION_DINERO);
+        d.setResolucion(TipoResolucion.REEMBOLSO);
+        d.setIdAutorizador(GESTOR);
+        d.setFechaResolucion(AHORA_UTC);
+        d.setReferenciaOperacion("REEM-00001");
+        when(devoluciones.findById(42L)).thenReturn(Optional.of(d));
+        when(reembolsos.consultar("DEV-2026-0042")).thenReturn(Optional.of(reembolso("EXITOSO")));
+
+        DevolucionDetalle.Resolucion r = servicio.consultar("DEV-2026-0042", Solicitante.gestor(GESTOR)).resolucion();
+
+        assertThat(r.decision()).isEqualTo(DecisionDevolucion.APROBADA);
+        assertThat(r.tipoResolucion()).isEqualTo(TipoResolucion.REEMBOLSO);
+        assertThat(r.autorizadorId()).isEqualTo(GESTOR);
+        assertThat(r.fechaResolucion()).isEqualTo(AHORA_UTC);
+        assertThat(r.referenciaOperacion()).isEqualTo("REEM-00001");
+        assertThat(r.reembolso().estado()).isEqualTo("EXITOSO");
     }
 
     @Test
@@ -248,7 +271,7 @@ class DevolucionServiceTest {
     void esp08_ca02_cambioConStockReintegraCoordinaDespachoYCompleta() {
         conItems(devolucion(EstadoDevolucion.EN_EVALUACION, TipoDevolucion.CAMBIO));
         when(productos.hayDisponibilidad(any())).thenReturn(true);
-        when(devoluciones.aprobar(42L, TipoResolucion.CAMBIO, GESTOR)).thenReturn(1);
+        when(devoluciones.aprobar(42L, TipoResolucion.CAMBIO, GESTOR, AHORA_UTC)).thenReturn(1);
         when(despacho.programarCambio(eq("DEV-2026-0042"), eq("PED-2026-00981"), eq(CLIENTE), any()))
                 .thenReturn(Optional.of("DESP-1"));
 
@@ -258,6 +281,8 @@ class DevolucionServiceTest {
         assertThat(r.tipoResolucion()).isEqualTo(TipoResolucion.CAMBIO);
         assertThat(r.referenciaOperacion()).isEqualTo("DESP-1");
         assertThat(r.autorizadorId()).isEqualTo(GESTOR);
+        assertThat(r.fechaResolucion()).isEqualTo(AHORA_UTC);
+        verify(devoluciones).guardarReferencia(42L, "DESP-1");
         verify(productos).reintegrar(eq("DEV-2026-0042"), eq(List.of(new ProductosClient.ItemProducto(101, 1))));
         verify(devoluciones).completar(42L);
         verifyNoInteractions(reembolsos);
@@ -266,7 +291,7 @@ class DevolucionServiceTest {
     @Test
     void esp08_ca03_reembolsoPideAF4ConClaveDeIdempotenciaYCompleta() {
         conItems(devolucion(EstadoDevolucion.EN_EVALUACION, TipoDevolucion.DEVOLUCION_DINERO));
-        when(devoluciones.aprobar(42L, TipoResolucion.REEMBOLSO, GESTOR)).thenReturn(1);
+        when(devoluciones.aprobar(42L, TipoResolucion.REEMBOLSO, GESTOR, AHORA_UTC)).thenReturn(1);
         when(ventas.consultarPedido("PED-2026-00981")).thenReturn(Optional.of(entregado(2)));
         when(reembolsos.solicitar(any())).thenReturn(reembolso("EXITOSO"));
 
@@ -287,20 +312,22 @@ class DevolucionServiceTest {
     @Test
     void reembolsoNoConfirmadoDejaLaDevolucionAprobada() {
         conItems(devolucion(EstadoDevolucion.EN_EVALUACION, TipoDevolucion.DEVOLUCION_DINERO));
-        when(devoluciones.aprobar(42L, TipoResolucion.REEMBOLSO, GESTOR)).thenReturn(1);
+        when(devoluciones.aprobar(42L, TipoResolucion.REEMBOLSO, GESTOR, AHORA_UTC)).thenReturn(1);
         when(ventas.consultarPedido("PED-2026-00981")).thenReturn(Optional.of(entregado(2)));
         when(reembolsos.solicitar(any())).thenReturn(reembolso("PENDIENTE"));
 
         ResolucionResponse r = servicio.resolver("DEV-2026-0042", aprobar(null), Solicitante.gestor(GESTOR));
 
         assertThat(r.estado()).isEqualTo(EstadoDevolucion.APROBADA);
+        assertThat(r.referenciaOperacion()).isEqualTo("REEM-00001");
+        verify(devoluciones).guardarReferencia(42L, "REEM-00001");
         verify(devoluciones, never()).completar(anyLong());
     }
 
     @Test
     void siM1YaNoEncuentraElPedidoAlReembolsarRespondePedidoInconsistente() {
         conItems(devolucion(EstadoDevolucion.EN_EVALUACION, TipoDevolucion.DEVOLUCION_DINERO));
-        when(devoluciones.aprobar(42L, TipoResolucion.REEMBOLSO, GESTOR)).thenReturn(1);
+        when(devoluciones.aprobar(42L, TipoResolucion.REEMBOLSO, GESTOR, AHORA_UTC)).thenReturn(1);
         when(ventas.consultarPedido("PED-2026-00981")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> servicio.resolver("DEV-2026-0042", aprobar(null), Solicitante.gestor(GESTOR)))
@@ -315,6 +342,8 @@ class DevolucionServiceTest {
         Devolucion d = devolucion(EstadoDevolucion.APROBADA, TipoDevolucion.DEVOLUCION_DINERO);
         d.setResolucion(TipoResolucion.REEMBOLSO);
         d.setIdAutorizador(GESTOR);
+        d.setFechaResolucion(REGISTRO);
+        d.setReferenciaOperacion("REEM-00001");
         conItems(d);
         when(ventas.consultarPedido("PED-2026-00981")).thenReturn(Optional.of(entregado(2)));
         when(reembolsos.solicitar(any())).thenReturn(reembolso("EXITOSO"));
@@ -322,14 +351,16 @@ class DevolucionServiceTest {
         ResolucionResponse r = servicio.resolver("DEV-2026-0042", aprobar(null), Solicitante.gestor(GESTOR));
 
         assertThat(r.estado()).isEqualTo(EstadoDevolucion.COMPLETADA);
-        verify(devoluciones, never()).aprobar(anyLong(), any(), any());
+        verify(devoluciones, never()).aprobar(anyLong(), any(), any(), any());
         verify(productos, never()).reintegrar(any(), any());
+        verify(devoluciones, never()).guardarReferencia(anyLong(), any());
+        assertThat(r.fechaResolucion()).isEqualTo(REGISTRO);
     }
 
     @Test
     void esp08_ca04_rechazoRegistraFundamentoYAutorizador() {
         conItems(devolucion(EstadoDevolucion.EN_EVALUACION, TipoDevolucion.DEVOLUCION_DINERO));
-        when(devoluciones.rechazar(42L, GESTOR, "Signos de manipulación")).thenReturn(1);
+        when(devoluciones.rechazar(42L, GESTOR, "Signos de manipulación", AHORA_UTC)).thenReturn(1);
 
         ResolucionResponse r = servicio.resolver("DEV-2026-0042",
                 new ResolverDevolucionRequest(DecisionDevolucion.RECHAZADA, "  Signos de manipulación ", null, null),
@@ -338,6 +369,7 @@ class DevolucionServiceTest {
         assertThat(r.estado()).isEqualTo(EstadoDevolucion.RECHAZADA);
         assertThat(r.tipoResolucion()).isEqualTo(TipoResolucion.RECHAZO);
         assertThat(r.fundamento()).isEqualTo("Signos de manipulación");
+        assertThat(r.fechaResolucion()).isEqualTo(AHORA_UTC);
         verifyNoInteractions(productos, despacho, reembolsos);
     }
 
@@ -349,7 +381,7 @@ class DevolucionServiceTest {
                 new ResolverDevolucionRequest(DecisionDevolucion.RECHAZADA, "   ", null, null), Solicitante.gestor(GESTOR)))
                 .isInstanceOf(SolicitudInvalidaException.class)
                 .extracting("codigo").isEqualTo("FUNDAMENTO_REQUERIDO");
-        verify(devoluciones, never()).rechazar(anyLong(), any(), any());
+        verify(devoluciones, never()).rechazar(anyLong(), any(), any(), any());
     }
 
     @Test
@@ -360,14 +392,14 @@ class DevolucionServiceTest {
         assertThatThrownBy(() -> servicio.resolver("DEV-2026-0042", aprobar(null), Solicitante.gestor(GESTOR)))
                 .isInstanceOf(ConflictoException.class)
                 .extracting("codigo").isEqualTo("SIN_STOCK");
-        verify(devoluciones, never()).aprobar(anyLong(), any(), any());
+        verify(devoluciones, never()).aprobar(anyLong(), any(), any(), any());
         verify(productos, never()).reintegrar(any(), any());
     }
 
     @Test
     void esp08_ca05_cambioSinStockSePuedeResolverComoReembolso() {
         conItems(devolucion(EstadoDevolucion.EN_EVALUACION, TipoDevolucion.CAMBIO));
-        when(devoluciones.aprobar(42L, TipoResolucion.REEMBOLSO, GESTOR)).thenReturn(1);
+        when(devoluciones.aprobar(42L, TipoResolucion.REEMBOLSO, GESTOR, AHORA_UTC)).thenReturn(1);
         when(ventas.consultarPedido("PED-2026-00981")).thenReturn(Optional.of(entregado(2)));
         when(reembolsos.solicitar(any())).thenReturn(reembolso("EXITOSO"));
 
@@ -402,7 +434,7 @@ class DevolucionServiceTest {
     @Test
     void f3_cambioYReembolsoNuncaALaVez_siOtroGestorYaResolvioResponde409() {
         conItems(devolucion(EstadoDevolucion.EN_EVALUACION, TipoDevolucion.DEVOLUCION_DINERO));
-        when(devoluciones.aprobar(42L, TipoResolucion.REEMBOLSO, GESTOR)).thenReturn(0);
+        when(devoluciones.aprobar(42L, TipoResolucion.REEMBOLSO, GESTOR, AHORA_UTC)).thenReturn(0);
 
         assertThatThrownBy(() -> servicio.resolver("DEV-2026-0042", aprobar(null), Solicitante.gestor(GESTOR)))
                 .isInstanceOf(ConflictoException.class)
@@ -450,6 +482,7 @@ class DevolucionServiceTest {
         d.setMotivo(MotivoDevolucion.PRODUCTO_DEFECTUOSO);
         d.setEstado(estado);
         d.setFecha(LocalDate.of(2026, 10, 12));
+        d.setFechaRegistro(REGISTRO);
         d.agregarItem(101, 1);
         d.agregarEvidencia(EVIDENCIA, TipoEvidencia.IMAGEN);
         return d;
