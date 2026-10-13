@@ -28,6 +28,7 @@ import ventas.anulacion.ReembolsoAnulacionService;
 import ventas.compartido.ConflictoException;
 import ventas.compartido.RecursoNoEncontradoException;
 import ventas.compartido.SolicitudInvalidaException;
+import ventas.integracion.envios.NotificadorEnvios;
 import ventas.integracion.eventos.EventoRecibido;
 import ventas.integracion.eventos.EventoRecibidoRepository;
 import ventas.integracion.eventos.OrigenEvento;
@@ -45,13 +46,14 @@ class EventoDespachoServiceTest {
     @Mock MaquinaEstados maquina;
     @Mock AnulacionSistemaService anulaciones;
     @Mock ReembolsoAnulacionService reembolsos;
+    @Mock NotificadorEnvios envios;
 
     EventoDespachoService servicio;
     Pedido pedido;
 
     @BeforeEach
     void armar() {
-        servicio = new EventoDespachoService(pedidos, recibidos, maquina, anulaciones, reembolsos,
+        servicio = new EventoDespachoService(pedidos, recibidos, maquina, anulaciones, reembolsos, envios,
                 TransactionOperations.withoutTransaction());
         pedido = new Pedido();
         pedido.setId(981L);
@@ -69,6 +71,7 @@ class EventoDespachoServiceTest {
         EventoDespachoResponse r = servicio.procesar(evento(TipoEventoDespacho.DESPACHO_EN_CAMINO, null));
 
         verify(maquina).cambiar(pedido, EstadoPedido.DESPACHADO, ActorHistorial.SISTEMA_LOGISTICA, null, CUANDO);
+        verify(envios).registrar(pedido, "DESP-00412");   // 1.10
         ArgumentCaptor<EventoRecibido> captor = ArgumentCaptor.forClass(EventoRecibido.class);
         verify(recibidos).saveAndFlush(captor.capture());
         assertThat(captor.getValue().getIdEvento()).isEqualTo("G2:evt-1");
@@ -81,13 +84,14 @@ class EventoDespachoServiceTest {
         pedido.setEstado(EstadoPedido.DESPACHADO);
         servicio.procesar(evento(TipoEventoDespacho.DESPACHO_ENTREGADO, null));
         verify(maquina).cambiar(pedido, EstadoPedido.ENTREGADO, ActorHistorial.SISTEMA_LOGISTICA, null, CUANDO);
+        verify(envios).registrar(pedido, "DESP-00412");
     }
 
     @Test
     void siYaEstabaEnElDestinoNoHaceNada() {
         pedido.setEstado(EstadoPedido.DESPACHADO);
         assertThat(servicio.procesar(evento(TipoEventoDespacho.DESPACHO_EN_CAMINO, null)).mensaje()).contains("ya estaba");
-        verifyNoInteractions(maquina);
+        verifyNoInteractions(maquina, envios);
     }
 
     @Test

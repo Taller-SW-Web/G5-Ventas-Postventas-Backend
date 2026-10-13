@@ -116,6 +116,28 @@ class CrearPedidoServiceTest {
         });
     }
 
+    /** ESP-01 CA-04: con cupón, el pedido se guarda con el código y el total ya descontado (lo valida ValidadorPedido). */
+    @Test
+    void ca04_conCuponGuardaElCodigoYElTotalYaDescontado() {
+        when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
+        conIdGenerado(6);
+        CrearPedidoRequest conCupon = new CrearPedidoRequest(CanalVenta.CHATBOT, contacto(), ValidadorPedidoTest.items(),
+                new CrearPedidoRequest.Cupon("DESC10", new BigDecimal("10.00"), true), ValidadorPedidoTest.envio(),
+                ValidadorPedidoTest.pago("TARJETA_CREDITO", "129.90", "10.00", "10.00", "129.90"));
+
+        servicio.crear(CLAVE, conCupon);
+
+        ArgumentCaptor<Pedido> captor = ArgumentCaptor.forClass(Pedido.class);
+        verify(pedidos).saveAndFlush(captor.capture());
+        Pedido p = captor.getValue();
+        assertThat(p.getCodigoCupon()).isEqualTo("DESC10");
+        assertThat(p.getSubtotal()).isEqualByComparingTo("129.90");
+        assertThat(p.getDescuento()).isEqualByComparingTo("10.00");
+        assertThat(p.getCostoEnvio()).isEqualByComparingTo("10.00");
+        // total = subtotal - descuento + envío
+        assertThat(p.getTotal()).isEqualByComparingTo("129.90");
+    }
+
     @Test
     void conReservaInmediataSeAplicaDespuesDeGuardar() {
         // Modo simulado: ProductosClient devuelve el resultado al instante y se aplica tras el commit
