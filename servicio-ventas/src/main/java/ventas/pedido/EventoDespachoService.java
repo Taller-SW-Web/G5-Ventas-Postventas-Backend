@@ -18,6 +18,7 @@ import ventas.compartido.CodigoPublico;
 import ventas.compartido.ConflictoException;
 import ventas.compartido.RecursoNoEncontradoException;
 import ventas.compartido.SolicitudInvalidaException;
+import ventas.integracion.envios.NotificadorEnvios;
 import ventas.integracion.eventos.EventoRecibido;
 import ventas.integracion.eventos.EventoRecibidoRepository;
 import ventas.integracion.eventos.OrigenEvento;
@@ -33,6 +34,7 @@ import ventas.pedido.dto.EventoDespachoResponse;
  * | DESPACHO_DEVUELTO_A_ORIGEN | DESPACHADO -> ANULADO (ENTREGA_FALLIDA_DEFINITIVA) + reembolso a M2     |
  * | DESPACHO_REPROGRAMADO      | pedido.fecha_estimada_entrega = datos.nuevaFechaProgramada              |
  * | ASIGNADO, FALLIDO, CANCELADO | solo se registra (auditoría / acuse de una cancelación nuestra)       |
+ * EN_CAMINO, ENTREGADO y REPROGRAMADO además avisan a Marketplace (1.10, acuerdo H-05) si el pedido es de ese canal.
  * Si el pedido ya está en el estado al que llevaría el evento (llegó repetido con otro idEvento o en desorden),
  * no se hace nada. Idempotencia por idEvento en evento_recibido (origen SISTEMA_LOGISTICA).
  * Actor siempre SISTEMA_LOGISTICA (ESP-03).
@@ -51,6 +53,7 @@ public class EventoDespachoService {
     private final MaquinaEstados maquina;
     private final AnulacionSistemaService anulaciones;
     private final ReembolsoAnulacionService reembolsos;
+    private final NotificadorEnvios envios;
     private final TransactionOperations transaccion;
 
     /** anulacionId != null: después del commit hay que mandar el reembolso a M2. */
@@ -80,8 +83,8 @@ public class EventoDespachoService {
         OffsetDateTime cuando = ev.ocurridoEn() != null ? ev.ocurridoEn() : OffsetDateTime.now(ZoneOffset.UTC);
         String anulacionId = null;
         String mensaje = switch (ev.tipo()) {
-            case DESPACHO_EN_CAMINO -> avanzar(p, EstadoPedido.EN_PREPARACION, EstadoPedido.DESPACHADO, cuando);
-            case DESPACHO_ENTREGADO -> avanzar(p, EstadoPedido.DESPACHADO, EstadoPedido.ENTREGADO, cuando);
+            case DESPACHO_EN_CAMINO -> avanzar(p, EstadoPedido.EN_PREPARACION, EstadoPedido.DESPACHADO, cuando, ev);
+            case DESPACHO_ENTREGADO -> avanzar(p, EstadoPedido.DESPACHADO, EstadoPedido.ENTREGADO, cuando, ev);
             case DESPACHO_DEVUELTO_A_ORIGEN -> {
                 if (p.getEstado() == EstadoPedido.ANULADO) {
                     yield "El pedido ya estaba ANULADO";
@@ -95,6 +98,7 @@ public class EventoDespachoService {
             case DESPACHO_REPROGRAMADO -> {
                 p.setFechaEstimadaEntrega(nuevaFecha(ev.datos()));
                 pedidos.save(p);
+                envios.registrar(p, ev.idDespacho());   // 1.10: Marketplace muestra la nueva fecha
                 yield "Fecha estimada de entrega actualizada";
             }
             case DESPACHO_ASIGNADO, DESPACHO_FALLIDO, DESPACHO_CANCELADO -> "Evento registrado; no cambia el estado del pedido";
@@ -104,12 +108,14 @@ public class EventoDespachoService {
     }
 
     /** Si ya está en el destino (evento duplicado con otro idEvento), no hace nada. */
-    private String avanzar(Pedido p, EstadoPedido origen, EstadoPedido destino, OffsetDateTime cuando) {
+    private String avanzar(Pedido p, EstadoPedido origen, EstadoPedido destino, OffsetDateTime cuando,
+                           EventoDespachoRequest ev) {
         if (p.getEstado() == destino) {
             return "El pedido ya estaba " + destino;
         }
         exigir(p, origen, null);
         maquina.cambiar(p, destino, ActorHistorial.SISTEMA_LOGISTICA, null, cuando);
+        envios.registrar(p, ev.idDespacho());   // 1.10: aviso público a Marketplace (DESPACHADO / ENTREGADO)
         return "Pedido " + destino;
     }
 

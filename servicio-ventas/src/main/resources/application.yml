@@ -62,8 +62,11 @@ integracion:
   postventa-simulado: ${POSTVENTA_SIMULADO:${INTEGRACION_SIMULADA:true}}   # false: llama a M2 aunque Productos siga simulado
   despacho-url: ${DESPACHO_URL:http://localhost:8092}       # Módulo E (G2): POST /api/v1/despachos (contrato 7.1)
   despacho-simulado: ${DESPACHO_SIMULADO:${INTEGRACION_SIMULADA:true}}       # true: "paquete sellado" no llama a Despacho
+  marketplace-webhook-url: ${MARKETPLACE_WEBHOOK_URL:http://localhost:8095/api/v1/webhooks/ventas/envios}   # 1.10 (H-05); URL por confirmar con G1
+  marketplace-simulado: ${MARKETPLACE_SIMULADO:${INTEGRACION_SIMULADA:true}}   # true: los avisos quedan guardados y no se envían
   pasarela-simulada: ${PASARELA_SIMULADA:true}             # true: solo log; false: llama al simulador
   productos-cola: po.sales.q
+  productos-comandos: po.commands.x                         # cupones: consumo y restauración (kit G6 §18)
   eventos:
     intervalo-ms: 5000          # envío del outbox a M2 (guía 5.8)
   reembolsos:
