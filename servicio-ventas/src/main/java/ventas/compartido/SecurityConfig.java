@@ -87,7 +87,9 @@ public class SecurityConfig {
                     .hasAnyAuthority("SCOPE_ventas:pedidos:anular", "ROLE_ADMIN_VENTAS")
                 // Lecturas con token de usuario
                 .requestMatchers(HttpMethod.GET, "/api/v1/pedidos").hasRole("ADMIN_VENTAS")
-                .requestMatchers(HttpMethod.GET, "/api/v1/pedidos/*").hasAnyRole("CLIENTE", "ADMIN_VENTAS")
+                // 1.3: cliente (solo sus pedidos), Gestor o M2 (modulo-postventa) con su scope; el scope NO sirve para listar
+                .requestMatchers(HttpMethod.GET, "/api/v1/pedidos/*")
+                    .hasAnyAuthority("ROLE_CLIENTE", "ROLE_ADMIN_VENTAS", "SCOPE_ventas:pedidos:consultar")
                 .anyRequest().denyAll())
             .oauth2ResourceServer(o -> o
                 .jwt(j -> j.jwtAuthenticationConverter(convertidorAutoridades()))

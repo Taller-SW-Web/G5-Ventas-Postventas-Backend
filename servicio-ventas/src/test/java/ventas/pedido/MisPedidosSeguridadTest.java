@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.nimbusds.jose.jwk.JWKSet;
@@ -67,6 +68,7 @@ class MisPedidosSeguridadTest {
     @MockitoBean PedidoService pedidoService;
     @MockitoBean CrearPedidoService crearPedidoService;
     @MockitoBean NotificacionPagoService notificacionPagoService;
+    @MockitoBean ConsultarPedidoService consultarPedidoService;
 
     @TestConfiguration
     static class Claves {
@@ -155,6 +157,43 @@ class MisPedidosSeguridadTest {
         mvc.perform(post("/api/v1/pedidos/PED-2026-00001/pagos/notificacion")
                         .header("Authorization", "Bearer " + servicio("ventas:pagos:webhook")))
                 .andExpect(status().isBadRequest());
+    }
+
+    // ---------- 1.3 Consultar pedido ----------
+
+    @Test
+    void m2ConScopeConsultarVeUnPedidoPuntual() throws Exception {
+        mvc.perform(get("/api/v1/pedidos/PED-2026-00001")
+                        .header("Authorization", "Bearer " + servicio("ventas:pedidos:consultar")))
+                .andExpect(status().isOk());
+        // Token de servicio de M2: sin restricción de titular
+        verify(consultarPedidoService).consultar(eq("PED-2026-00001"), eq(Optional.empty()));
+    }
+
+    @Test
+    void elScopeConsultarNoSirveParaListar() throws Exception {
+        mvc.perform(get("/api/v1/pedidos").header("Authorization", "Bearer " + servicio("ventas:pedidos:consultar")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void tokenDeServicioSinScopeConsultarRecibe403() throws Exception {
+        mvc.perform(get("/api/v1/pedidos/PED-2026-00001").header("Authorization", "Bearer " + servicio("ventas:pedidos:crear")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void clienteConsultaSoloComoTitular() throws Exception {
+        mvc.perform(get("/api/v1/pedidos/PED-2026-00001").header("Authorization", "Bearer " + usuario(ISSUER, List.of("CLIENTE"))))
+                .andExpect(status().isOk());
+        verify(consultarPedidoService).consultar(eq("PED-2026-00001"), eq(Optional.of(CLIENTE)));
+    }
+
+    @Test
+    void gestorConsultaCualquierPedido() throws Exception {
+        mvc.perform(get("/api/v1/pedidos/PED-2026-00001").header("Authorization", "Bearer " + usuario(ISSUER, List.of("ADMIN_VENTAS"))))
+                .andExpect(status().isOk());
+        verify(consultarPedidoService).consultar(eq("PED-2026-00001"), eq(Optional.empty()));
     }
 
     @Test
