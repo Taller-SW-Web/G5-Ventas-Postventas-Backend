@@ -37,7 +37,7 @@ class ProductosClientTest {
     void armar() {
         RestClient.Builder builder = RestClient.builder();
         servidor = MockRestServiceServer.bindTo(builder).build();
-        cliente = new ProductosClient(false, BASE, builder);
+        cliente = new ProductosClient(false, BASE, builder, TokenServicio.sinCredenciales());
     }
 
     @Test
@@ -120,7 +120,7 @@ class ProductosClientTest {
 
     @Test
     void enModoSimuladoLaReservaQuedaCreadaAlInstante() {
-        ProductosClient simulado = new ProductosClient(true, BASE, RestClient.builder());
+        ProductosClient simulado = new ProductosClient(true, BASE, RestClient.builder(), TokenServicio.sinCredenciales());
 
         MensajeInventario m = simulado.reservar(PEDIDO, "CHATBOT", List.of(new LineaReserva("SKU-1", 1))).orElseThrow();
 
