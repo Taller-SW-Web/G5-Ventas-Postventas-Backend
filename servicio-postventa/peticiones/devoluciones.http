@@ -1,5 +1,5 @@
 ### Peticiones de prueba de F3 (IntelliJ: botón ▶ al lado de cada una; VS Code: extensión REST Client)
-### Directo a M2 en 8082. Para pasar por el gateway, cambiar a 8080.
+### Directo a M2 en 8082. Para pasar por el gateway, cambiar a 8080 (probado: todas estas rutas pasan igual).
 ### Con SEGURIDAD_HABILITADA=false no hace falta token (se actúa como Gestor; /me usa CLIENTE_PRUEBA).
 ### Con INTEGRACION_SIMULADA=true, M1 responde un pedido ENTREGADO hace 2 días con PROD-101 (99.90) y PROD-999 (30.00).
 ### Pedidos especiales del modo simulado: PED-2026-00404 no existe, PED-2026-00409 está DESPACHADO,
@@ -72,10 +72,11 @@ GET http://localhost:8082/api/v2/devoluciones?clienteId=11111111-1111-1111-1111-
 GET http://localhost:8082/api/v2/devoluciones/me?estado=SOLICITADA
 
 ### 2.5 Aprobar (el camino sale del tipo: DEVOLUCION_DINERO -> reembolso en F4, CAMBIO -> Productos + Despacho)
+### El autorizador sale del sub del token del Gestor (contrato v1.5.0), no del cuerpo
 PATCH http://localhost:8082/api/v2/devoluciones/DEV-2026-0001/resolucion
 Content-Type: application/json
 
-{ "decision": "APROBADA", "autorizadorId": "22222222-2222-2222-2222-222222222222" }
+{ "decision": "APROBADA" }
 
 ### 2.5 Cambio sin stock (409 SIN_STOCK) y luego resolverlo como reembolso
 PATCH http://localhost:8082/api/v2/devoluciones/DEV-2026-0002/resolucion
