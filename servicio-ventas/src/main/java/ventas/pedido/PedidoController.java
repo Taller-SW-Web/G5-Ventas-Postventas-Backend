@@ -1,12 +1,14 @@
 package ventas.pedido;
 
 import java.net.URI;
+import java.time.LocalDate;
 import java.util.Optional;
 import java.util.UUID;
 
 import jakarta.validation.Valid;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -25,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 import ventas.compartido.NoImplementadoException;
 import ventas.pedido.dto.CrearPedidoRequest;
 import ventas.pedido.dto.CrearPedidoResponse;
+import ventas.pedido.dto.ListadoPedidosResponse;
 import ventas.pedido.dto.MisPedidosResponse;
 import ventas.pedido.dto.NotificacionPagoRequest;
 import ventas.pedido.dto.NotificacionPagoResponse;
@@ -105,9 +108,16 @@ public class PedidoController {
         return ResponseEntity.ok(consultarPedidoService.consultar(pedidoId, soloCliente(jwt, autenticacion)));
     }
 
+    /** 1.4 Listar pedidos de un cliente (Gestor, rol ADMIN_VENTAS, lo exige SecurityConfig). */
     @GetMapping
-    public ResponseEntity<Void> listar() {
-        throw new NoImplementadoException("1.4 Listar pedidos");
+    public ResponseEntity<ListadoPedidosResponse> listar(
+            @RequestParam(required = false) UUID clienteId,
+            @RequestParam(required = false) EstadoPedido estado,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,
+            @RequestParam(defaultValue = "0") int pagina,
+            @RequestParam(defaultValue = "10") int tamano) {
+        return ResponseEntity.ok(pedidoService.listar(clienteId, estado, desde, hasta, pagina, tamano));
     }
 
     @PatchMapping("/{pedidoId}/estado")

@@ -13,7 +13,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +30,7 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import ventas.compartido.SecurityConfig;
 import ventas.pedido.dto.CrearPedidoResponse;
+import ventas.pedido.dto.ListadoPedidosResponse;
 import ventas.pedido.dto.NotificacionPagoResponse;
 import ventas.pedido.dto.PedidoDetalle;
 
@@ -53,7 +57,6 @@ class PedidoControllerTest {
 
     @Test
     void losEndpointsPendientesDeF1Responden501() throws Exception {
-        esperar501(mvc.perform(get("/api/v1/pedidos")));
         esperar501(mvc.perform(patch("/api/v1/pedidos/PED-2026-00001/estado")));
         esperar501(mvc.perform(post("/api/v1/pedidos/PED-2026-00001/eventos-logistica")));
     }
@@ -175,6 +178,42 @@ class PedidoControllerTest {
         mvc.perform(get("/api/v1/pedidos/PED-2026-99999"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.codigo").value("PEDIDO_NO_ENCONTRADO"));
+    }
+
+    // ---------- 1.4 Listar pedidos ----------
+
+    @Test
+    void listarPasaLosFiltrosAlServicio() throws Exception {
+        UUID cliente = UUID.fromString("3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a");
+        when(pedidoService.listar(cliente, EstadoPedido.PAGADO, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 13), 1, 20))
+                .thenReturn(new ListadoPedidosResponse(cliente, List.of(), 1, 0, 0));
+
+        mvc.perform(get("/api/v1/pedidos").param("clienteId", cliente.toString()).param("estado", "PAGADO")
+                        .param("desde", "2026-10-01").param("hasta", "2026-10-13").param("pagina", "1").param("tamano", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.clienteId").value(cliente.toString()))
+                .andExpect(jsonPath("$.contenido").isArray())
+                .andExpect(jsonPath("$.pagina").value(1))
+                .andExpect(jsonPath("$.totalPaginas").value(0))
+                .andExpect(jsonPath("$.totalElementos").value(0));
+    }
+
+    @Test
+    void listarUsaPaginaCeroYTamanoDiezPorDefecto() throws Exception {
+        UUID cliente = UUID.fromString("3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a");
+        when(pedidoService.listar(cliente, null, null, null, 0, 10))
+                .thenReturn(new ListadoPedidosResponse(cliente, List.of(), 0, 0, 0));
+        mvc.perform(get("/api/v1/pedidos").param("clienteId", cliente.toString()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void listarConFechaOEstadoMalFormadoResponde400() throws Exception {
+        mvc.perform(get("/api/v1/pedidos").param("clienteId", "3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a").param("desde", "01/10/2026"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/pedidos").param("clienteId", "3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a").param("estado", "VOLANDO"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(pedidoService);
     }
 
     @Test
