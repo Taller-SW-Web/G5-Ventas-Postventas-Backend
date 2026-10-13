@@ -2,6 +2,7 @@ package ventas.anulacion;
 
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.Optional;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -22,15 +23,26 @@ public class AnulacionSistemaService {
 
     private final AnulacionRepository anulaciones;
 
-    /** Guarda la anulación ya EJECUTADA y devuelve su código público (ANUL-NNNN). */
+    /**
+     * Guarda la anulación ya EJECUTADA y devuelve su código público (ANUL-NNNN).
+     * id_pedido es único: si el pedido ya tenía una solicitud (p. ej. RECHAZADA por el Gestor), se reutiliza esa fila.
+     */
     @Transactional(propagation = Propagation.MANDATORY)
     public String registrarEjecutada(Long idPedido, String motivo) {
-        Anulacion a = new Anulacion();
+        Anulacion a = anulaciones.findByIdPedido(idPedido).orElseGet(Anulacion::new);
         a.setIdPedido(idPedido);
         a.setMotivo(motivo);
         a.setEstado(EstadoAnulacion.EJECUTADA);
         a.setFecha(LocalDate.now(ZoneOffset.UTC));
         anulaciones.saveAndFlush(a);
         return CodigoPublico.anulacion(a.getId());
+    }
+
+    /** Código ANUL-NNNN de la anulación EJECUTADA del pedido, si existe (para responder un reintento). */
+    @Transactional(readOnly = true)
+    public Optional<String> ejecutadaDe(Long idPedido) {
+        return anulaciones.findByIdPedido(idPedido)
+                .filter(a -> a.getEstado() == EstadoAnulacion.EJECUTADA)
+                .map(a -> CodigoPublico.anulacion(a.getId()));
     }
 }
