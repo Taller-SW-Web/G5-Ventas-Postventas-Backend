@@ -12,10 +12,7 @@ import postventa.devolucion.TipoDevolucion;
 import postventa.devolucion.TipoEvidencia;
 import postventa.devolucion.TipoResolucion;
 
-/**
- * Respuesta de 2.3. resolucion es null mientras no hay dictamen. Agrega items y resolucion.tipoResolucion
- * (CAMBIO, REEMBOLSO o RECHAZO) al ejemplo del contrato, para que el expediente muestre el camino tomado.
- */
+/** Respuesta de 2.3 (contrato v1.5.0). resolucion es null mientras no hay dictamen. */
 public record DevolucionDetalle(String devolucionId, String pedidoId, UUID clienteId, TipoDevolucion tipo,
                                 EstadoDevolucion estado, MotivoDevolucion motivo, String descripcion,
                                 List<Item> items, Resolucion resolucion, List<Evidencia> evidencias,
@@ -25,9 +22,10 @@ public record DevolucionDetalle(String devolucionId, String pedidoId, UUID clien
 
     public record Evidencia(TipoEvidencia tipo, String url) {}
 
-    /** fechaResolucion queda null: la tabla devolucion todavía no la guarda. */
+    /** referenciaOperacion es el reembolsoId de F4 o la referencia de Despacho; null en un rechazo. */
     public record Resolucion(DecisionDevolucion decision, TipoResolucion tipoResolucion, String fundamento,
-                             UUID autorizadorId, OffsetDateTime fechaResolucion, Reembolso reembolso) {}
+                             UUID autorizadorId, OffsetDateTime fechaResolucion, String referenciaOperacion,
+                             Reembolso reembolso) {}
 
     public record Reembolso(String reembolsoId, String estado, BigDecimal monto, String moneda,
                             String transaccionPasarelaId, OffsetDateTime fechaEjecucion) {}

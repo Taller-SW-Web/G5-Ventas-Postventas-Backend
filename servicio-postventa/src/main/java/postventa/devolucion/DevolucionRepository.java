@@ -1,5 +1,6 @@
 package postventa.devolucion;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -56,13 +57,13 @@ public interface DevolucionRepository extends JpaRepository<Devolucion, Long> {
     @Query("""
             update Devolucion d
             set d.estado = postventa.devolucion.EstadoDevolucion.APROBADA,
-                d.resolucion = :resolucion, d.idAutorizador = :autorizador
+                d.resolucion = :resolucion, d.idAutorizador = :autorizador, d.fechaResolucion = :fecha
             where d.id = :id
               and d.estado in (postventa.devolucion.EstadoDevolucion.SOLICITADA,
                                postventa.devolucion.EstadoDevolucion.EN_EVALUACION)
             """)
     int aprobar(@Param("id") long id, @Param("resolucion") TipoResolucion resolucion,
-                @Param("autorizador") UUID autorizador);
+                @Param("autorizador") UUID autorizador, @Param("fecha") OffsetDateTime fecha);
 
     @Transactional
     @Modifying
@@ -70,13 +71,20 @@ public interface DevolucionRepository extends JpaRepository<Devolucion, Long> {
             update Devolucion d
             set d.estado = postventa.devolucion.EstadoDevolucion.RECHAZADA,
                 d.resolucion = postventa.devolucion.TipoResolucion.RECHAZO,
-                d.idAutorizador = :autorizador, d.fundamentoRechazo = :fundamento
+                d.idAutorizador = :autorizador, d.fundamentoRechazo = :fundamento,
+                d.fechaResolucion = :fecha
             where d.id = :id
               and d.estado in (postventa.devolucion.EstadoDevolucion.SOLICITADA,
                                postventa.devolucion.EstadoDevolucion.EN_EVALUACION)
             """)
     int rechazar(@Param("id") long id, @Param("autorizador") UUID autorizador,
-                 @Param("fundamento") String fundamento);
+                 @Param("fundamento") String fundamento, @Param("fecha") OffsetDateTime fecha);
+
+    /** reembolsoId de F4 o referencia de Despacho, apenas se conoce (aunque todavía no esté confirmada). */
+    @Transactional
+    @Modifying
+    @Query("update Devolucion d set d.referenciaOperacion = :referencia where d.id = :id")
+    int guardarReferencia(@Param("id") long id, @Param("referencia") String referencia);
 
     @Transactional
     @Modifying
