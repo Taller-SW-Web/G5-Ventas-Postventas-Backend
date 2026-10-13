@@ -19,7 +19,8 @@ import org.springframework.web.client.RestClientException;
  *   así un reintento nunca paga dos veces.
  * - POST /api/v2/eventos (2.13): eventos del outbox (pedido.pagado, .anulado, .entregado).
  * Con integracion.postventa-simulado=true no llama a M2: solo deja un log y responde SIMULADO.
- * Pendiente: token de servicio de modulo-ventas (commit del token), credenciales del Hito 4.
+ * Ambas llevan el token de servicio de modulo-ventas con scope postventa:reembolsos:procesar
+ * (M2 exige ese mismo scope en /api/v2/eventos).
  */
 @Slf4j
 @Component
@@ -45,14 +46,19 @@ public class PostventaClient {
         }
     }
 
+    static final String SCOPE = "postventa:reembolsos:procesar";
+
     private final boolean simulado;
     private final RestClient http;
+    private final TokenServicio tokens;
 
     public PostventaClient(@Value("${integracion.postventa-simulado:${integracion.simulado:true}}") boolean simulado,
                            @Value("${integracion.postventa-url:http://localhost:8082}") String url,
-                           RestClient.Builder builder) {
+                           RestClient.Builder builder,
+                           TokenServicio tokens) {
         this.simulado = simulado;
         this.http = builder.baseUrl(url).build();
+        this.tokens = tokens;
     }
 
     public RespuestaReembolso solicitarReembolso(String anulacionId, String pedidoId, BigDecimal monto,
@@ -64,6 +70,7 @@ public class PostventaClient {
         }
         try {
             ReembolsoRegistrado r = http.post().uri("/api/v2/reembolsos")
+                    .headers(tokens.autorizacion(SCOPE))
                     .header("X-Idempotency-Key", clave)
                     .body(new ReembolsoRequest("ANULACION", anulacionId, pedidoId, monto, moneda, motivo, "SISTEMA_M1"))
                     .retrieve()
@@ -71,6 +78,7 @@ public class PostventaClient {
             return r == null ? new RespuestaReembolso(Envio.ACEPTADO, null, null, null)
                     : new RespuestaReembolso(Envio.ACEPTADO, r.reembolsoId(), r.estado(), null);
         } catch (RestClientException e) {
+            tokens.revisar(e, SCOPE);
             Envio envio = clasificar(e);
             log.error("Reembolso de {} ({}) a M2: {} ({})", pedidoId, anulacionId, envio, e.getMessage());
             return RespuestaReembolso.sin(envio, recortar(e.getMessage()));
@@ -85,12 +93,14 @@ public class PostventaClient {
         }
         try {
             http.post().uri("/api/v2/eventos")
+                    .headers(tokens.autorizacion(SCOPE))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(payloadJson)
                     .retrieve()
                     .toBodilessEntity();
             return Envio.ACEPTADO;
         } catch (RestClientException e) {
+            tokens.revisar(e, SCOPE);
             Envio envio = clasificar(e);
             log.warn("Evento {} a M2: {} ({})", idEvento, envio, e.getMessage());
             return envio;
