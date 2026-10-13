@@ -53,11 +53,14 @@ integracion:
   simulado: ${INTEGRACION_SIMULADA:true}
   productos-url: ${PRODUCTOS_URL:http://localhost:8090}     # Módulo F (G6), reserva de stock
   pasarela-url: ${PASARELA_URL:http://localhost:8083}      # simulador-pasarela (cobro de MARKETPLACE)
-  postventa-url: ${POSTVENTA_URL:http://localhost:8082}     # M2: reembolso de anulaciones
+  postventa-url: ${POSTVENTA_URL:http://localhost:8082}     # M2: reembolsos (2.6) y eventos (2.13)
+  postventa-simulado: ${POSTVENTA_SIMULADO:${INTEGRACION_SIMULADA:true}}   # false: llama a M2 aunque Productos siga simulado
   pasarela-simulada: ${PASARELA_SIMULADA:true}             # true: solo log; false: llama al simulador
   productos-cola: po.sales.q
   eventos:
-    intervalo-ms: 5000
+    intervalo-ms: 5000          # envío del outbox a M2 (guía 5.8)
+  reembolsos:
+    intervalo-ms: 60000         # reintento de reembolsos pendientes (solicitud_reembolso)
 
 management:
   health:
