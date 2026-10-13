@@ -30,9 +30,9 @@ public class DetallePedido {
     @JoinColumn(name = "id_pedido", nullable = false)
     private Pedido pedido;
 
-    /** Referencia al Módulo F. Puede ser null; el sku siempre va */
-    @Column(name = "id_producto")
-    private Long idProducto;
+    /** productoId de Productos (G6) tal como llega (UUID o código, ej. prd-013-01). El sku siempre va */
+    @Column(name = "id_producto", length = 64)
+    private String idProducto;
 
     @Column(nullable = false)
     private String sku;

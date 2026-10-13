@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -110,7 +111,7 @@ class CrearPedidoServiceTest {
         assertThat(p.getDescuento()).isEqualByComparingTo("10.00");
         assertThat(p.getDetalles()).singleElement().satisfies(d -> {
             assertThat(d.getSku()).isEqualTo("SKU-AUR-01");
-            assertThat(d.getIdProducto()).isEqualTo(101L);
+            assertThat(d.getIdProducto()).isEqualTo("PROD-101");
             assertThat(d.getImporte()).isEqualByComparingTo("129.90");
         });
     }
@@ -278,10 +279,20 @@ class CrearPedidoServiceTest {
     }
 
     @Test
-    void idProductoSaleDelNumeroFinal() {
-        assertThat(CrearPedidoService.idProducto("PROD-101")).isEqualTo(101L);
-        assertThat(CrearPedidoService.idProducto("55")).isEqualTo(55L);
-        assertThat(CrearPedidoService.idProducto("AUDIFONOS")).isNull();
+    void elProductoIdSeGuardaTalComoLlega() {
+        // Productos usa UUID o códigos como prd-013-01: no se transforma
+        when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
+        conIdGenerado(30);
+        CrearPedidoRequest base = ValidadorPedidoTest.chatbot(contacto());
+        CrearPedidoRequest req = new CrearPedidoRequest(base.canal(), base.contacto(),
+                List.of(new Item("prd-013-01", "SKU-AUR-01", "Audífonos", 1, new BigDecimal("129.90"))),
+                base.cupon(), base.envio(), base.pago());
+
+        servicio.crear(CLAVE, req);
+
+        ArgumentCaptor<Pedido> captor = ArgumentCaptor.forClass(Pedido.class);
+        verify(pedidos).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getDetalles().get(0).getIdProducto()).isEqualTo("prd-013-01");
     }
 
     // ---------- datos ----------

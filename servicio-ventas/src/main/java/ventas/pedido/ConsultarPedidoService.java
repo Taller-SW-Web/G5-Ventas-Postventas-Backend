@@ -49,7 +49,7 @@ public class ConsultarPedidoService {
                 new PedidoDetalle.Pago(p.getTotal(), p.getMoneda().trim(), metodo),
                 new PedidoDetalle.Envio(p.getModalidadEnvio(), p.getDireccion(), p.getDistrito(), p.getTiendaId()),
                 p.getDetalles().stream()
-                        .map(d -> new PedidoDetalle.Item(productoId(d.getIdProducto()), d.getSku(), d.getDescripcion(),
+                        .map(d -> new PedidoDetalle.Item(d.getIdProducto(), d.getSku(), d.getDescripcion(),
                                 d.getCantidad(), d.getPrecioUnitario()))
                         .toList(),
                 p.getCreadoEn(),
@@ -57,8 +57,4 @@ public class ConsultarPedidoService {
                 hist);
     }
 
-    /** Se guarda solo el número (PROD-101 -> 101); se devuelve con el formato del contrato. */
-    static String productoId(Long idProducto) {
-        return idProducto == null ? null : "PROD-" + idProducto;
-    }
 }
