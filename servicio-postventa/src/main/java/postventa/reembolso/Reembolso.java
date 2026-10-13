@@ -8,7 +8,10 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
 import postventa.compartido.CodigoPublico;
+
+import java.sql.Types;
 
 /** Operación monetaria de F4. No hay FK hacia M1 (RNF-07). */
 @Entity
@@ -21,7 +24,9 @@ public class Reembolso {
     @Enumerated(EnumType.STRING) @Column(name = "tipo_origen", nullable = false) private OrigenReembolso tipoOrigen;
     @Column(name = "idempotency_key", nullable = false, unique = true, length = 100) private String idempotencyKey;
     @Column(nullable = false, precision = 12, scale = 2) private BigDecimal monto;
-    @Column(nullable = false, length = 3) private String moneda;
+    @JdbcTypeCode(Types.CHAR)
+    @Column(nullable = false, length = 3, columnDefinition = "char(3)")
+    private String moneda;
     @Column(name = "id_transaccion", length = 100) private String idTransaccion;
     @Enumerated(EnumType.STRING) @Column(nullable = false) private EstadoReembolso estado;
     @Column(nullable = false) private LocalDate fecha;
