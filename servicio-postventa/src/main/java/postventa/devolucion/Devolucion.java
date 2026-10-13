@@ -1,6 +1,7 @@
 package postventa.devolucion;
 
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -23,7 +24,7 @@ import lombok.Setter;
 import postventa.compartido.CodigoPublico;
 
 /**
- * Tabla postventa.devolucion (con las columnas de H2). id_pedido es el número del código del pedido de M1,
+ * Tabla postventa.devolucion (con las columnas de H2 y H11). id_pedido es el número del código del pedido de M1,
  * sin FK física (RNF-07). El código público DEV-AAAA-NNNN no se guarda: se arma con id y año de fecha.
  */
 @Entity
@@ -71,6 +72,18 @@ public class Devolucion {
     /** UUID (sub) del cliente titular del pedido. */
     @Column(name = "id_cliente")
     private UUID idCliente;
+
+    /** Hora real del registro (H11, ESP-07 8.3). fecha guarda solo el día. */
+    @Column(name = "fecha_registro", nullable = false)
+    private OffsetDateTime fechaRegistro;
+
+    /** Hora del dictamen del Gestor (H11, ESP-08 8.3). */
+    @Column(name = "fecha_resolucion")
+    private OffsetDateTime fechaResolucion;
+
+    /** reembolsoId de F4 o referencia de Despacho, según la resolución (H11, ESP-08 8.3). */
+    @Column(name = "referencia_operacion", length = 100)
+    private String referenciaOperacion;
 
     @OneToMany(mappedBy = "devolucion", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("id")
