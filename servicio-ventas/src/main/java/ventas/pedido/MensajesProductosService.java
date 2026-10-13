@@ -11,6 +11,7 @@ import org.springframework.transaction.support.TransactionOperations;
 
 import ventas.anulacion.AnulacionSistemaService;
 import ventas.anulacion.ReembolsoAnulacionService;
+import ventas.integracion.CuponesClient;
 import ventas.integracion.MensajeInventario;
 import ventas.integracion.PasarelaClient;
 import ventas.integracion.ProductosClient;
@@ -27,11 +28,13 @@ import ventas.integracion.eventos.OrigenEvento;
  *
  * | Mensaje                                  | Qué hace M1                                                         |
  * |------------------------------------------|---------------------------------------------------------------------|
- * | inventory.reservation.created            | Guarda reservaId. MARKETPLACE pide el cobro; PAGADO confirma; ANULADO libera |
+ * | inventory.reservation.created            | Guarda reservaId. Con cupón: pide consumirlo; sin cupón, MARKETPLACE pide el cobro. PAGADO confirma; ANULADO libera |
+ * | promotions.coupon.consumption.completed  | CREADO + MARKETPLACE: recién ahí pide el cobro (kit G6 §18: reserva -> cupón -> pago) |
+ * | promotions.coupon.consumption.rejected   | CREADO -> ANULADO (CUPON_RECHAZADO) y libera la reserva; PAGADO: además reembolso |
  * | inventory.consumption.rejected (RESERVAR) | CREADO -> ANULADO (STOCK_NO_DISPONIBLE); PAGADO: además reembolso    |
  * | inventory.consumption.rejected (CONFIRMAR)| PAGADO -> ANULADO (RESERVA_EXPIRADA) + reembolso                     |
  * | inventory.reservation.expired            | CREADO -> ANULADO (RESERVA_EXPIRADA); en otro estado solo se registra |
- * | consumed / completed / released          | Solo se registran                                                   |
+ * | consumed / completed / released / restoration.* | Solo se registran                                            |
  */
 @Slf4j
 @Service
@@ -40,12 +43,13 @@ public class MensajesProductosService {
 
     static final String MOTIVO_SIN_STOCK = "STOCK_NO_DISPONIBLE";
     static final String MOTIVO_RESERVA_EXPIRADA = "RESERVA_EXPIRADA";
+    static final String MOTIVO_CUPON_RECHAZADO = "CUPON_RECHAZADO";
 
     /** PEDIDO_NO_ENCONTRADO: el consumidor reintenta (el pedido puede no haber terminado de guardarse). */
     public enum Desenlace { APLICADO, REPETIDO, IGNORADO, PEDIDO_NO_ENCONTRADO }
 
     /** Lo que hay que hacer fuera de la transacción (llamadas HTTP). */
-    private enum Accion { NINGUNA, COBRAR, CONFIRMAR, LIBERAR, REEMBOLSAR }
+    private enum Accion { NINGUNA, COBRAR, CONFIRMAR, LIBERAR, REEMBOLSAR, CONSUMIR_CUPON }
 
     /** dato: método de pago (COBRAR), reservaId (CONFIRMAR, LIBERAR) o código de la anulación (REEMBOLSAR). */
     private record Paso(Desenlace desenlace, Accion accion, Pedido pedido, String dato, String motivo) {
@@ -62,6 +66,7 @@ public class MensajesProductosService {
     private final ProductosClient productos;
     private final PasarelaClient pasarela;
     private final ReembolsoAnulacionService reembolsos;
+    private final CuponesClient cupones;
     private final TransactionOperations transaccion;
 
     public Desenlace procesar(MensajeInventario m) {
@@ -104,6 +109,8 @@ public class MensajesProductosService {
             case MensajeInventario.RESERVA_CREADA -> reservaCreada(pedido, m.reservaId());
             case MensajeInventario.CONSUMO_RECHAZADO -> rechazado(pedido, m);
             case MensajeInventario.RESERVA_EXPIRADA -> expirada(pedido);
+            case MensajeInventario.CUPON_CONSUMIDO -> cuponConsumido(pedido);
+            case MensajeInventario.CUPON_RECHAZADO -> cuponRechazado(pedido, m);
             default -> new Paso(Desenlace.APLICADO, Accion.NINGUNA, pedido, null, null);   // consumed, completed, released
         };
     }
@@ -112,17 +119,57 @@ public class MensajesProductosService {
         pedido.setReservaId(reservaId);
         pedidos.save(pedido);
         return switch (pedido.getEstado()) {
-            // Marketplace cobra con la reserva confirmada (AGENTS.md punto 8); Chatbot cobra por su cuenta
-            case CREADO -> pedido.getCanal() == CanalVenta.MARKETPLACE
-                    ? new Paso(Desenlace.APLICADO, Accion.COBRAR, pedido,
-                            pagos.findByPedidoId(pedido.getId()).map(Pago::getMetodo).orElse(null), null)
-                    : new Paso(Desenlace.APLICADO, Accion.NINGUNA, pedido, null, null);
+            // Con cupón, primero se consume (kit G6 §18); sin cupón, Marketplace cobra con la reserva confirmada
+            // (AGENTS.md punto 8). Chatbot cobra por su cuenta
+            case CREADO -> tieneCupon(pedido)
+                    ? new Paso(Desenlace.APLICADO, Accion.CONSUMIR_CUPON, pedido, null, null)
+                    : cobrarSiEsMarketplace(pedido);
             // El chatbot pagó antes de que llegara la reserva: se consume ahora
             case PAGADO -> new Paso(Desenlace.APLICADO, Accion.CONFIRMAR, pedido, reservaId, null);
             // Se anuló mientras tanto (pago rechazado o F2): se devuelve el stock
             case ANULADO -> new Paso(Desenlace.APLICADO, Accion.LIBERAR, pedido, reservaId, null);
             default -> new Paso(Desenlace.APLICADO, Accion.NINGUNA, pedido, null, null);
         };
+    }
+
+    private Paso cobrarSiEsMarketplace(Pedido pedido) {
+        return pedido.getCanal() == CanalVenta.MARKETPLACE
+                ? new Paso(Desenlace.APLICADO, Accion.COBRAR, pedido,
+                        pagos.findByPedidoId(pedido.getId()).map(Pago::getMetodo).orElse(null), null)
+                : new Paso(Desenlace.APLICADO, Accion.NINGUNA, pedido, null, null);
+    }
+
+    /** Cupón consumido: recién ahora se habilita el pago (solo si el pedido sigue esperando el cobro). */
+    private Paso cuponConsumido(Pedido pedido) {
+        return pedido.getEstado() == EstadoPedido.CREADO
+                ? cobrarSiEsMarketplace(pedido)
+                : new Paso(Desenlace.APLICADO, Accion.NINGUNA, pedido, null, null);
+    }
+
+    /** El total ya incluía el descuento: sin cupón válido el pedido se anula (decisión del equipo, ESP-03). */
+    private Paso cuponRechazado(Pedido pedido, MensajeInventario m) {
+        log.info("Productos rechazó el cupón {} de {}: {}", pedido.getCodigoCupon(), pedido.getCodigo(), m.codigo());
+        return switch (pedido.getEstado()) {
+            case CREADO -> {
+                maquina.cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_PRODUCTOS, MOTIVO_CUPON_RECHAZADO);
+                yield pedido.getReservaId() == null
+                        ? new Paso(Desenlace.APLICADO, Accion.NINGUNA, pedido, null, MOTIVO_CUPON_RECHAZADO)
+                        : new Paso(Desenlace.APLICADO, Accion.LIBERAR, pedido, pedido.getReservaId(), MOTIVO_CUPON_RECHAZADO);
+            }
+            case PAGADO -> anularPagado(pedido, MOTIVO_CUPON_RECHAZADO);   // el Chatbot ya cobró
+            default -> new Paso(Desenlace.APLICADO, Accion.NINGUNA, pedido, null, null);
+        };
+    }
+
+    /** Retail no reserva ni consume cupones por M1 (el POS va directo con Productos, acuerdo G4). */
+    static boolean tieneCupon(Pedido pedido) {
+        return pedido.getCodigoCupon() != null && !pedido.getCodigoCupon().isBlank()
+                && pedido.getCanal() != CanalVenta.RETAIL;
+    }
+
+    private void consumirCupon(Pedido p) {
+        cupones.consumir(p.getCodigo(), p.getCodigoCupon().trim(), p.getIdCliente(), p.getCanal().name(), p.getCreadoEn())
+                .ifPresent(this::procesar);   // modo simulado: el "completed" se aplica al instante
     }
 
     /** El operation_id del sobre dice si falló la reserva o la confirmación del consumo. */
@@ -173,8 +220,11 @@ public class MensajesProductosService {
             case CONFIRMAR -> {
                 if (productos.confirmar(p.getCodigo(), paso.dato()) == ResultadoConfirmacion.RESERVA_EXPIRADA) {
                     reservaExpiradaTrasPago(p.getCodigo());
+                } else if (tieneCupon(p)) {
+                    consumirCupon(p);   // el Chatbot pagó antes de la reserva: el cupón se consume ahora
                 }
             }
+            case CONSUMIR_CUPON -> consumirCupon(p);
             case LIBERAR -> productos.liberar(p.getCodigo(), paso.dato(), MotivoLiberacion.ANULACION);
             case REEMBOLSAR -> reembolsos.enviar(paso.dato());   // si M2 falla, queda PENDIENTE y se reintenta
             case NINGUNA -> { }
