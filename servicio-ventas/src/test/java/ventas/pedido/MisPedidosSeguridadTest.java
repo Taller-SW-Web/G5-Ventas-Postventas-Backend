@@ -177,6 +177,16 @@ class MisPedidosSeguridadTest {
     }
 
     @Test
+    void gestorPuedeListarYClienteNo() throws Exception {
+        mvc.perform(get("/api/v1/pedidos").param("clienteId", CLIENTE.toString())
+                        .header("Authorization", "Bearer " + usuario(ISSUER, List.of("ADMIN_VENTAS"))))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/pedidos").param("clienteId", CLIENTE.toString())
+                        .header("Authorization", "Bearer " + usuario(ISSUER, List.of("CLIENTE"))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void tokenDeServicioSinScopeConsultarRecibe403() throws Exception {
         mvc.perform(get("/api/v1/pedidos/PED-2026-00001").header("Authorization", "Bearer " + servicio("ventas:pedidos:crear")))
                 .andExpect(status().isForbidden());
