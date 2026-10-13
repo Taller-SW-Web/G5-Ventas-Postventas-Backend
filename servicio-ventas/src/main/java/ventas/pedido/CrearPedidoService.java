@@ -16,14 +16,15 @@ import org.springframework.transaction.support.TransactionOperations;
 
 import ventas.compartido.CodigoPublico;
 import ventas.compartido.ConflictoException;
+import ventas.integracion.MensajeInventario;
 import ventas.integracion.ProductosClient;
 import ventas.pedido.dto.CrearPedidoRequest;
 import ventas.pedido.dto.CrearPedidoResponse;
 
 /**
  * 1.1 Crear pedido (ESP-01) con idempotencia (acuerdo H-02).
- * Orden: validar -> ¿clave ya usada? -> reservar stock -> guardar todo en una transacción.
- * MARKETPLACE: nace CREADO; el cobro se pide cuando se confirma la reserva (ResultadoReservaService).
+ * Orden: validar -> ¿clave ya usada? -> en una transacción: guardar y reservar stock (con el código del pedido).
+ * MARKETPLACE: nace CREADO; el cobro se pide cuando Productos avisa que la reserva quedó creada (MensajesProductosService).
  * CHATBOT: nace CREADO (el chatbot cobra y avisa por 1.2).
  * RETAIL: nace PAGADO y pasa a ENTREGADO en la misma transacción (acuerdo G4).
  */
@@ -38,12 +39,14 @@ public class CrearPedidoService {
     /** creado = true si se registró ahora (201); false si es una repetición de la misma clave (200). */
     public record Resultado(CrearPedidoResponse pedido, boolean creado) {}
 
+    private record Registro(Pedido pedido, Optional<MensajeInventario> reserva) {}
+
     private final ValidadorPedido validador;
     private final PedidoRepository pedidos;
     private final PagoRepository pagos;
     private final MaquinaEstados maquina;
     private final ProductosClient productos;
-    private final ResultadoReservaService resultadoReserva;
+    private final MensajesProductosService mensajesProductos;
     private final TransactionOperations transaccion;
 
     public Resultado crear(String clave, CrearPedidoRequest req) {
@@ -55,29 +58,28 @@ public class CrearPedidoService {
             return repetido(previo.get(), req);
         }
 
-        // Retail ya vendió en tienda: no se reserva stock (acuerdo G4, R9). La referencia de la reserva
-        // es la Idempotency-Key: con ella se encuentra el pedido cuando llega el resultado por po.sales.q
-        Optional<ProductosClient.ResultadoReserva> reserva = Optional.empty();
-        if (req.canal() != CanalVenta.RETAIL) {
-            reserva = productos.reservar(clave, req.contacto().clienteId(), req.items().stream()
-                    .map(i -> new ProductosClient.ItemReserva(i.productoId(), i.sku(), i.cantidad()))
-                    .toList());
-        }
-
-        Pedido pedido;
+        Registro registro;
         try {
-            pedido = transaccion.execute(estado -> registrar(clave, req));
+            registro = transaccion.execute(estado -> {
+                Pedido p = registrar(clave, req);
+                // Se reserva con el código ya asignado (order_id), dentro de la transacción: si Productos no admite
+                // el comando, el pedido no se guarda y la Idempotency-Key no se consume. Retail no reserva (G4, R9)
+                Optional<MensajeInventario> reserva = req.canal() == CanalVenta.RETAIL
+                        ? Optional.empty()
+                        : productos.reservar(p.getCodigo(), req.canal().name(), req.items().stream()
+                                .map(i -> new ProductosClient.LineaReserva(i.sku(), i.cantidad())).toList());
+                return new Registro(p, reserva);
+            });
         } catch (DataIntegrityViolationException e) {
-            // Otra petición con la misma clave ganó la carrera: se responde con su pedido.
-            // Si el pedido no se guardó por otro motivo, aquí todavía no hay reservaId para liberar:
-            // cuando llegue el resultado de la reserva sin pedido, se libera ahí (acuerdo G6)
+            // Otra petición con la misma clave ganó la carrera: se responde con su pedido
             return pedidos.findByIdempotencyKey(clave).map(p -> repetido(p, req)).orElseThrow(() -> e);
         }
-        // En modo simulado el resultado de la reserva llega al instante; en modo real llega por po.sales.q.
+        Pedido pedido = registro.pedido();
+        // En modo simulado la reserva creada llega al instante; en modo real llega por po.sales.q.
         // Ahí se guarda el reservaId y, en MARKETPLACE, se pide el cobro (con la reserva ya confirmada)
-        reserva.ifPresent(r -> {
+        registro.reserva().ifPresent(m -> {
             try {
-                resultadoReserva.procesar(r);
+                mensajesProductos.procesar(m);
             } catch (RuntimeException e) {
                 // El pedido ya está guardado: no se responde error al canal por esto
                 log.error("No se pudo aplicar la reserva simulada de {}", pedido.getCodigo(), e);

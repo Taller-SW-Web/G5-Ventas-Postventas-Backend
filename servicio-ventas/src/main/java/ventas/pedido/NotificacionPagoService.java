@@ -15,6 +15,8 @@ import ventas.compartido.ConflictoException;
 import ventas.compartido.RecursoNoEncontradoException;
 import ventas.compartido.SolicitudInvalidaException;
 import ventas.integracion.ProductosClient;
+import ventas.integracion.ProductosClient.MotivoLiberacion;
+import ventas.integracion.ProductosClient.ResultadoConfirmacion;
 import ventas.integracion.eventos.EventoRecibido;
 import ventas.integracion.eventos.EventoRecibidoRepository;
 import ventas.integracion.eventos.OrigenEvento;
@@ -40,6 +42,7 @@ public class NotificacionPagoService {
     private final EventoRecibidoRepository recibidos;
     private final MaquinaEstados maquina;
     private final ProductosClient productos;
+    private final MensajesProductosService mensajesProductos;
     private final TransactionOperations transaccion;
 
     /** Resultado de la transacción. reservaId != null: hay que confirmar o liberar el stock después del commit. */
@@ -54,11 +57,15 @@ public class NotificacionPagoService {
             return transaccion.execute(estado -> reintento(buscar(pedidoId), req));
         }
         // Acuerdo G6 y F1 CA-07b: pagado -> se consume la reserva; pago rechazado -> se libera. Fuera de la transacción
+        String pedido = hecho.respuesta().pedidoId();
         if (hecho.reservaId() != null) {
             if (hecho.resultado() == ResultadoPasarela.APROBADO) {
-                productos.confirmar(hecho.reservaId());
+                if (productos.confirmar(pedido, hecho.reservaId()) == ResultadoConfirmacion.RESERVA_EXPIRADA) {
+                    // La reserva venció antes del pago: se anula y se reembolsa (decisión 1, RESERVA_EXPIRADA)
+                    mensajesProductos.reservaExpiradaTrasPago(pedido);
+                }
             } else {
-                productos.liberar(hecho.reservaId());
+                productos.liberar(pedido, hecho.reservaId(), MotivoLiberacion.PAGO_NO_COMPLETADO);
             }
         }
         // TODO cupón: restaurarlo aquí cuando exista su consumo por RabbitMQ (kit G6 §18: reserva confirmada ->
@@ -100,7 +107,7 @@ public class NotificacionPagoService {
         } else {
             maquina.cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.PASARELA_PAGOS, MOTIVO_PAGO_RECHAZADO, fecha);
         }
-        // Si la reserva todavía no llegó (reservaId null), ResultadoReservaService confirma o libera al recibirla
+        // Si la reserva todavía no llegó (reservaId null), MensajesProductosService confirma o libera al recibirla
         return new Aplicado(new NotificacionPagoResponse(pedido.getCodigo(), pedido.getEstado(), req.transaccionId(), fecha),
                 pedido.getReservaId(), req.resultado());
     }
