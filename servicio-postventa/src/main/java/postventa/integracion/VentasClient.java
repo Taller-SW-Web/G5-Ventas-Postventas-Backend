@@ -108,7 +108,7 @@ public class VentasClient {
 
     static PedidoResumen convertir(PedidoM1 p) {
         List<PedidoResumen.Item> items = p.items() == null ? List.of() : p.items().stream()
-                .map(i -> new PedidoResumen.Item(CodigoPublico.id(i.productoId()), i.cantidad(), i.precioUnitario()))
+                .map(i -> new PedidoResumen.Item(i.productoId(), i.cantidad(), i.precioUnitario()))
                 .toList();
         String estado = limpiar(p.estado());
         OffsetDateTime fechaEntrega = null;
@@ -145,8 +145,8 @@ public class VentasClient {
         log.info("[simulado] consulta del pedido {}", pedidoId);
         return Optional.of(new PedidoResumen(pedidoId, despachado ? "DESPACHADO" : PedidoResumen.ENTREGADO,
                 clientePrueba, new BigDecimal("129.90"), "PEN",
-                List.of(new PedidoResumen.Item(101, 1, new BigDecimal("99.90")),
-                        new PedidoResumen.Item(999, 1, new BigDecimal("30.00"))),
+                List.of(new PedidoResumen.Item("PROD-101", 1, new BigDecimal("99.90")),
+                        new PedidoResumen.Item("PROD-999", 1, new BigDecimal("30.00"))),
                 entrega));
     }
 }

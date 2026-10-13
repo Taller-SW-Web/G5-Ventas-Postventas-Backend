@@ -85,7 +85,7 @@ public class DevolucionService {
     public RegistrarDevolucionResponse registrar(RegistrarDevolucionRequest solicitud, Solicitante quien) {
         validarEvidencias(solicitud);
         long idPedido = CodigoPublico.id(solicitud.pedidoId());
-        Map<Long, Integer> pedidas = agruparItems(solicitud.items());
+        Map<String, Integer> pedidas = agruparItems(solicitud.items());
 
         PedidoResumen pedido = ventas.consultarPedido(solicitud.pedidoId())
                 .orElseThrow(() -> new RecursoNoEncontradoException("PEDIDO_NO_ENCONTRADO",
@@ -136,35 +136,35 @@ public class DevolucionService {
         }
     }
 
-    /** productoId (PROD-101) -> cantidad, sumando las líneas repetidas del mismo producto. */
-    private static Map<Long, Integer> agruparItems(List<RegistrarDevolucionRequest.Item> items) {
-        Map<Long, Integer> pedidas = new LinkedHashMap<>();
+    /** productoId (tal cual lo da Productos) -> cantidad, sumando las líneas repetidas del mismo producto. */
+    private static Map<String, Integer> agruparItems(List<RegistrarDevolucionRequest.Item> items) {
+        Map<String, Integer> pedidas = new LinkedHashMap<>();
         for (RegistrarDevolucionRequest.Item item : items) {
-            pedidas.merge(CodigoPublico.id(item.productoId()), item.cantidad(), Integer::sum);
+            pedidas.merge(item.productoId().trim(), item.cantidad(), Integer::sum);
         }
         return pedidas;
     }
 
     /** Cada producto debe estar en el pedido y no se pueden devolver más unidades de las compradas. */
-    private void validarItems(PedidoResumen pedido, long idPedido, Map<Long, Integer> pedidas) {
-        Map<Long, Long> enCurso = new LinkedHashMap<>();
+    private void validarItems(PedidoResumen pedido, long idPedido, Map<String, Integer> pedidas) {
+        Map<String, Long> enCurso = new LinkedHashMap<>();
         devoluciones.unidadesEnCurso(idPedido).forEach(u -> enCurso.put(u.getIdProducto(), u.getCantidad()));
         pedidas.forEach((idProducto, cantidad) -> {
             long compradas = pedido.items().stream()
-                    .filter(i -> i.productoId() == idProducto)
+                    .filter(i -> idProducto.equals(i.productoId()))
                     .mapToLong(PedidoResumen.Item::cantidad)
                     .sum();
             if (compradas == 0) {
                 throw new SolicitudInvalidaException("ITEM_INVALIDO",
-                        "El producto PROD-" + idProducto + " no pertenece al pedido.");
+                        "El producto " + idProducto + " no pertenece al pedido.");
             }
             if (cantidad > compradas) {
                 throw new SolicitudInvalidaException("ITEM_INVALIDO",
-                        "Se pidieron " + cantidad + " unidades de PROD-" + idProducto + " y el pedido tiene " + compradas + ".");
+                        "Se pidieron " + cantidad + " unidades de " + idProducto + " y el pedido tiene " + compradas + ".");
             }
             if (enCurso.getOrDefault(idProducto, 0L) + cantidad > compradas) {
                 throw new ConflictoException("DEVOLUCION_EN_CURSO",
-                        "Ya existe una devolución para esas unidades de PROD-" + idProducto + ".");
+                        "Ya existe una devolución para esas unidades de " + idProducto + ".");
             }
         });
     }
@@ -201,7 +201,7 @@ public class DevolucionService {
         }
         return new DevolucionDetalle(d.codigo(), codigoPedido(d), d.getIdCliente(), d.getTipo(), d.getEstado(),
                 d.getMotivo(), d.getDescripcion(),
-                d.getItems().stream().map(i -> new DevolucionDetalle.Item("PROD-" + i.getIdProducto(), i.getCantidad())).toList(),
+                d.getItems().stream().map(i -> new DevolucionDetalle.Item(i.getIdProducto(), i.getCantidad())).toList(),
                 resolucion,
                 d.getEvidencias().stream().map(e -> new DevolucionDetalle.Evidencia(e.getTipo(), e.getUrl())).toList(),
                 d.getFechaRegistro());
@@ -351,13 +351,13 @@ public class DevolucionService {
         return r;
     }
 
-    private static BigDecimal precio(PedidoResumen pedido, long idProducto) {
+    private static BigDecimal precio(PedidoResumen pedido, String idProducto) {
         return pedido.items().stream()
-                .filter(i -> i.productoId() == idProducto)
+                .filter(i -> idProducto.equals(i.productoId()))
                 .map(PedidoResumen.Item::precioUnitario)
                 .findFirst()
                 .orElseThrow(() -> new ConflictoException("PEDIDO_INCONSISTENTE",
-                        "El producto PROD-" + idProducto + " ya no figura en el pedido " + pedido.pedidoId() + "."));
+                        "El producto " + idProducto + " ya no figura en el pedido " + pedido.pedidoId() + "."));
     }
 
     /** Con token, el sub del Gestor. Sin seguridad (solo local), el autorizadorId del cuerpo si es un UUID. */

@@ -13,7 +13,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/** Tabla postventa.devolucion_item (H2). id_producto es el número del código de Productos (PROD-101 -> 101). */
+/** Tabla postventa.devolucion_item (H2). id_producto es texto, tal cual lo da Productos (varchar(64), igual que M1). */
 @Entity
 @Table(name = "devolucion_item", schema = "postventa")
 @Getter
@@ -29,8 +29,8 @@ public class DevolucionItem {
     @JoinColumn(name = "id_devolucion", nullable = false)
     private Devolucion devolucion;
 
-    @Column(name = "id_producto", nullable = false)
-    private Long idProducto;
+    @Column(name = "id_producto", nullable = false, length = 64)
+    private String idProducto;
 
     @Column(nullable = false)
     private Integer cantidad;
