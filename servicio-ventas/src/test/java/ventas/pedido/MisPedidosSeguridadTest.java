@@ -74,6 +74,7 @@ class MisPedidosSeguridadTest {
     @MockitoBean ConsultarPedidoService consultarPedidoService;
     @MockitoBean CambiarEstadoService cambiarEstadoService;
     @MockitoBean EventoLogisticaService eventoLogisticaService;
+    @MockitoBean DespachoPedidoService despachoPedidoService;
 
     @TestConfiguration
     static class Claves {
@@ -227,6 +228,18 @@ class MisPedidosSeguridadTest {
                         .header("Authorization", "Bearer " + usuario(ISSUER, List.of("ADMIN_VENTAS")))
                         .contentType(MediaType.APPLICATION_JSON).content(cuerpo))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void losBotonesDePreparacionYDespachoSonSoloDelGestor() throws Exception {
+        for (String ruta : List.of("/api/v1/pedidos/PED-2026-00001/preparacion", "/api/v1/pedidos/PED-2026-00001/despacho")) {
+            mvc.perform(post(ruta).header("Authorization", "Bearer " + usuario(ISSUER, List.of("ADMIN_VENTAS"))))
+                    .andExpect(status().isOk());
+            mvc.perform(post(ruta).header("Authorization", "Bearer " + usuario(ISSUER, List.of("CLIENTE"))))
+                    .andExpect(status().isForbidden());
+            mvc.perform(post(ruta).header("Authorization", "Bearer " + servicio("ventas:pedidos:estado")))
+                    .andExpect(status().isForbidden());
+        }
     }
 
     private static final String CAMBIO = "{\"nuevoEstado\": \"DESPACHADO\", \"actor\": \"SISTEMA_LOGISTICA\"}";

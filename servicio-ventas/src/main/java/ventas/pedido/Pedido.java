@@ -81,6 +81,14 @@ public class Pedido {
 
     private String direccion;
 
+    /** Destino que pide Despacho (G2, contrato 7.1). null en pedidos anteriores y en Retail. */
+    private String departamento;
+
+    private String provincia;
+
+    @Column(name = "referencia_envio")
+    private String referenciaEnvio;
+
     /** Acuerdo H-02: cabecera Idempotency-Key de 1.1. Única; null en pedidos anteriores al acuerdo. */
     @Column(name = "idempotency_key", unique = true, length = 128)
     private String idempotencyKey;

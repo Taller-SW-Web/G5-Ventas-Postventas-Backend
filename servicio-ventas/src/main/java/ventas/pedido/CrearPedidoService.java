@@ -152,6 +152,9 @@ public class CrearPedidoService {
             pedido.setDestinatario(e.destinatario());
             pedido.setDistrito(e.distrito());
             pedido.setDireccion(e.direccion());
+            pedido.setDepartamento(e.departamento());
+            pedido.setProvincia(e.provincia());
+            pedido.setReferenciaEnvio(e.referencia());
         }
         pedido.setCostoEnvio(cero(p.costoEnvio()));
         if (req.cupon() != null) {

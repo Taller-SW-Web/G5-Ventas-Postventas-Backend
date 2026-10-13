@@ -36,10 +36,6 @@ seguridad:
   audiencia: api-postventa                                               # solo tokens de servicio
   cors-origenes: ${CORS_ORIGINS:http://localhost:5173}                   # separados por coma
   cliente-prueba: ${CLIENTE_PRUEBA:11111111-1111-1111-1111-111111111111} # solo con habilitada=false (/devoluciones/me)
-  # Token de servicio de M2 (client_credentials, kit de Seguridad §4 y §6). La credencial real llega en el Hito 4
-  token-url: ${SECURITY_TOKEN_URL:http://localhost:8080/api/v1/auth/token}
-  client-id: ${POSTVENTA_CLIENT_ID:modulo-postventa}
-  client-secret: ${POSTVENTA_CLIENT_SECRET:secreto-de-prueba}               # clave de prueba del kit §6
 
 integracion:
   simulado: ${INTEGRACION_SIMULADA:true}
