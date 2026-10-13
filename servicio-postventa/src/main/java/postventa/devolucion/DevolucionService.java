@@ -3,7 +3,6 @@ package postventa.devolucion;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
@@ -113,6 +112,7 @@ public class DevolucionService {
         devolucion.setDescripcion(textoOpcional(solicitud.descripcion()));
         devolucion.setEstado(EstadoDevolucion.SOLICITADA);
         devolucion.setFecha(ahora.toLocalDate());
+        devolucion.setFechaRegistro(ahora);
         pedidas.forEach(devolucion::agregarItem);
         solicitud.evidenciasOVacio().forEach(e -> devolucion.agregarEvidencia(e.url().trim(), e.tipo()));
         Devolucion guardada = devoluciones.save(devolucion);
@@ -196,14 +196,15 @@ public class DevolucionService {
                     : null;
             resolucion = new DevolucionDetalle.Resolucion(
                     d.getResolucion() == TipoResolucion.RECHAZO ? DecisionDevolucion.RECHAZADA : DecisionDevolucion.APROBADA,
-                    d.getResolucion(), d.getFundamentoRechazo(), d.getIdAutorizador(), null, reembolso);
+                    d.getResolucion(), d.getFundamentoRechazo(), d.getIdAutorizador(), d.getFechaResolucion(),
+                    d.getReferenciaOperacion(), reembolso);
         }
         return new DevolucionDetalle(d.codigo(), codigoPedido(d), d.getIdCliente(), d.getTipo(), d.getEstado(),
                 d.getMotivo(), d.getDescripcion(),
                 d.getItems().stream().map(i -> new DevolucionDetalle.Item("PROD-" + i.getIdProducto(), i.getCantidad())).toList(),
                 resolucion,
                 d.getEvidencias().stream().map(e -> new DevolucionDetalle.Evidencia(e.getTipo(), e.getUrl())).toList(),
-                inicioDelDia(d.getFecha()));
+                d.getFechaRegistro());
     }
 
     private static DevolucionDetalle.Reembolso bloqueReembolso(SolicitadorReembolso.Resultado r) {
@@ -224,7 +225,7 @@ public class DevolucionService {
                 PageRequest.of(pagina, tamano, Sort.by(Sort.Direction.DESC, "id")));
         List<ListadoDevolucionesResponse.Resumen> contenido = resultado.getContent().stream()
                 .map(d -> new ListadoDevolucionesResponse.Resumen(d.codigo(), codigoPedido(d), d.getTipo(),
-                        d.getEstado(), d.getMotivo(), estadoReembolso(d), inicioDelDia(d.getFecha())))
+                        d.getEstado(), d.getMotivo(), estadoReembolso(d), d.getFechaRegistro()))
                 .toList();
         return new ListadoDevolucionesResponse(clienteId, contenido, pagina, resultado.getTotalPages(),
                 resultado.getTotalElements());
@@ -261,30 +262,44 @@ public class DevolucionService {
                 .toList();
 
         if (!reintento) {
+            OffsetDateTime ahora = ahora();
             if (camino == TipoResolucion.CAMBIO && !productos.hayDisponibilidad(items)) {
                 throw new ConflictoException("SIN_STOCK",
                         "No existe disponibilidad para realizar el cambio solicitado. Puede resolverse como reembolso o rechazo.");
             }
-            if (devoluciones.aprobar(d.getId(), camino, autorizador) == 0) {
+            if (devoluciones.aprobar(d.getId(), camino, autorizador, ahora) == 0) {
                 throw noResoluble(d);
             }
             d.setIdAutorizador(autorizador);
+            d.setFechaResolucion(ahora);
             log.info("Devolución {} APROBADA como {}", d.codigo(), camino);
             // La aprobación del Gestor confirma la recepción de la unidad devuelta (ACUERDO_G6_PRODUCTOS)
             productos.reintegrar(d.codigo(), items);
         }
 
-        Optional<String> referencia = camino == TipoResolucion.REEMBOLSO
-                ? reembolsar(d)
-                : despacho.programarCambio(d.codigo(), codigoPedido(d), d.getIdCliente(), items);
+        // La referencia se guarda apenas se conoce; COMPLETADA solo cuando F4 o Despacho confirman
+        String referencia;
+        boolean confirmada;
+        if (camino == TipoResolucion.REEMBOLSO) {
+            SolicitadorReembolso.Resultado r = reembolsar(d);
+            referencia = r.reembolsoId();
+            confirmada = r.exitoso();
+        } else {
+            Optional<String> despachado = despacho.programarCambio(d.codigo(), codigoPedido(d), d.getIdCliente(), items);
+            referencia = despachado.orElse(null);
+            confirmada = despachado.isPresent();
+        }
+        if (referencia != null && !referencia.equals(d.getReferenciaOperacion())) {
+            devoluciones.guardarReferencia(d.getId(), referencia);
+        }
         EstadoDevolucion estado = EstadoDevolucion.APROBADA;
-        if (referencia.isPresent()) {
+        if (confirmada) {
             devoluciones.completar(d.getId());
             estado = EstadoDevolucion.COMPLETADA;
-            log.info("Devolución {} COMPLETADA ({})", d.codigo(), referencia.get());
+            log.info("Devolución {} COMPLETADA ({})", d.codigo(), referencia);
         }
         return new ResolucionResponse(d.codigo(), estado, DecisionDevolucion.APROBADA, camino, null,
-                d.getIdAutorizador(), ahora(), referencia.orElse(null));
+                d.getIdAutorizador(), d.getFechaResolucion(), referencia);
     }
 
     private ResolucionResponse rechazar(Devolucion d, String fundamento, UUID autorizador) {
@@ -292,12 +307,13 @@ public class DevolucionService {
             throw new SolicitudInvalidaException("FUNDAMENTO_REQUERIDO",
                     "El rechazo exige un fundamento que lo explique.");
         }
-        if (devoluciones.rechazar(d.getId(), autorizador, fundamento.trim()) == 0) {
+        OffsetDateTime ahora = ahora();
+        if (devoluciones.rechazar(d.getId(), autorizador, fundamento.trim(), ahora) == 0) {
             throw noResoluble(d);
         }
         log.info("Devolución {} RECHAZADA", d.codigo());
         return new ResolucionResponse(d.codigo(), EstadoDevolucion.RECHAZADA, DecisionDevolucion.RECHAZADA,
-                TipoResolucion.RECHAZO, fundamento.trim(), autorizador, ahora(), null);
+                TipoResolucion.RECHAZO, fundamento.trim(), autorizador, ahora, null);
     }
 
     /** Sin tipoResolucion se sigue lo que pidió el cliente. Un cambio puede derivarse a reembolso, no al revés. */
@@ -319,9 +335,8 @@ public class DevolucionService {
     /**
      * Pide el reembolso a F4 por el valor de las unidades devueltas, con el precio del snapshot del pedido.
      * Clave de idempotencia DEVOLUCION-{id} (guía 7.5): un reintento nunca paga dos veces.
-     * Devuelve el reembolsoId solo si F4 lo confirmó como EXITOSO.
      */
-    private Optional<String> reembolsar(Devolucion d) {
+    private SolicitadorReembolso.Resultado reembolsar(Devolucion d) {
         String pedidoId = codigoPedido(d);
         PedidoResumen pedido = ventas.consultarPedido(pedidoId)
                 .orElseThrow(() -> new ConflictoException("PEDIDO_INCONSISTENTE",
@@ -333,7 +348,7 @@ public class DevolucionService {
                 "DEVOLUCION-" + d.getId(), d.codigo(), pedidoId, monto, pedido.moneda(),
                 "Devolución " + d.codigo() + ": " + d.getMotivo(), d.getIdAutorizador()));
         log.info("Reembolso {} de la devolución {}: {}", r.reembolsoId(), d.codigo(), r.estado());
-        return r.exitoso() ? Optional.of(r.reembolsoId()) : Optional.empty();
+        return r;
     }
 
     private static BigDecimal precio(PedidoResumen pedido, long idProducto) {
@@ -381,11 +396,6 @@ public class DevolucionService {
      */
     private static String codigoPedido(Devolucion d) {
         return CodigoPublico.pedido(d.getIdPedido(), d.getFecha().getYear());
-    }
-
-    /** La tabla solo guarda la fecha (date): se informa como el inicio de ese día en UTC. */
-    private static OffsetDateTime inicioDelDia(LocalDate fecha) {
-        return fecha.atStartOfDay().atOffset(ZoneOffset.UTC);
     }
 
     private static String textoOpcional(String texto) {
