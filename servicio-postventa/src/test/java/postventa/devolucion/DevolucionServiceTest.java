@@ -298,6 +298,19 @@ class DevolucionServiceTest {
     }
 
     @Test
+    void siM1YaNoEncuentraElPedidoAlReembolsarRespondePedidoInconsistente() {
+        conItems(devolucion(EstadoDevolucion.EN_EVALUACION, TipoDevolucion.DEVOLUCION_DINERO));
+        when(devoluciones.aprobar(42L, TipoResolucion.REEMBOLSO, GESTOR)).thenReturn(1);
+        when(ventas.consultarPedido("PED-2026-00981")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> servicio.resolver("DEV-2026-0042", aprobar(null), Solicitante.gestor(GESTOR)))
+                .isInstanceOf(ConflictoException.class)
+                .extracting("codigo").isEqualTo("PEDIDO_INCONSISTENTE");
+        verifyNoInteractions(reembolsos);
+        verify(devoluciones, never()).completar(anyLong());
+    }
+
+    @Test
     void reintentarUnaAprobadaPendienteNoReintegraNiApruebaDeNuevo() {
         Devolucion d = devolucion(EstadoDevolucion.APROBADA, TipoDevolucion.DEVOLUCION_DINERO);
         d.setResolucion(TipoResolucion.REEMBOLSO);
