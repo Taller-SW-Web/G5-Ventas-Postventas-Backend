@@ -26,6 +26,17 @@ class VentasClientTest {
     static final Instant AHORA = Instant.parse("2026-10-12T15:00:00Z");
 
     @Test
+    void elProductoIdDeM1PasaTalCualSinConvertirloANumero() {
+        VentasClient.PedidoM1 m1 = new VentasClient.PedidoM1("PED-2026-00981", "ENTREGADO",
+                new VentasClient.ContactoM1(CLIENTE), new VentasClient.PagoM1(new BigDecimal("129.90"), "PEN"),
+                List.of(new VentasClient.ItemM1("prd-013-01", 1, new BigDecimal("129.90"))),
+                OffsetDateTime.parse("2026-10-11T09:00:00Z"), List.of());
+
+        assertThat(VentasClient.convertir(m1).items())
+                .containsExactly(new PedidoResumen.Item("prd-013-01", 1, new BigDecimal("129.90")));
+    }
+
+    @Test
     void laFechaDeEntregaEsLaDelHistorialEntregado() {
         VentasClient.PedidoM1 m1 = new VentasClient.PedidoM1("PED-2026-00981", "ENTREGADO",
                 new VentasClient.ContactoM1(CLIENTE), new VentasClient.PagoM1(new BigDecimal("129.90"), "PEN"),
@@ -39,7 +50,7 @@ class VentasClientTest {
         assertThat(p.entregado()).isTrue();
         assertThat(p.fechaEntrega()).isEqualTo(OffsetDateTime.parse("2026-10-05T18:30:00Z"));
         assertThat(p.clienteId()).isEqualTo(CLIENTE);
-        assertThat(p.items()).containsExactly(new PedidoResumen.Item(101, 2, new BigDecimal("64.95")));
+        assertThat(p.items()).containsExactly(new PedidoResumen.Item("PROD-101", 2, new BigDecimal("64.95")));
     }
 
     @Test
@@ -88,7 +99,7 @@ class VentasClientTest {
 
         assertThat(cliente.consultarPedido("PED-2026-00008")).get().satisfies(p -> {
             assertThat(p.entregado()).isTrue();
-            assertThat(p.items()).containsExactly(new PedidoResumen.Item(101, 2, new BigDecimal("50.00")));
+            assertThat(p.items()).containsExactly(new PedidoResumen.Item("PROD-101", 2, new BigDecimal("50.00")));
         });
         m1.verify();
     }
