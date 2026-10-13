@@ -28,6 +28,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import ventas.compartido.SecurityConfig;
 import ventas.pedido.dto.CrearPedidoResponse;
 import ventas.pedido.dto.NotificacionPagoResponse;
+import ventas.pedido.dto.PedidoDetalle;
 
 /** Sin base de datos: comprueba rutas, códigos HTTP y el formato de error del contrato. */
 @WebMvcTest(PedidoController.class)
@@ -47,9 +48,11 @@ class PedidoControllerTest {
     @MockitoBean
     NotificacionPagoService notificacionPagoService;
 
+    @MockitoBean
+    ConsultarPedidoService consultarPedidoService;
+
     @Test
     void losEndpointsPendientesDeF1Responden501() throws Exception {
-        esperar501(mvc.perform(get("/api/v1/pedidos/PED-2026-00001")));
         esperar501(mvc.perform(get("/api/v1/pedidos")));
         esperar501(mvc.perform(patch("/api/v1/pedidos/PED-2026-00001/estado")));
         esperar501(mvc.perform(post("/api/v1/pedidos/PED-2026-00001/eventos-logistica")));
@@ -127,6 +130,40 @@ class PedidoControllerTest {
                         .contentType(MediaType.APPLICATION_JSON).content(NOTIFICACION.replace("APROBADO", "QUIZAS")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.codigo").value("FORMATO_INVALIDO"));
+    }
+
+    @Test
+    void consultarPedidoResponde200ConElContrato() throws Exception {
+        when(consultarPedidoService.consultar(eq("PED-2026-00981"), any())).thenReturn(new PedidoDetalle(
+                "PED-2026-00981", CanalVenta.CHATBOT, EstadoPedido.ENTREGADO,
+                new PedidoDetalle.Contacto(java.util.UUID.fromString("11111111-1111-1111-1111-111111111111"),
+                        "Juan", "DNI", "72458912", "j@x.com", null),
+                new PedidoDetalle.Pago(new BigDecimal("129.90"), "PEN", "TARJETA_CREDITO"),
+                new PedidoDetalle.Envio("DELIVERY", "Av. La Marina 1234", "San Miguel", null),
+                java.util.List.of(new PedidoDetalle.Item("PROD-101", "SKU-AUR-01", "Audífonos", 1, new BigDecimal("129.90"))),
+                OffsetDateTime.parse("2026-09-23T00:05:00Z"), OffsetDateTime.parse("2026-09-25T10:00:00Z"),
+                java.util.List.of(new PedidoDetalle.Historial(EstadoPedido.CREADO,
+                        OffsetDateTime.parse("2026-09-23T00:05:00Z"), ActorHistorial.CANAL_CHATBOT, "Registro inicial de compra"))));
+
+        mvc.perform(get("/api/v1/pedidos/PED-2026-00981"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pedidoId").value("PED-2026-00981"))
+                .andExpect(jsonPath("$.estado").value("ENTREGADO"))
+                .andExpect(jsonPath("$.contacto.clienteId").value("11111111-1111-1111-1111-111111111111"))
+                .andExpect(jsonPath("$.pago.metodoPago").value("TARJETA_CREDITO"))
+                .andExpect(jsonPath("$.items[0].productoId").value("PROD-101"))
+                .andExpect(jsonPath("$.historialEstados[0].actor").value("CANAL_CHATBOT"))
+                .andExpect(jsonPath("$.ultimaActualizacion").value("2026-09-25T10:00:00Z"));
+    }
+
+    @Test
+    void consultarPedidoInexistenteResponde404() throws Exception {
+        when(consultarPedidoService.consultar(eq("PED-2026-99999"), any()))
+                .thenThrow(new ventas.compartido.RecursoNoEncontradoException("PEDIDO_NO_ENCONTRADO", "No existe"));
+
+        mvc.perform(get("/api/v1/pedidos/PED-2026-99999"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.codigo").value("PEDIDO_NO_ENCONTRADO"));
     }
 
     @Test
