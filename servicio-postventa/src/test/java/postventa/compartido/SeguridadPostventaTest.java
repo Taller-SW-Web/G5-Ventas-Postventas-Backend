@@ -43,6 +43,7 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import postventa.devolucion.DevolucionService;
 import postventa.devolucion.EvidenciaService;
+import postventa.reembolso.ReembolsoService;
 
 /**
  * Reglas de acceso de M2 (acuerdo A10) con tokens RS256 firmados de verdad.
@@ -64,6 +65,7 @@ class SeguridadPostventaTest {
 
     @MockitoBean DevolucionService devolucionService;
     @MockitoBean EvidenciaService evidenciaService;
+    @MockitoBean ReembolsoService reembolsoService;
 
     @TestConfiguration
     static class Claves {
