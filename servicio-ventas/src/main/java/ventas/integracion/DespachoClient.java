@@ -1,6 +1,9 @@
 package ventas.integracion;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.UUID;
 
@@ -101,8 +104,18 @@ public class DespachoClient {
         return Resultado.RECHAZADO;
     }
 
+    /** Misma clave para el mismo pedido (reintentos seguros), con formato UUID v4 (acuerdo G2, D9). */
     static String claveIdempotencia(String pedidoId) {
-        return UUID.nameUUIDFromBytes(("DESPACHO:" + pedidoId).getBytes(StandardCharsets.UTF_8)).toString();
+        try {
+            byte[] h = MessageDigest.getInstance("SHA-256")
+                    .digest(("DESPACHO:" + pedidoId).getBytes(StandardCharsets.UTF_8));
+            h[6] = (byte) ((h[6] & 0x0f) | 0x40);   // versión 4
+            h[8] = (byte) ((h[8] & 0x3f) | 0x80);   // variante IETF
+            ByteBuffer b = ByteBuffer.wrap(h);
+            return new UUID(b.getLong(), b.getLong()).toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);   // SHA-256 siempre existe en la JVM
+        }
     }
 
     /** El campo exacto del 201 está por confirmar con G2: se acepta idDespacho o id. */

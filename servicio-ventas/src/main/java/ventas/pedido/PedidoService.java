@@ -36,10 +36,10 @@ public class PedidoService {
     @Transactional(readOnly = true)
     public MisPedidosResponse listarMios(UUID clienteId, EstadoPedido estado, int page, int pageSize) {
         if (page < 1) {
-            throw new SolicitudInvalidaException("PARAMETRO_INVALIDO", "page debe ser 1 o mayor");
+            throw new SolicitudInvalidaException("PAGINACION_INVALIDA", "page debe ser 1 o mayor");
         }
         if (pageSize < 1 || pageSize > TAMANO_MAXIMO) {
-            throw new SolicitudInvalidaException("PARAMETRO_INVALIDO",
+            throw new SolicitudInvalidaException("PAGINACION_INVALIDA",
                     "pageSize debe estar entre 1 y " + TAMANO_MAXIMO);
         }
         Pageable pagina = PageRequest.of(page - 1, pageSize,
@@ -60,14 +60,14 @@ public class PedidoService {
     public ListadoPedidosResponse listar(UUID clienteId, EstadoPedido estado, LocalDate desde, LocalDate hasta,
                                          int pagina, int tamano) {
         if (clienteId == null) {
-            throw new SolicitudInvalidaException("PARAMETRO_INVALIDO", "clienteId es obligatorio",
+            throw new SolicitudInvalidaException("PARAMETRO_FALTANTE", "clienteId es obligatorio",
                     List.of(new ErrorResponse.Detalle("clienteId", "es obligatorio")));
         }
         if (pagina < 0) {
-            throw new SolicitudInvalidaException("PARAMETRO_INVALIDO", "pagina debe ser 0 o mayor");
+            throw new SolicitudInvalidaException("PAGINACION_INVALIDA", "pagina debe ser 0 o mayor");
         }
         if (tamano < 1 || tamano > TAMANO_MAXIMO) {
-            throw new SolicitudInvalidaException("PARAMETRO_INVALIDO", "tamano debe estar entre 1 y " + TAMANO_MAXIMO);
+            throw new SolicitudInvalidaException("PAGINACION_INVALIDA", "tamano debe estar entre 1 y " + TAMANO_MAXIMO);
         }
         if (desde != null && hasta != null && desde.isAfter(hasta)) {
             throw new SolicitudInvalidaException("PARAMETRO_INVALIDO", "desde no puede ser posterior a hasta");
