@@ -184,7 +184,7 @@ class MaquinaEstadosTest {
         assertThat(e.pedidoId()).isEqualTo("PED-2026-00981");
         assertThat(e.datos().motivo()).isNull();
         assertThat(e.datos().items()).hasSize(1);
-        assertThat(e.datos().items().get(0).productoId()).isEqualTo(101L);
+        assertThat(e.datos().items().get(0).productoId()).isEqualTo("PROD-101");
     }
 
     @Test
@@ -221,7 +221,7 @@ class MaquinaEstadosTest {
         p.setTotal(new BigDecimal("129.90"));
 
         DetallePedido d = new DetallePedido();
-        d.setIdProducto(101L);
+        d.setIdProducto("PROD-101");
         d.setCantidad(1);
         d.setPrecioUnitario(new BigDecimal("129.90"));
         d.setImporte(new BigDecimal("129.90"));

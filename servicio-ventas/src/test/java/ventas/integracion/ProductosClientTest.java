@@ -66,10 +66,11 @@ class ProductosClientTest {
     }
 
     @Test
-    void siProductosNoAdmiteLaReservaResponde409ControladoRnf05() {
+    void siProductosNoAdmiteLaReservaResponde503Rnf05() {
         servidor.expect(requestTo(BASE + "/api/v1/inventario/reservas")).andRespond(withServerError());
 
         assertThatThrownBy(() -> cliente.reservar(PEDIDO, "CHATBOT", List.of(new LineaReserva("SKU-1", 1))))
+                .isInstanceOf(ventas.compartido.DependenciaNoDisponibleException.class)
                 .extracting("codigo").isEqualTo("PRODUCTOS_NO_DISPONIBLE");
     }
 

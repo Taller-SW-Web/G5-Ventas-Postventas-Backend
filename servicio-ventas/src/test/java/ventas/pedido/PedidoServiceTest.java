@@ -5,9 +5,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -16,14 +18,18 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
 import ventas.compartido.SolicitudInvalidaException;
+import ventas.pedido.dto.ListadoPedidosResponse;
 import ventas.pedido.dto.MisPedidosResponse;
 
 @ExtendWith(MockitoExtension.class)
@@ -83,6 +89,49 @@ class PedidoServiceTest {
                 .isInstanceOf(SolicitudInvalidaException.class);
         assertThatThrownBy(() -> servicio.listarMios(CLIENTE, null, 1, 51))
                 .isInstanceOf(SolicitudInvalidaException.class);
+    }
+
+    // ---------- 1.4 Listar pedidos (Gestor) ----------
+
+    @Test
+    void listarDevuelveElFormatoDelContrato() {
+        when(pedidos.findAll(ArgumentMatchers.<Specification<Pedido>>any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(pedido()), PageRequest.of(0, 10), 1));
+
+        ListadoPedidosResponse r = servicio.listar(CLIENTE, null, null, null, 0, 10);
+
+        assertThat(r.clienteId()).isEqualTo(CLIENTE);
+        assertThat(r.pagina()).isZero();
+        assertThat(r.totalPaginas()).isEqualTo(1);
+        assertThat(r.totalElementos()).isEqualTo(1);
+        assertThat(r.contenido()).singleElement().satisfies(p -> assertThat(p.pedidoId()).isEqualTo("PED-2026-00981"));
+    }
+
+    @Test
+    void listarPaginaDesdeCeroYOrdenaPorFechaDescendente() {
+        when(pedidos.findAll(ArgumentMatchers.<Specification<Pedido>>any(), any(Pageable.class))).thenReturn(Page.empty());
+        servicio.listar(CLIENTE, EstadoPedido.PAGADO, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 13), 2, 25);
+
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(pedidos).findAll(ArgumentMatchers.<Specification<Pedido>>any(), captor.capture());
+        assertThat(captor.getValue().getPageNumber()).isEqualTo(2);
+        assertThat(captor.getValue().getPageSize()).isEqualTo(25);
+        assertThat(captor.getValue().getSort().getOrderFor("creadoEn").isDescending()).isTrue();
+    }
+
+    @Test
+    void listarRechazaParametrosInvalidos() {
+        assertThatThrownBy(() -> servicio.listar(null, null, null, null, 0, 10))
+                .isInstanceOf(SolicitudInvalidaException.class);
+        assertThatThrownBy(() -> servicio.listar(CLIENTE, null, null, null, -1, 10))
+                .isInstanceOf(SolicitudInvalidaException.class);
+        assertThatThrownBy(() -> servicio.listar(CLIENTE, null, null, null, 0, 0))
+                .isInstanceOf(SolicitudInvalidaException.class);
+        assertThatThrownBy(() -> servicio.listar(CLIENTE, null, null, null, 0, 51))
+                .isInstanceOf(SolicitudInvalidaException.class);
+        assertThatThrownBy(() -> servicio.listar(CLIENTE, null, LocalDate.of(2026, 10, 2), LocalDate.of(2026, 10, 1), 0, 10))
+                .isInstanceOf(SolicitudInvalidaException.class);
+        verifyNoInteractions(pedidos);
     }
 
     private static Pedido pedido() {
