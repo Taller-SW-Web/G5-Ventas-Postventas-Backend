@@ -1,6 +1,9 @@
 package ventas.integracion;
 
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -15,95 +18,118 @@ import org.springframework.web.client.RestClientException;
 import ventas.compartido.ConflictoException;
 
 /**
- * Módulo F (Productos, G6), según ACUERDO_G6_PRODUCTOS:
- * - Reservar: POST /api/v1/inventario/reservas -> 202. El resultado y el reservaId llegan después por RabbitMQ (po.sales.q).
- * - Confirmar: POST /api/v1/inventario/{reservaId}/confirmar cuando el pedido pasa a PAGADO.
- * - Liberar: POST /api/v1/inventario/{reservaId}/liberar en anulaciones antes del consumo.
- * - Cupón: solo por eventos en RabbitMQ (po.commands.x). Mientras la topología 0.6.0-rc.1 no esté operativa,
- *   en modo real solo queda en el log.
- * Retail no usa nada de esto (acuerdo G4, R9). Con integracion.simulado=true no se llama a nadie.
+ * Módulo F (Productos, G6), según su openapi.yaml (base /api/v1). Las tres operaciones responden 202:
+ * el resultado llega después por RabbitMQ (po.sales.q, ver MensajeInventario).
+ * - Reservar: POST /inventario/reservas, al crear el pedido (no Retail, acuerdo G4 R9).
+ * - Confirmar: POST /inventario/reservas/{reservaId}/confirmar, cuando el pedido pasa a PAGADO.
+ * - Liberar: POST /inventario/reservas/{reservaId}/liberar, en anulaciones antes del consumo.
+ * operation_id e Idempotency-Key salen del código del pedido: un reintento nunca duplica la operación.
+ * Con integracion.simulado=true no se llama a nadie y la reserva se da por creada al instante.
  */
 @Slf4j
 @Component
 public class ProductosClient {
 
-    public record ItemReserva(String productoId, String sku, int cantidad) {}
+    public enum Operacion { RESERVAR, CONFIRMAR, LIBERAR }
 
-    /** Resultado de una reserva: lo trae po.sales.q, o lo inventa el modo simulado. */
-    public record ResultadoReserva(String referencia, String reservaId, boolean confirmada) {}
+    /** reason de LiberarReservaRequest. */
+    public enum MotivoLiberacion { PAGO_NO_COMPLETADO, ANULACION, EXPIRACION_FORZADA, OTRO }
 
-    /** customer_ref = UUID sub de Seguridad (acuerdo G6). */
-    private record ReservaRequest(String referencia, UUID customerRef, List<ItemReserva> items) {}
+    public enum ResultadoConfirmacion { ACEPTADA, RESERVA_EXPIRADA, NO_ENVIADA }
+
+    public record LineaReserva(String sku, int cantidad) {}
 
     private final boolean simulado;
     private final RestClient http;
 
     public ProductosClient(@Value("${integracion.simulado:true}") boolean simulado,
-                           @Value("${integracion.productos-url:http://localhost:8090}") String url) {
+                           @Value("${integracion.productos-url:http://localhost:8090}") String url,
+                           RestClient.Builder builder) {
         this.simulado = simulado;
-        this.http = RestClient.builder().baseUrl(url).build();
+        this.http = builder.baseUrl(url + "/api/v1").build();
+    }
+
+    /** Siempre el mismo UUID para la misma operación sobre el mismo pedido. */
+    public static String operacionId(Operacion operacion, String pedidoId) {
+        return UUID.nameUUIDFromBytes((operacion + ":" + pedidoId).getBytes(StandardCharsets.UTF_8)).toString();
     }
 
     /**
-     * Pide la reserva. La referencia es la Idempotency-Key del pedido: con ella se encuentra el pedido
-     * cuando llega la respuesta. En modo simulado devuelve el resultado al instante (reserva confirmada);
-     * en modo real devuelve vacío porque el resultado llega por RabbitMQ.
-     * Si Productos rechaza el comando en el acto (409/422) lanza 409 ITEM_SIN_DISPONIBILIDAD.
+     * Pide la reserva. Se llama dentro de la transacción que guarda el pedido: si Productos no admite el comando
+     * lanza 409 PRODUCTOS_NO_DISPONIBLE y el pedido no se guarda (RNF-05). La falta de stock NO llega aquí:
+     * llega después como inventory.consumption.rejected. En modo simulado devuelve el mensaje de reserva creada.
      */
-    public Optional<ResultadoReserva> reservar(String referencia, UUID customerRef, List<ItemReserva> items) {
+    public Optional<MensajeInventario> reservar(String pedidoId, String canal, List<LineaReserva> lineas) {
+        String operacion = operacionId(Operacion.RESERVAR, pedidoId);
         if (simulado) {
-            log.info("[simulado] reserva de stock {} -> {}", referencia, items);
-            return Optional.of(new ResultadoReserva(referencia, "SIM-" + referencia, true));
+            log.info("[simulado] reserva de stock de {} -> {}", pedidoId, lineas);
+            return Optional.of(new MensajeInventario("SIM-" + operacion, MensajeInventario.RESERVA_CREADA, operacion,
+                    Map.of(MensajeInventario.CAMPO_PEDIDO, pedidoId, MensajeInventario.CAMPO_RESERVA, "SIM-" + pedidoId)));
         }
+        Map<String, Object> cuerpo = new HashMap<>();
+        cuerpo.put("order_id", pedidoId);
+        cuerpo.put("operation_id", operacion);
+        cuerpo.put("channel_id", canal);
+        // location_id se omite: un solo almacén central (decisión del equipo, pendiente de confirmar con Productos)
+        cuerpo.put("lines", lineas.stream().map(l -> Map.of("sku", l.sku(), "quantity", l.cantidad())).toList());
         try {
-            http.post().uri("/api/v1/inventario/reservas")
-                    .body(new ReservaRequest(referencia, customerRef, items))
+            http.post().uri("/inventario/reservas")
+                    .header("Idempotency-Key", operacion)
+                    .body(cuerpo)
                     .retrieve()
                     .toBodilessEntity();
             return Optional.empty();
-        } catch (HttpClientErrorException e) {
-            if (e.getStatusCode() == HttpStatus.CONFLICT || e.getStatusCode() == HttpStatus.UNPROCESSABLE_ENTITY) {
-                throw new ConflictoException("ITEM_SIN_DISPONIBILIDAD", "Uno o más ítems no tienen stock disponible");
-            }
-            throw new IllegalStateException("Productos rechazó la reserva: " + e.getStatusCode(), e);
         } catch (RestClientException e) {
-            throw new IllegalStateException("No se pudo contactar a Productos", e);
+            log.error("Productos no admitió la reserva de {}: {}", pedidoId, e.getMessage());
+            throw new ConflictoException("PRODUCTOS_NO_DISPONIBLE",
+                    "No se pudo reservar el stock en Productos; intente nuevamente");
         }
-    }
-
-    /** Consume la reserva cuando el pedido se paga. Nunca lanza excepción: si falla, queda en el log. */
-    public void confirmar(String reservaId) {
-        llamar("/api/v1/inventario/{reservaId}/confirmar", reservaId, "confirmar");
-    }
-
-    /** Devuelve el stock reservado cuando el pedido se anula antes del consumo. Nunca lanza excepción. */
-    public void liberar(String reservaId) {
-        llamar("/api/v1/inventario/{reservaId}/liberar", reservaId, "liberar");
     }
 
     /**
-     * Pide a Productos que restaure un cupón ya consumido (promotions.coupon.restoration.requested),
-     * cuando el pedido se anula. Nunca lanza excepción.
+     * Consume la reserva cuando el pedido se paga. RESERVA_EXPIRADA: Productos la rechazó al instante (409);
+     * el resto de rechazos llegan por RabbitMQ. Nunca lanza excepción.
      */
-    public void restaurarCupon(String codigoCupon, String pedidoId, UUID customerRef) {
+    public ResultadoConfirmacion confirmar(String pedidoId, String reservaId) {
         if (simulado) {
-            log.info("[simulado] restaurar cupón {} del pedido {}", codigoCupon, pedidoId);
-            return;
+            log.info("[simulado] confirmar reserva {} de {}", reservaId, pedidoId);
+            return ResultadoConfirmacion.ACEPTADA;
         }
-        // Pendiente: publicar en po.commands.x cuando Productos confirme el formato del evento (acuerdo G6)
-        log.warn("Restauración del cupón {} del pedido {} pendiente: RabbitMQ de Productos no operativo",
-                codigoCupon, pedidoId);
+        String operacion = operacionId(Operacion.CONFIRMAR, pedidoId);
+        try {
+            http.post().uri("/inventario/reservas/{reservaId}/confirmar", reservaId)
+                    .header("Idempotency-Key", operacion)
+                    .body(Map.of("order_id", pedidoId, "operation_id", operacion))
+                    .retrieve()
+                    .toBodilessEntity();
+            return ResultadoConfirmacion.ACEPTADA;
+        } catch (HttpClientErrorException e) {
+            if (e.getStatusCode() == HttpStatus.CONFLICT && e.getResponseBodyAsString().contains("RESERVA_EXPIRADA")) {
+                return ResultadoConfirmacion.RESERVA_EXPIRADA;
+            }
+            log.warn("Productos rechazó confirmar la reserva {} de {}: {}", reservaId, pedidoId, e.getMessage());
+            return ResultadoConfirmacion.NO_ENVIADA;
+        } catch (RestClientException e) {
+            log.warn("No se pudo confirmar la reserva {} de {}: {}", reservaId, pedidoId, e.getMessage());
+            return ResultadoConfirmacion.NO_ENVIADA;
+        }
     }
 
-    private void llamar(String ruta, String reservaId, String accion) {
+    /** Devuelve el stock reservado cuando el pedido se anula antes del consumo. Nunca lanza excepción. */
+    public void liberar(String pedidoId, String reservaId, MotivoLiberacion motivo) {
         if (simulado) {
-            log.info("[simulado] {} reserva {}", accion, reservaId);
+            log.info("[simulado] liberar reserva {} de {} ({})", reservaId, pedidoId, motivo);
             return;
         }
+        String operacion = operacionId(Operacion.LIBERAR, pedidoId);
         try {
-            http.post().uri(ruta, reservaId).retrieve().toBodilessEntity();
+            http.post().uri("/inventario/reservas/{reservaId}/liberar", reservaId)
+                    .header("Idempotency-Key", operacion)
+                    .body(Map.of("order_id", pedidoId, "operation_id", operacion, "reason", motivo.name()))
+                    .retrieve()
+                    .toBodilessEntity();
         } catch (RestClientException e) {
-            log.warn("No se pudo {} la reserva {} en Productos: {}", accion, reservaId, e.getMessage());
+            log.warn("No se pudo liberar la reserva {} de {}: {}", reservaId, pedidoId, e.getMessage());
         }
     }
 }
