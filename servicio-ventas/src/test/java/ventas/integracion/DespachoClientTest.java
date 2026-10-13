@@ -89,9 +89,10 @@ class DespachoClientTest {
     }
 
     @Test
-    void laClaveEsUuidYSiempreLaMismaParaElMismoPedido() {
+    void laClaveEsUuidV4YSiempreLaMismaParaElMismoPedido() {
         String clave = DespachoClient.claveIdempotencia("PED-2026-00981");
-        assertThat(UUID.fromString(clave).toString()).isEqualTo(clave);
+        assertThat(UUID.fromString(clave).version()).isEqualTo(4);
+        assertThat(UUID.fromString(clave).variant()).isEqualTo(2);
         assertThat(clave).isEqualTo(DespachoClient.claveIdempotencia("PED-2026-00981"))
                 .isNotEqualTo(DespachoClient.claveIdempotencia("PED-2026-00982"));
     }
