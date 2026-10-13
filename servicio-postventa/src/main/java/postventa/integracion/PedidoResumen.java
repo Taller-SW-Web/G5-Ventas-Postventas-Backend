@@ -14,8 +14,8 @@ public record PedidoResumen(String pedidoId, String estado, UUID clienteId, BigD
 
     public static final String ENTREGADO = "ENTREGADO";
 
-    /** productoId es el número final del código de Productos (PROD-101 -> 101), como en la regla 3.5. */
-    public record Item(long productoId, int cantidad, BigDecimal precioUnitario) {}
+    /** productoId es texto, tal cual lo da Productos (UUID o código como prd-013-01) y lo devuelve M1 en la 1.3. */
+    public record Item(String productoId, int cantidad, BigDecimal precioUnitario) {}
 
     public boolean entregado() {
         return ENTREGADO.equals(estado);

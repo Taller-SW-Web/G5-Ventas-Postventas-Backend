@@ -18,7 +18,7 @@ public interface DevolucionRepository extends JpaRepository<Devolucion, Long> {
 
     /** Unidades de un producto ya incluidas en devoluciones del pedido que no fueron rechazadas. */
     interface UnidadesDevueltas {
-        Long getIdProducto();
+        String getIdProducto();
         Long getCantidad();
     }
 

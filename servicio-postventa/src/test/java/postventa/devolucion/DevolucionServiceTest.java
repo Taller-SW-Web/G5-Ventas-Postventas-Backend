@@ -79,6 +79,26 @@ class DevolucionServiceTest {
     // ================================================================ ESP-07 (registro)
 
     @Test
+    void aceptaIdsRealesDeProductosComoTexto() {
+        // Productos usa UUID o códigos como prd-013-01; antes M2 los convertía a número y respondía 400
+        String uuid = "7f3c2a10-9b1e-4c55-8a21-0d4e5f6a7b8c";
+        PedidoResumen pedido = new PedidoResumen("PED-2026-00981", "ENTREGADO", CLIENTE, new BigDecimal("129.90"), "PEN",
+                List.of(new PedidoResumen.Item("prd-013-01", 1, new BigDecimal("99.90")),
+                        new PedidoResumen.Item(uuid, 1, new BigDecimal("30.00"))),
+                OffsetDateTime.ofInstant(AHORA, ZoneOffset.UTC).minusDays(2));
+        when(ventas.consultarPedido("PED-2026-00981")).thenReturn(Optional.of(pedido));
+
+        servicio.registrar(new RegistrarDevolucionRequest("PED-2026-00981", TipoDevolucion.DEVOLUCION_DINERO,
+                MotivoDevolucion.OTRO, null, List.of(new RegistrarDevolucionRequest.Item("prd-013-01", 1),
+                new RegistrarDevolucionRequest.Item(uuid, 1)), null), Solicitante.servicio());
+
+        ArgumentCaptor<Devolucion> guardada = ArgumentCaptor.forClass(Devolucion.class);
+        verify(devoluciones).save(guardada.capture());
+        assertThat(guardada.getValue().getItems()).extracting(DevolucionItem::getIdProducto)
+                .containsExactly("prd-013-01", uuid);
+    }
+
+    @Test
     void ca01_registraDevolucionDePedidoEntregadoEnEstadoSolicitada() {
         when(ventas.consultarPedido("PED-2026-00981")).thenReturn(Optional.of(entregado(2)));
 
@@ -94,7 +114,7 @@ class DevolucionServiceTest {
         assertThat(d.getIdCliente()).isEqualTo(CLIENTE);
         assertThat(d.getFechaRegistro()).isEqualTo(AHORA_UTC);
         assertThat(d.getItems()).singleElement().satisfies(i -> {
-            assertThat(i.getIdProducto()).isEqualTo(101L);
+            assertThat(i.getIdProducto()).isEqualTo("PROD-101");
             assertThat(i.getCantidad()).isEqualTo(1);
         });
         assertThat(d.getEvidencias()).singleElement().satisfies(e -> assertThat(e.getUrl()).isEqualTo(EVIDENCIA));
@@ -195,7 +215,7 @@ class DevolucionServiceTest {
     @Test
     void noSeDevuelvenDosVecesLasMismasUnidades() {
         when(ventas.consultarPedido("PED-2026-00981")).thenReturn(Optional.of(entregado(2)));
-        when(devoluciones.unidadesEnCurso(981L)).thenReturn(List.of(unidades(101L, 1L)));
+        when(devoluciones.unidadesEnCurso(981L)).thenReturn(List.of(unidades("PROD-101", 1L)));
 
         assertThatThrownBy(() -> servicio.registrar(solicitud(MotivoDevolucion.OTRO), Solicitante.servicio()))
                 .isInstanceOf(ConflictoException.class)
@@ -283,7 +303,7 @@ class DevolucionServiceTest {
         assertThat(r.autorizadorId()).isEqualTo(GESTOR);
         assertThat(r.fechaResolucion()).isEqualTo(AHORA_UTC);
         verify(devoluciones).guardarReferencia(42L, "DESP-1");
-        verify(productos).reintegrar(eq("DEV-2026-0042"), eq(List.of(new ProductosClient.ItemProducto(101, 1))));
+        verify(productos).reintegrar(eq("DEV-2026-0042"), eq(List.of(new ProductosClient.ItemProducto("PROD-101", 1))));
         verify(devoluciones).completar(42L);
         verifyNoInteractions(reembolsos);
     }
@@ -469,8 +489,8 @@ class DevolucionServiceTest {
     }
 
     private static List<PedidoResumen.Item> items() {
-        return List.of(new PedidoResumen.Item(101, 1, new BigDecimal("99.90")),
-                new PedidoResumen.Item(999, 1, new BigDecimal("30.00")));
+        return List.of(new PedidoResumen.Item("PROD-101", 1, new BigDecimal("99.90")),
+                new PedidoResumen.Item("PROD-999", 1, new BigDecimal("30.00")));
     }
 
     private static Devolucion devolucion(EstadoDevolucion estado, TipoDevolucion tipo) {
@@ -483,7 +503,7 @@ class DevolucionServiceTest {
         d.setEstado(estado);
         d.setFecha(LocalDate.of(2026, 10, 12));
         d.setFechaRegistro(REGISTRO);
-        d.agregarItem(101, 1);
+        d.agregarItem("PROD-101", 1);
         d.agregarEvidencia(EVIDENCIA, TipoEvidencia.IMAGEN);
         return d;
     }
@@ -501,9 +521,9 @@ class DevolucionServiceTest {
                 "TX-SIM-000001", OffsetDateTime.ofInstant(AHORA, ZoneOffset.UTC));
     }
 
-    private static DevolucionRepository.UnidadesDevueltas unidades(Long idProducto, Long cantidad) {
+    private static DevolucionRepository.UnidadesDevueltas unidades(String idProducto, Long cantidad) {
         return new DevolucionRepository.UnidadesDevueltas() {
-            @Override public Long getIdProducto() { return idProducto; }
+            @Override public String getIdProducto() { return idProducto; }
             @Override public Long getCantidad() { return cantidad; }
         };
     }

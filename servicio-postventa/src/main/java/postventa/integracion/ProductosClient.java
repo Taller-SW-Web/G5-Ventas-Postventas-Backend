@@ -17,15 +17,15 @@ import postventa.compartido.DependenciaNoDisponibleException;
  * - Reintegro de la unidad devuelta: POST /api/v1/inventario/reintegros (ACUERDO_G6_PRODUCTOS, 2026-10-11),
  *   al aprobar un CAMBIO o un REEMBOLSO. Admite reintegros parciales por línea. El cuerpo aún no está
  *   confirmado; se manda la referencia de la devolución para que Productos descarte repetidos.
- * Con integracion.simulado=true no se llama a nadie; el producto 999 (PROD-999) no tiene stock.
+ * Con integracion.simulado=true no se llama a nadie; el producto PROD-999 no tiene stock.
  */
 @Slf4j
 @Component
 public class ProductosClient {
 
-    public static final long PRODUCTO_SIN_STOCK_SIMULADO = 999;
+    public static final String PRODUCTO_SIN_STOCK_SIMULADO = "PROD-999";
 
-    public record ItemProducto(long productoId, int cantidad) {}
+    public record ItemProducto(String productoId, int cantidad) {}
 
     private record ReintegroRequest(String referencia, List<ItemProducto> items) {}
 
@@ -41,7 +41,7 @@ public class ProductosClient {
     /** true si todos los ítems tienen stock para enviarlos de nuevo. */
     public boolean hayDisponibilidad(List<ItemProducto> items) {
         if (simulado) {
-            boolean hay = items.stream().noneMatch(i -> i.productoId() == PRODUCTO_SIN_STOCK_SIMULADO);
+            boolean hay = items.stream().noneMatch(i -> PRODUCTO_SIN_STOCK_SIMULADO.equals(i.productoId()));
             log.info("[simulado] disponibilidad de {} -> {}", items, hay);
             return hay;
         }
