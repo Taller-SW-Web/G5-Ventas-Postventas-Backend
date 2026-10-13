@@ -24,9 +24,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import ventas.compartido.ConflictoException;
 import ventas.compartido.SolicitudInvalidaException;
+import ventas.integracion.CuponesClient;
 import ventas.integracion.eventos.EventoPedidoPayload;
 import ventas.integracion.eventos.PublicadorEventos;
 import ventas.integracion.eventos.TipoEvento;
@@ -53,6 +56,7 @@ public class MaquinaEstados {
     private final PedidoRepository pedidos;
     private final HistorialEstadoRepository historial;
     private final PublicadorEventos eventos;
+    private final CuponesClient cupones;
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void cambiar(Pedido pedido, EstadoPedido destino, ActorHistorial actor, String motivo) {
@@ -99,6 +103,31 @@ public class MaquinaEstados {
         };
         if (tipo != null) {
             eventos.publicar(tipo, pedido, payload(pedido, tipo, motivo, ahora));
+        }
+        if (destino == ANULADO) {
+            restaurarCuponDespuesDelCommit(pedido, motivo);
+        }
+    }
+
+    /**
+     * Kit G6 §18: si un pedido con cupón se anula, se pide restaurarlo (si nunca se consumió, Productos responde
+     * NO_CONSUMPTION). Se publica después del commit, para no avisar de una anulación que luego se deshace.
+     * Si el cupón fue justo lo que se rechazó, no hay nada que restaurar.
+     */
+    private void restaurarCuponDespuesDelCommit(Pedido pedido, String motivo) {
+        if (!MensajesProductosService.tieneCupon(pedido) || MensajesProductosService.MOTIVO_CUPON_RECHAZADO.equals(motivo)) {
+            return;
+        }
+        String codigo = pedido.getCodigo();
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    cupones.restaurar(codigo, motivo);
+                }
+            });
+        } else {
+            cupones.restaurar(codigo, motivo);
         }
     }
 

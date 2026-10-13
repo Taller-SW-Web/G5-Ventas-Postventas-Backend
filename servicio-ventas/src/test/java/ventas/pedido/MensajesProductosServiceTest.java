@@ -46,6 +46,7 @@ class MensajesProductosServiceTest {
     @Mock ProductosClient productos;
     @Mock PasarelaClient pasarela;
     @Mock ReembolsoAnulacionService reembolsos;
+    @Mock ventas.integracion.CuponesClient cupones;
 
     MensajesProductosService servicio;
     Pedido pedido;
@@ -53,7 +54,7 @@ class MensajesProductosServiceTest {
     @BeforeEach
     void armar() {
         servicio = new MensajesProductosService(pedidos, pagos, recibidos, maquina, anulaciones, productos, pasarela,
-                reembolsos, TransactionOperations.withoutTransaction());
+                reembolsos, cupones, TransactionOperations.withoutTransaction());
         pedido = new Pedido();
         pedido.setId(981L);
         pedido.setCodigo(CODIGO);
@@ -264,5 +265,109 @@ class MensajesProductosServiceTest {
                 MensajesProductosService.MOTIVO_RESERVA_EXPIRADA);
         verify(reembolsos).registrar(eq("ANUL-0009"), eq(981L), any(), eq("PEN"), anyString());
         verify(reembolsos).enviar("ANUL-0009");
+    }
+
+    // ---------- cupón (kit G6 §18: reserva -> consumo de cupón -> pago) ----------
+
+    private static MensajeInventario cupon(String nombre) {
+        return new MensajeInventario("msg-cupon", nombre, ventas.integracion.CuponesClient.operacionConsumo(CODIGO),
+                Map.of("order_id", CODIGO, "code", "CUPON_AGOTADO"));
+    }
+
+    @Test
+    void conCuponLaReservaCreadaPideConsumirloAntesDelCobro() {
+        pedido.setCodigoCupon("DESC10");
+        pedido.setIdCliente(java.util.UUID.fromString("3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a"));
+        pedido.setCreadoEn(java.time.OffsetDateTime.parse("2026-10-13T10:00:00Z"));
+        pedidoExiste();
+        when(cupones.consumir(any(), any(), any(), any(), any())).thenReturn(Optional.empty());   // modo real: llega después
+
+        servicio.procesar(creada());
+
+        verify(cupones).consumir(CODIGO, "DESC10", pedido.getIdCliente(), "MARKETPLACE", pedido.getCreadoEn());
+        verifyNoInteractions(pasarela);   // todavía no se cobra
+    }
+
+    @Test
+    void cuponConsumidoHabilitaElCobroEnMarketplace() {
+        pedido.setCodigoCupon("DESC10");
+        pedidoExiste();
+        Pago pago = new Pago();
+        pago.setMetodo("TARJETA_CREDITO");
+        when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
+
+        servicio.procesar(cupon(MensajeInventario.CUPON_CONSUMIDO));
+
+        verify(pasarela).iniciarCobro(CODIGO, new BigDecimal("129.90"), "PEN", "TARJETA_CREDITO");
+    }
+
+    @Test
+    void enModoSimuladoElCuponSeConsumeYSeCobraEnSeguida() {
+        pedido.setCodigoCupon("DESC10");
+        pedido.setCreadoEn(java.time.OffsetDateTime.parse("2026-10-13T10:00:00Z"));
+        pedidoExiste();
+        Pago pago = new Pago();
+        pago.setMetodo("TARJETA_CREDITO");
+        when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
+        when(cupones.consumir(any(), any(), any(), any(), any())).thenReturn(Optional.of(new MensajeInventario(
+                "SIM-cupon", MensajeInventario.CUPON_CONSUMIDO, "op", Map.of("order_id", CODIGO))));
+
+        servicio.procesar(creada());
+
+        verify(pasarela).iniciarCobro(CODIGO, new BigDecimal("129.90"), "PEN", "TARJETA_CREDITO");
+    }
+
+    @Test
+    void cuponRechazadoAnulaElPedidoYLiberaLaReserva() {
+        pedido.setCodigoCupon("DESC10");
+        pedido.setReservaId("RES-778");
+        pedidoExiste();
+
+        servicio.procesar(cupon(MensajeInventario.CUPON_RECHAZADO));
+
+        verify(maquina).cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_PRODUCTOS,
+                MensajesProductosService.MOTIVO_CUPON_RECHAZADO);
+        verify(productos).liberar(CODIGO, "RES-778", MotivoLiberacion.ANULACION);
+        verifyNoInteractions(pasarela, reembolsos);
+    }
+
+    @Test
+    void cuponRechazadoConElPedidoYaPagadoAnulaYReembolsa() {
+        pedido.setCanal(CanalVenta.CHATBOT);
+        pedido.setEstado(EstadoPedido.PAGADO);
+        pedido.setCodigoCupon("DESC10");
+        pedidoExiste();
+        when(anulaciones.registrarEjecutada(981L, MensajesProductosService.MOTIVO_CUPON_RECHAZADO)).thenReturn("ANUL-0010");
+
+        servicio.procesar(cupon(MensajeInventario.CUPON_RECHAZADO));
+
+        verify(reembolsos).registrar(eq("ANUL-0010"), eq(981L), any(), eq("PEN"), anyString());
+        verify(reembolsos).enviar("ANUL-0010");
+    }
+
+    @Test
+    void elChatbotQuePagoAntesConsumeElCuponAlConfirmarLaReserva() {
+        pedido.setCanal(CanalVenta.CHATBOT);
+        pedido.setEstado(EstadoPedido.PAGADO);
+        pedido.setCodigoCupon("DESC10");
+        pedido.setCreadoEn(java.time.OffsetDateTime.parse("2026-10-13T10:00:00Z"));
+        pedidoExiste();
+        when(productos.confirmar(CODIGO, "RES-778")).thenReturn(ResultadoConfirmacion.ACEPTADA);
+        when(cupones.consumir(any(), any(), any(), any(), any())).thenReturn(Optional.empty());
+
+        servicio.procesar(creada());
+
+        verify(cupones).consumir(eq(CODIGO), eq("DESC10"), any(), eq("CHATBOT"), any());
+    }
+
+    @Test
+    void retailNoConsumeCuponPorM1() {
+        pedido.setCanal(CanalVenta.RETAIL);
+        pedido.setCodigoCupon("DESC10");
+        assertThat(MensajesProductosService.tieneCupon(pedido)).isFalse();
+        pedido.setCanal(CanalVenta.CHATBOT);
+        assertThat(MensajesProductosService.tieneCupon(pedido)).isTrue();
+        pedido.setCodigoCupon(" ");
+        assertThat(MensajesProductosService.tieneCupon(pedido)).isFalse();
     }
 }

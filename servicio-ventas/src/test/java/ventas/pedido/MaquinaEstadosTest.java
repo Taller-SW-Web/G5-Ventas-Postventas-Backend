@@ -33,6 +33,7 @@ class MaquinaEstadosTest {
     @Mock PedidoRepository pedidos;
     @Mock HistorialEstadoRepository historial;
     @Mock PublicadorEventos eventos;
+    @Mock ventas.integracion.CuponesClient cupones;
     @InjectMocks MaquinaEstados maquina;
 
     @ParameterizedTest(name = "{0} -> {1} por {2}")
@@ -197,6 +198,27 @@ class MaquinaEstadosTest {
         verify(eventos).publicar(eq(TipoEvento.PEDIDO_ANULADO), eq(p), captor.capture());
         assertThat(captor.getValue().datos().motivo()).isEqualTo("ARREPENTIMIENTO_COMPRA");
         assertThat(captor.getValue().datos().items()).isNull();
+    }
+
+    @Test
+    void anularUnPedidoConCuponPideRestaurarlo() {
+        Pedido p = pedidoEn(EstadoPedido.PAGADO);
+        p.setCodigoCupon("DESC10");
+
+        maquina.cambiar(p, EstadoPedido.ANULADO, ActorHistorial.CLIENTE, "ARREPENTIMIENTO_COMPRA");
+
+        verify(cupones).restaurar("PED-2026-00981", "ARREPENTIMIENTO_COMPRA");
+    }
+
+    @Test
+    void siLoRechazadoFueElCuponOElPedidoNoTieneCuponNoSeRestaura() {
+        Pedido conCupon = pedidoEn(EstadoPedido.CREADO);
+        conCupon.setCodigoCupon("DESC10");
+        maquina.cambiar(conCupon, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_PRODUCTOS, "CUPON_RECHAZADO");
+
+        maquina.cambiar(pedidoEn(EstadoPedido.PAGADO), EstadoPedido.ANULADO, ActorHistorial.CLIENTE, "ARREPENTIMIENTO_COMPRA");
+
+        verifyNoInteractions(cupones);
     }
 
     @Test

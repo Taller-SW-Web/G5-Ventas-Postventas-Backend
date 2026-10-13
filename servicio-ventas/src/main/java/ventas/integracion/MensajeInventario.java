@@ -15,6 +15,8 @@ public record MensajeInventario(String messageId, String name, String operationI
     public static final String RESERVA_EXPIRADA = "inventory.reservation.expired";
     public static final String CONSUMO_COMPLETADO = "inventory.consumption.completed";
     public static final String CONSUMO_RECHAZADO = "inventory.consumption.rejected";
+    public static final String CUPON_CONSUMIDO = "promotions.coupon.consumption.completed";
+    public static final String CUPON_RECHAZADO = "promotions.coupon.consumption.rejected";
 
     /** Supuestos de SPEC-015 §30, sin confirmar en el asyncapi (data es GenericData). */
     static final String CAMPO_PEDIDO = "order_id";
