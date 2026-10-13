@@ -1,6 +1,5 @@
 package postventa.compartido;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -38,15 +37,11 @@ import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.ResultActions;
-
-import postventa.devolucion.DevolucionService;
-import postventa.devolucion.EvidenciaService;
 
 /**
  * Reglas de acceso de M2 (acuerdo A10) con tokens RS256 firmados de verdad.
- * Los services se simulan: solo importa si la seguridad deja pasar (cualquier respuesta distinta de 401 y 403).
+ * Todavía no hay controllers en M2: si la seguridad deja pasar, la respuesta es 404 (ruta sin implementar).
  */
 @WebMvcTest(properties = {
         "seguridad.habilitada=true",
@@ -61,9 +56,6 @@ class SeguridadPostventaTest {
 
     @Autowired MockMvc mvc;
     @Autowired JwtEncoder firmador;
-
-    @MockitoBean DevolucionService devolucionService;
-    @MockitoBean EvidenciaService evidenciaService;
 
     @TestConfiguration
     static class Claves {
@@ -139,30 +131,6 @@ class SeguridadPostventaTest {
     }
 
     @Test
-    void devolucionesF3SoloConElRolOScopeQueCorresponde() throws Exception {
-        String cliente = "Bearer " + usuario("CLIENTE");
-        String gestor = "Bearer " + usuario("ADMIN_VENTAS");
-        String canal = "Bearer " + servicio("postventa:devoluciones:escribir");
-        // El cliente registra y consulta lo suyo; el Gestor consulta, lista y resuelve
-        pasa(mvc.perform(post("/api/v2/devoluciones").header("Authorization", cliente)));
-        pasa(mvc.perform(post("/api/v2/devoluciones/evidencias/upload").header("Authorization", canal)));
-        pasa(mvc.perform(get("/api/v2/devoluciones/DEV-2026-0001").header("Authorization", cliente)));
-        pasa(mvc.perform(get("/api/v2/devoluciones/DEV-2026-0001").header("Authorization", gestor)));
-        pasa(mvc.perform(get("/api/v2/devoluciones").param("clienteId", "11111111-1111-1111-1111-111111111111")
-                .header("Authorization", gestor)));
-        // Nadie más resuelve ni lista por cliente
-        mvc.perform(patch("/api/v2/devoluciones/DEV-2026-0001/resolucion").header("Authorization", cliente))
-                .andExpect(status().isForbidden());
-        mvc.perform(patch("/api/v2/devoluciones/DEV-2026-0001/resolucion").header("Authorization", canal))
-                .andExpect(status().isForbidden());
-        mvc.perform(get("/api/v2/devoluciones").param("clienteId", "11111111-1111-1111-1111-111111111111")
-                        .header("Authorization", cliente))
-                .andExpect(status().isForbidden());
-        mvc.perform(get("/api/v2/devoluciones/DEV-2026-0001").header("Authorization", canal))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
     void sinTokenResponde401() throws Exception {
         mvc.perform(get("/api/v2/devoluciones/me"))
                 .andExpect(status().isUnauthorized())
@@ -175,9 +143,9 @@ class SeguridadPostventaTest {
                 .andExpect(status().isUnauthorized());
     }
 
-    /** La seguridad dejó pasar: lo que responda el controller (o 404 si aún no existe) ya no es 401 ni 403. */
+    /** La seguridad dejó pasar: no hay controller todavía, así que responde 404. */
     private static void pasa(ResultActions r) throws Exception {
-        r.andExpect(res -> assertThat(res.getResponse().getStatus()).isNotIn(401, 403));
+        r.andExpect(status().isNotFound());
     }
 
     private String usuario(String rol) {

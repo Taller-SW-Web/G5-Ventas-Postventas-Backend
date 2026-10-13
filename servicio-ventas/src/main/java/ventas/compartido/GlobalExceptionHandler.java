@@ -35,6 +35,12 @@ public class GlobalExceptionHandler {
         return responder(HttpStatus.CONFLICT, ErrorResponse.de(e.getCodigo(), e.getMessage()));
     }
 
+    @ExceptionHandler(DependenciaNoDisponibleException.class)
+    public ResponseEntity<ErrorResponse> dependenciaNoDisponible(DependenciaNoDisponibleException e) {
+        log.warn("Dependencia no disponible: {}", e.getMessage(), e.getCause());
+        return responder(HttpStatus.SERVICE_UNAVAILABLE, ErrorResponse.de(e.getCodigo(), e.getMessage()));
+    }
+
     @ExceptionHandler(NoImplementadoException.class)
     public ResponseEntity<ErrorResponse> noImplementado(NoImplementadoException e) {
         return responder(HttpStatus.NOT_IMPLEMENTED, ErrorResponse.de("NO_IMPLEMENTADO", e.getMessage()));

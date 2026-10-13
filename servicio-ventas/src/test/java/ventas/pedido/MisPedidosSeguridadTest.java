@@ -3,8 +3,10 @@ package ventas.pedido;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -29,6 +31,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.MediaType;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
@@ -69,6 +72,7 @@ class MisPedidosSeguridadTest {
     @MockitoBean CrearPedidoService crearPedidoService;
     @MockitoBean NotificacionPagoService notificacionPagoService;
     @MockitoBean ConsultarPedidoService consultarPedidoService;
+    @MockitoBean CambiarEstadoService cambiarEstadoService;
 
     @TestConfiguration
     static class Claves {
@@ -175,6 +179,43 @@ class MisPedidosSeguridadTest {
         mvc.perform(get("/api/v1/pedidos").header("Authorization", "Bearer " + servicio("ventas:pedidos:consultar")))
                 .andExpect(status().isForbidden());
     }
+
+    @Test
+    void gestorPuedeListarYClienteNo() throws Exception {
+        mvc.perform(get("/api/v1/pedidos").param("clienteId", CLIENTE.toString())
+                        .header("Authorization", "Bearer " + usuario(ISSUER, List.of("ADMIN_VENTAS"))))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/pedidos").param("clienteId", CLIENTE.toString())
+                        .header("Authorization", "Bearer " + usuario(ISSUER, List.of("CLIENTE"))))
+                .andExpect(status().isForbidden());
+    }
+
+    // ---------- 1.5 Cambiar estado ----------
+
+    @Test
+    void cambiarEstadoAceptaScopeEstadoYGestor() throws Exception {
+        mvc.perform(patch("/api/v1/pedidos/PED-2026-00001/estado").header("Authorization", "Bearer " + servicio("ventas:pedidos:estado"))
+                        .contentType(MediaType.APPLICATION_JSON).content(CAMBIO))
+                .andExpect(status().isOk());
+        mvc.perform(patch("/api/v1/pedidos/PED-2026-00001/estado")
+                        .header("Authorization", "Bearer " + usuario(ISSUER, List.of("ADMIN_VENTAS")))
+                        .contentType(MediaType.APPLICATION_JSON).content(CAMBIO))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void cambiarEstadoRechazaClienteYOtrosScopes() throws Exception {
+        mvc.perform(patch("/api/v1/pedidos/PED-2026-00001/estado").header("Authorization", "Bearer " + servicio("ventas:pedidos:consultar"))
+                        .contentType(MediaType.APPLICATION_JSON).content(CAMBIO))
+                .andExpect(status().isForbidden());
+        mvc.perform(patch("/api/v1/pedidos/PED-2026-00001/estado")
+                        .header("Authorization", "Bearer " + usuario(ISSUER, List.of("CLIENTE")))
+                        .contentType(MediaType.APPLICATION_JSON).content(CAMBIO))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(cambiarEstadoService);
+    }
+
+    private static final String CAMBIO = "{\"nuevoEstado\": \"DESPACHADO\", \"actor\": \"SISTEMA_LOGISTICA\"}";
 
     @Test
     void tokenDeServicioSinScopeConsultarRecibe403() throws Exception {

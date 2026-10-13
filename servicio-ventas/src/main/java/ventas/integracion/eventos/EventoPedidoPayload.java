@@ -21,5 +21,5 @@ public record EventoPedidoPayload(
             String motivo,          // obligatorio en pedido.anulado
             List<Item> items) {}    // solo en pedido.pagado
 
-    public record Item(Long productoId, Integer cantidad, BigDecimal importe) {}
+    public record Item(String productoId, Integer cantidad, BigDecimal importe) {}
 }

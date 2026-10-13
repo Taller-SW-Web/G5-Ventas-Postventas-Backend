@@ -81,7 +81,9 @@ public class SecurityConfig {
                 // Tokens de servicio (A10)
                 .requestMatchers(HttpMethod.POST, "/api/v1/pedidos").hasAuthority("SCOPE_ventas:pedidos:crear")
                 .requestMatchers(HttpMethod.POST, "/api/v1/pedidos/*/pagos/notificacion").hasAuthority("SCOPE_ventas:pagos:webhook")
-                .requestMatchers(HttpMethod.PATCH, "/api/v1/pedidos/*/estado").hasAuthority("SCOPE_ventas:pedidos:estado")
+                // 1.5: api-ventas pide token_admin_o_servicio -> Logística con su scope o el Gestor
+                .requestMatchers(HttpMethod.PATCH, "/api/v1/pedidos/*/estado")
+                    .hasAnyAuthority("SCOPE_ventas:pedidos:estado", "ROLE_ADMIN_VENTAS")
                 .requestMatchers(HttpMethod.POST, "/api/v1/pedidos/*/eventos-logistica").hasAuthority("SCOPE_ventas:pedidos:estado")
                 .requestMatchers(HttpMethod.POST, "/api/v1/pedidos/*/anulaciones")
                     .hasAnyAuthority("SCOPE_ventas:pedidos:anular", "ROLE_ADMIN_VENTAS")

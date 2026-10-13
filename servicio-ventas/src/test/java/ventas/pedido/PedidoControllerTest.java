@@ -13,7 +13,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,8 +28,11 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import ventas.compartido.ConflictoException;
 import ventas.compartido.SecurityConfig;
+import ventas.pedido.dto.CambiarEstadoResponse;
 import ventas.pedido.dto.CrearPedidoResponse;
+import ventas.pedido.dto.ListadoPedidosResponse;
 import ventas.pedido.dto.NotificacionPagoResponse;
 import ventas.pedido.dto.PedidoDetalle;
 
@@ -51,10 +57,11 @@ class PedidoControllerTest {
     @MockitoBean
     ConsultarPedidoService consultarPedidoService;
 
+    @MockitoBean
+    CambiarEstadoService cambiarEstadoService;
+
     @Test
     void losEndpointsPendientesDeF1Responden501() throws Exception {
-        esperar501(mvc.perform(get("/api/v1/pedidos")));
-        esperar501(mvc.perform(patch("/api/v1/pedidos/PED-2026-00001/estado")));
         esperar501(mvc.perform(post("/api/v1/pedidos/PED-2026-00001/eventos-logistica")));
     }
 
@@ -157,6 +164,17 @@ class PedidoControllerTest {
     }
 
     @Test
+    void productosNoDisponibleResponde503() throws Exception {
+        when(crearPedidoService.crear(eq(CLAVE), any())).thenThrow(new ventas.compartido.DependenciaNoDisponibleException(
+                "PRODUCTOS_NO_DISPONIBLE", "No se pudo reservar el stock en Productos; intente nuevamente"));
+
+        mvc.perform(post("/api/v1/pedidos").header("Idempotency-Key", CLAVE)
+                        .contentType(MediaType.APPLICATION_JSON).content(CUERPO))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.codigo").value("PRODUCTOS_NO_DISPONIBLE"));
+    }
+
+    @Test
     void consultarPedidoInexistenteResponde404() throws Exception {
         when(consultarPedidoService.consultar(eq("PED-2026-99999"), any()))
                 .thenThrow(new ventas.compartido.RecursoNoEncontradoException("PEDIDO_NO_ENCONTRADO", "No existe"));
@@ -165,6 +183,84 @@ class PedidoControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.codigo").value("PEDIDO_NO_ENCONTRADO"));
     }
+
+    // ---------- 1.4 Listar pedidos ----------
+
+    @Test
+    void listarPasaLosFiltrosAlServicio() throws Exception {
+        UUID cliente = UUID.fromString("3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a");
+        when(pedidoService.listar(cliente, EstadoPedido.PAGADO, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 13), 1, 20))
+                .thenReturn(new ListadoPedidosResponse(cliente, List.of(), 1, 0, 0));
+
+        mvc.perform(get("/api/v1/pedidos").param("clienteId", cliente.toString()).param("estado", "PAGADO")
+                        .param("desde", "2026-10-01").param("hasta", "2026-10-13").param("pagina", "1").param("tamano", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.clienteId").value(cliente.toString()))
+                .andExpect(jsonPath("$.contenido").isArray())
+                .andExpect(jsonPath("$.pagina").value(1))
+                .andExpect(jsonPath("$.totalPaginas").value(0))
+                .andExpect(jsonPath("$.totalElementos").value(0));
+    }
+
+    @Test
+    void listarUsaPaginaCeroYTamanoDiezPorDefecto() throws Exception {
+        UUID cliente = UUID.fromString("3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a");
+        when(pedidoService.listar(cliente, null, null, null, 0, 10))
+                .thenReturn(new ListadoPedidosResponse(cliente, List.of(), 0, 0, 0));
+        mvc.perform(get("/api/v1/pedidos").param("clienteId", cliente.toString()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void listarConFechaOEstadoMalFormadoResponde400() throws Exception {
+        mvc.perform(get("/api/v1/pedidos").param("clienteId", "3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a").param("desde", "01/10/2026"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/pedidos").param("clienteId", "3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a").param("estado", "VOLANDO"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(pedidoService);
+    }
+
+    // ---------- 1.5 Cambiar estado ----------
+
+    @Test
+    void cambiarEstadoResponde200ConLaTransicion() throws Exception {
+        when(cambiarEstadoService.cambiar(eq("PED-2026-00981"), any())).thenReturn(new CambiarEstadoResponse(
+                "PED-2026-00981", EstadoPedido.EN_PREPARACION, EstadoPedido.DESPACHADO, OffsetDateTime.parse("2026-10-13T10:00:00Z")));
+
+        mvc.perform(patch("/api/v1/pedidos/PED-2026-00981/estado").contentType(MediaType.APPLICATION_JSON).content(CAMBIO_ESTADO))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pedidoId").value("PED-2026-00981"))
+                .andExpect(jsonPath("$.estadoAnterior").value("EN_PREPARACION"))
+                .andExpect(jsonPath("$.nuevoEstado").value("DESPACHADO"))
+                .andExpect(jsonPath("$.fechaTransicion").value("2026-10-13T10:00:00Z"));
+    }
+
+    @Test
+    void cambiarEstadoSinCamposOConEnumInvalidoResponde400() throws Exception {
+        mvc.perform(patch("/api/v1/pedidos/PED-2026-00981/estado").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(patch("/api/v1/pedidos/PED-2026-00981/estado").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nuevoEstado\": \"VOLANDO\", \"actor\": \"SISTEMA_LOGISTICA\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(patch("/api/v1/pedidos/PED-2026-00981/estado").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nuevoEstado\": \"DESPACHADO\", \"actor\": \"SISTEMA_LOGISTICA\", \"motivo\": \"" + "x".repeat(61) + "\"}"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(cambiarEstadoService);
+    }
+
+    @Test
+    void cambiarEstadoNoPermitidoResponde409() throws Exception {
+        when(cambiarEstadoService.cambiar(eq("PED-2026-00981"), any()))
+                .thenThrow(new ConflictoException("TRANSICION_NO_PERMITIDA", "No se permite pasar de CREADO a DESPACHADO"));
+        mvc.perform(patch("/api/v1/pedidos/PED-2026-00981/estado").contentType(MediaType.APPLICATION_JSON).content(CAMBIO_ESTADO))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.codigo").value("TRANSICION_NO_PERMITIDA"));
+    }
+
+    /** Ejemplo de api-ventas.md 1.5. */
+    static final String CAMBIO_ESTADO = """
+            {"nuevoEstado": "DESPACHADO", "actor": "SISTEMA_LOGISTICA", "motivo": "Guía de remisión GR-00892 asignada a transporte"}
+            """;
 
     @Test
     void rutaInexistenteResponde404ConFormatoDelContrato() throws Exception {

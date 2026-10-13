@@ -164,7 +164,7 @@ public class CrearPedidoService {
 
         for (CrearPedidoRequest.Item i : req.items()) {
             DetallePedido d = new DetallePedido();
-            d.setIdProducto(idProducto(i.productoId()));
+            d.setIdProducto(i.productoId());
             d.setSku(i.sku());
             d.setDescripcion(i.descripcion());
             d.setCantidad(i.cantidad());
@@ -209,12 +209,6 @@ public class CrearPedidoService {
     static CrearPedidoResponse respuesta(Pedido p) {
         return new CrearPedidoResponse(p.getCodigo(), p.getEstado(), p.getTotal(), p.getMoneda().trim(),
                 p.getCanal(), p.getCreadoEn());
-    }
-
-    /** "PROD-101" -> 101. Si no termina en número queda null (el sku siempre se guarda). */
-    static Long idProducto(String productoId) {
-        String numero = productoId.replaceAll("^.*?(\\d+)$", "$1");
-        return numero.equals(productoId) && !productoId.matches("\\d+") ? null : Long.valueOf(numero);
     }
 
     private static BigDecimal cero(BigDecimal v) {

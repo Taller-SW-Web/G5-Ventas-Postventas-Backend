@@ -54,7 +54,7 @@ class ConsultarPedidoServiceTest {
         pedido.setTotal(new BigDecimal("129.90"));
         pedido.setCreadoEn(CREADO);
         DetallePedido d = new DetallePedido();
-        d.setIdProducto(101L);
+        d.setIdProducto("PROD-101");
         d.setSku("SKU-AUR-01");
         d.setDescripcion("Audífonos");
         d.setCantidad(1);
@@ -128,10 +128,5 @@ class ConsultarPedidoServiceTest {
         when(pedidos.findByCodigo(CODIGO)).thenReturn(Optional.of(pedido));
 
         assertThat(servicio.consultar(CODIGO, Optional.empty()).ultimaActualizacion()).isEqualTo(CREADO);
-    }
-
-    @Test
-    void productoSinIdQuedaNull() {
-        assertThat(ConsultarPedidoService.productoId(null)).isNull();
     }
 }

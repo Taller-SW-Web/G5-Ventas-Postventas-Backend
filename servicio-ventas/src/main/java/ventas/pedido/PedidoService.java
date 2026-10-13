@@ -1,5 +1,7 @@
 package ventas.pedido;
 
+import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -9,7 +11,9 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import ventas.compartido.ErrorResponse;
 import ventas.compartido.SolicitudInvalidaException;
+import ventas.pedido.dto.ListadoPedidosResponse;
 import ventas.pedido.dto.MisPedidosResponse;
 import ventas.pedido.dto.PedidoResumen;
 
@@ -46,6 +50,33 @@ public class PedidoService {
         return new MisPedidosResponse(
                 resultado.getContent().stream().map(PedidoService::resumen).toList(),
                 resultado.getTotalElements(), page, pageSize);
+    }
+
+    /**
+     * 1.4: listado para el Gestor (rol ADMIN_VENTAS). clienteId obligatorio (api-ventas 1.4); estado, desde y
+     * hasta opcionales. pagina empieza en 0; tamano entre 1 y 50. Más recientes primero.
+     */
+    @Transactional(readOnly = true)
+    public ListadoPedidosResponse listar(UUID clienteId, EstadoPedido estado, LocalDate desde, LocalDate hasta,
+                                         int pagina, int tamano) {
+        if (clienteId == null) {
+            throw new SolicitudInvalidaException("PARAMETRO_INVALIDO", "clienteId es obligatorio",
+                    List.of(new ErrorResponse.Detalle("clienteId", "es obligatorio")));
+        }
+        if (pagina < 0) {
+            throw new SolicitudInvalidaException("PARAMETRO_INVALIDO", "pagina debe ser 0 o mayor");
+        }
+        if (tamano < 1 || tamano > TAMANO_MAXIMO) {
+            throw new SolicitudInvalidaException("PARAMETRO_INVALIDO", "tamano debe estar entre 1 y " + TAMANO_MAXIMO);
+        }
+        if (desde != null && hasta != null && desde.isAfter(hasta)) {
+            throw new SolicitudInvalidaException("PARAMETRO_INVALIDO", "desde no puede ser posterior a hasta");
+        }
+        Pageable pageable = PageRequest.of(pagina, tamano, Sort.by(Sort.Order.desc("creadoEn"), Sort.Order.desc("id")));
+        Page<Pedido> resultado = pedidos.findAll(PedidosFiltro.de(clienteId, estado, desde, hasta), pageable);
+        return new ListadoPedidosResponse(clienteId,
+                resultado.getContent().stream().map(PedidoService::resumen).toList(),
+                pagina, resultado.getTotalPages(), resultado.getTotalElements());
     }
 
     static PedidoResumen resumen(Pedido p) {
