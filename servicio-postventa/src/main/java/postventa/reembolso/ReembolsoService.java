@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import postventa.compartido.*;
@@ -13,6 +14,7 @@ import postventa.reembolso.dto.*;
 @Service
 public class ReembolsoService {
     private final ReembolsoRepository repositorio; private final VentasClient ventas; private final PasarelaClient pasarela; private final Clock reloj;
+    @Autowired
     public ReembolsoService(ReembolsoRepository r, VentasClient v, PasarelaClient p) { this(r,v,p,Clock.systemUTC()); }
     ReembolsoService(ReembolsoRepository r, VentasClient v, PasarelaClient p, Clock c) { repositorio=r; ventas=v; pasarela=p; reloj=c; }
     @Transactional
