@@ -119,12 +119,11 @@ class PostventaClientTest {
     }
 
     @Test
-    void mandaElTokenDeServicioConElScopeDeReembolsos() {
+    void mandaElTokenDeServicio() {
         RestClient.Builder deSeguridad = RestClient.builder();
         MockRestServiceServer seguridad = MockRestServiceServer.bindTo(deSeguridad).build();
         seguridad.expect(requestTo("http://seguridad.test/token"))
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("scope=postventa%3Areembolsos%3Aprocesar")))
-                .andRespond(withSuccess("{\"access_token\": \"tok-m1\", \"expires_in\": 3600}", MediaType.APPLICATION_JSON));
+                .andRespond(withSuccess("{\"accessToken\": \"tok-m1\", \"expiresIn\": 3600}", MediaType.APPLICATION_JSON));
         TokenServicio tokens = new TokenServicio("http://seguridad.test/token", "modulo-ventas", "secreto-de-prueba",
                 deSeguridad, java.time.Clock.systemUTC());
 

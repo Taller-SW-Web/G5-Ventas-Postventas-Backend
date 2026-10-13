@@ -28,9 +28,12 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import ventas.compartido.ConflictoException;
+import ventas.compartido.DependenciaNoDisponibleException;
+import ventas.compartido.NoProcesableException;
 import ventas.compartido.SecurityConfig;
 import ventas.pedido.dto.CambiarEstadoResponse;
 import ventas.pedido.dto.CrearPedidoResponse;
+import ventas.pedido.dto.DespachoPedidoResponse;
 import ventas.pedido.dto.EventoLogisticaResponse;
 import ventas.pedido.dto.ListadoPedidosResponse;
 import ventas.pedido.dto.NotificacionPagoResponse;
@@ -62,6 +65,9 @@ class PedidoControllerTest {
 
     @MockitoBean
     EventoLogisticaService eventoLogisticaService;
+
+    @MockitoBean
+    DespachoPedidoService despachoPedidoService;
 
     @Test
     void crearPedidoNuevoResponde201ConLocation() throws Exception {
@@ -144,7 +150,7 @@ class PedidoControllerTest {
                 new PedidoDetalle.Contacto(java.util.UUID.fromString("11111111-1111-1111-1111-111111111111"),
                         "Juan", "DNI", "72458912", "j@x.com", null),
                 new PedidoDetalle.Pago(new BigDecimal("129.90"), "PEN", "TARJETA_CREDITO"),
-                new PedidoDetalle.Envio("DELIVERY", "Av. La Marina 1234", "San Miguel", null),
+                new PedidoDetalle.Envio("DELIVERY", "Av. La Marina 1234", "San Miguel", null, "Lima", "Lima", null),
                 java.util.List.of(new PedidoDetalle.Item("PROD-101", "SKU-AUR-01", "Audífonos", 1, new BigDecimal("129.90"))),
                 OffsetDateTime.parse("2026-09-23T00:05:00Z"), OffsetDateTime.parse("2026-09-25T10:00:00Z"),
                 java.util.List.of(new PedidoDetalle.Historial(EstadoPedido.CREADO,
@@ -294,6 +300,37 @@ class PedidoControllerTest {
             {"evento": "ENTREGA_FALLIDA_DEFINITIVA", "guiaRemision": "GR-00892",
              "motivo": "Dirección inexistente tras 3 visitas; devuelto a almacén central", "requiereReembolso": true}
             """;
+
+    // ---------- Botones del Gestor: preparación y paquete sellado ----------
+
+    @Test
+    void iniciarPreparacionYPaqueteSelladoResponden200() throws Exception {
+        when(despachoPedidoService.iniciarPreparacion("PED-2026-00981")).thenReturn(
+                new DespachoPedidoResponse("PED-2026-00981", EstadoPedido.EN_PREPARACION, null, "Pedido en preparación"));
+        when(despachoPedidoService.paqueteSellado("PED-2026-00981")).thenReturn(
+                new DespachoPedidoResponse("PED-2026-00981", EstadoPedido.EN_PREPARACION, "DESP-00412", "Despacho solicitado a G2"));
+
+        mvc.perform(post("/api/v1/pedidos/PED-2026-00981/preparacion"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.estado").value("EN_PREPARACION"));
+        mvc.perform(post("/api/v1/pedidos/PED-2026-00981/despacho"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.idDespacho").value("DESP-00412"));
+    }
+
+    @Test
+    void sinCoberturaResponde422YDespachoCaidoResponde503() throws Exception {
+        when(despachoPedidoService.paqueteSellado("PED-2026-00981"))
+                .thenThrow(new NoProcesableException("DESP_ERROR_SIN_COBERTURA", "sin cobertura"))
+                .thenThrow(new DependenciaNoDisponibleException("DESPACHO_NO_DISPONIBLE", "caído"));
+
+        mvc.perform(post("/api/v1/pedidos/PED-2026-00981/despacho"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.codigo").value("DESP_ERROR_SIN_COBERTURA"));
+        mvc.perform(post("/api/v1/pedidos/PED-2026-00981/despacho"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.codigo").value("DESPACHO_NO_DISPONIBLE"));
+    }
 
     @Test
     void rutaInexistenteResponde404ConFormatoDelContrato() throws Exception {

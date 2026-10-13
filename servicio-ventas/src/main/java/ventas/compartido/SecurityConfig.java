@@ -85,6 +85,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.PATCH, "/api/v1/pedidos/*/estado")
                     .hasAnyAuthority("SCOPE_ventas:pedidos:estado", "ROLE_ADMIN_VENTAS")
                 .requestMatchers(HttpMethod.POST, "/api/v1/pedidos/*/eventos-logistica").hasAuthority("SCOPE_ventas:pedidos:estado")
+                // Botones del Gestor: iniciar preparación y paquete sellado (crea el despacho en G2)
+                .requestMatchers(HttpMethod.POST, "/api/v1/pedidos/*/preparacion", "/api/v1/pedidos/*/despacho")
+                    .hasRole("ADMIN_VENTAS")
                 .requestMatchers(HttpMethod.POST, "/api/v1/pedidos/*/anulaciones")
                     .hasAnyAuthority("SCOPE_ventas:pedidos:anular", "ROLE_ADMIN_VENTAS")
                 // Lecturas con token de usuario

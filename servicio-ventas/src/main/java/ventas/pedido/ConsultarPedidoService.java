@@ -47,7 +47,8 @@ public class ConsultarPedidoService {
                 new PedidoDetalle.Contacto(p.getIdCliente(), p.getNombreContacto(), p.getTipoDocumento(),
                         p.getNumeroDocumento(), p.getEmail(), p.getTelefono()),
                 new PedidoDetalle.Pago(p.getTotal(), p.getMoneda().trim(), metodo),
-                new PedidoDetalle.Envio(p.getModalidadEnvio(), p.getDireccion(), p.getDistrito(), p.getTiendaId()),
+                new PedidoDetalle.Envio(p.getModalidadEnvio(), p.getDireccion(), p.getDistrito(), p.getTiendaId(),
+                        p.getDepartamento(), p.getProvincia(), p.getReferenciaEnvio()),
                 p.getDetalles().stream()
                         .map(d -> new PedidoDetalle.Item(d.getIdProducto(), d.getSku(), d.getDescripcion(),
                                 d.getCantidad(), d.getPrecioUnitario()))

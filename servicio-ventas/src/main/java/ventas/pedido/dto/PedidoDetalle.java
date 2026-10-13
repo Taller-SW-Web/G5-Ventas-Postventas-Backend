@@ -28,7 +28,8 @@ public record PedidoDetalle(
     public record Pago(BigDecimal total, String moneda, String metodoPago) {}
 
     /** tiendaId solo en RETAIL (acuerdo G4); en los demás canales es null. */
-    public record Envio(String modalidad, String direccion, String distrito, String tiendaId) {}
+    public record Envio(String modalidad, String direccion, String distrito, String tiendaId,
+                        String departamento, String provincia, String referencia) {}
 
     public record Item(String productoId, String sku, String descripcion, Integer cantidad, BigDecimal precioUnitario) {}
 
