@@ -81,10 +81,8 @@ public class SecurityConfig {
                 // Tokens de servicio (A10)
                 .requestMatchers(HttpMethod.POST, "/api/v1/pedidos").hasAuthority("SCOPE_ventas:pedidos:crear")
                 .requestMatchers(HttpMethod.POST, "/api/v1/pedidos/*/pagos/notificacion").hasAuthority("SCOPE_ventas:pagos:webhook")
-                // 1.5: api-ventas pide token_admin_o_servicio -> Logística con su scope o el Gestor
-                .requestMatchers(HttpMethod.PATCH, "/api/v1/pedidos/*/estado")
-                    .hasAnyAuthority("SCOPE_ventas:pedidos:estado", "ROLE_ADMIN_VENTAS")
-                .requestMatchers(HttpMethod.POST, "/api/v1/pedidos/*/eventos-logistica").hasAuthority("SCOPE_ventas:pedidos:estado")
+                // 1.5: webhook de Despacho (acuerdo G2, D6 y D7: se reusa el scope ventas:pedidos:estado)
+                .requestMatchers(HttpMethod.POST, "/api/v1/integraciones/despachos/eventos").hasAuthority("SCOPE_ventas:pedidos:estado")
                 // Botones del Gestor: iniciar preparación y paquete sellado (crea el despacho en G2)
                 .requestMatchers(HttpMethod.POST, "/api/v1/pedidos/*/preparacion", "/api/v1/pedidos/*/despacho")
                     .hasRole("ADMIN_VENTAS")

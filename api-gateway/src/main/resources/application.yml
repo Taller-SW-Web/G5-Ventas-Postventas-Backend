@@ -11,11 +11,11 @@ spring:
       server:
         webflux:
           routes:
-            # M1: F1 Pedidos y F2 Anulaciones
+            # M1: F1 Pedidos y F2 Anulaciones; webhook de Despacho (acuerdo G2, D6)
             - id: servicio-ventas
               uri: ${VENTAS_URL:http://localhost:8081}
               predicates:
-                - Path=/api/*/pedidos/**
+                - Path=/api/*/pedidos/**,/api/*/integraciones/despachos/**
             # M2: F3 a F6. POST /api/v2/eventos no pasa por aquí (M1 llama directo a M2)
             - id: servicio-postventa
               uri: ${POSTVENTA_URL:http://localhost:8082}

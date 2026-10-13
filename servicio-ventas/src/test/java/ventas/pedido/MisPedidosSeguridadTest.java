@@ -54,12 +54,12 @@ import ventas.pedido.dto.MisPedidosResponse;
  * Prueba de punta a punta de la seguridad de /pedidos/me con tokens RS256 firmados de verdad
  * (el mock Prism de Seguridad no firma tokens, kit §2 "Qué prueban los mocks").
  */
-@WebMvcTest(controllers = PedidoController.class, properties = {
+@WebMvcTest(controllers = {PedidoController.class, DespachoEventosController.class}, properties = {
         "seguridad.habilitada=true",
         "seguridad.issuer=" + MisPedidosSeguridadTest.ISSUER,
         "seguridad.jwks-url=http://localhost:1/no-se-usa-en-pruebas"
 })
-@Import({SecurityConfig.class, MisPedidosSeguridadTest.Claves.class})
+@Import({SecurityConfig.class, ValidadorPedido.class, MisPedidosSeguridadTest.Claves.class})
 class MisPedidosSeguridadTest {
 
     static final String ISSUER = "http://localhost:8080/api/v1/auth";
@@ -72,9 +72,8 @@ class MisPedidosSeguridadTest {
     @MockitoBean CrearPedidoService crearPedidoService;
     @MockitoBean NotificacionPagoService notificacionPagoService;
     @MockitoBean ConsultarPedidoService consultarPedidoService;
-    @MockitoBean CambiarEstadoService cambiarEstadoService;
-    @MockitoBean EventoLogisticaService eventoLogisticaService;
     @MockitoBean DespachoPedidoService despachoPedidoService;
+    @MockitoBean EventoDespachoService eventoDespachoService;
 
     @TestConfiguration
     static class Claves {
@@ -192,41 +191,31 @@ class MisPedidosSeguridadTest {
                 .andExpect(status().isForbidden());
     }
 
-    // ---------- 1.5 Cambiar estado ----------
+    // ---------- 1.5 Webhook de Despacho ----------
 
     @Test
-    void cambiarEstadoAceptaScopeEstadoYGestor() throws Exception {
-        mvc.perform(patch("/api/v1/pedidos/PED-2026-00001/estado").header("Authorization", "Bearer " + servicio("ventas:pedidos:estado"))
-                        .contentType(MediaType.APPLICATION_JSON).content(CAMBIO))
-                .andExpect(status().isOk());
-        mvc.perform(patch("/api/v1/pedidos/PED-2026-00001/estado")
-                        .header("Authorization", "Bearer " + usuario(ISSUER, List.of("ADMIN_VENTAS")))
-                        .contentType(MediaType.APPLICATION_JSON).content(CAMBIO))
-                .andExpect(status().isOk());
-    }
-
-    @Test
-    void cambiarEstadoRechazaClienteYOtrosScopes() throws Exception {
-        mvc.perform(patch("/api/v1/pedidos/PED-2026-00001/estado").header("Authorization", "Bearer " + servicio("ventas:pedidos:consultar"))
-                        .contentType(MediaType.APPLICATION_JSON).content(CAMBIO))
-                .andExpect(status().isForbidden());
-        mvc.perform(patch("/api/v1/pedidos/PED-2026-00001/estado")
-                        .header("Authorization", "Bearer " + usuario(ISSUER, List.of("CLIENTE")))
-                        .contentType(MediaType.APPLICATION_JSON).content(CAMBIO))
-                .andExpect(status().isForbidden());
-        verifyNoInteractions(cambiarEstadoService);
-    }
-
-    @Test
-    void eventosDeLogisticaSoloConScopeEstado() throws Exception {
-        String cuerpo = "{\"evento\": \"ENTREGA_FALLIDA_DEFINITIVA\", \"guiaRemision\": \"GR-00892\"}";
-        mvc.perform(post("/api/v1/pedidos/PED-2026-00001/eventos-logistica")
+    void elWebhookDeDespachoSoloAceptaElScopeEstado() throws Exception {
+        String cuerpo = "{\"idEvento\": \"evt-1\", \"idPedido\": \"PED-2026-00001\", \"tipo\": \"DESPACHO_ASIGNADO\"}";
+        String clave = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+        mvc.perform(post("/api/v1/integraciones/despachos/eventos").header("Idempotency-Key", clave)
                         .header("Authorization", "Bearer " + servicio("ventas:pedidos:estado"))
                         .contentType(MediaType.APPLICATION_JSON).content(cuerpo))
                 .andExpect(status().isOk());
-        mvc.perform(post("/api/v1/pedidos/PED-2026-00001/eventos-logistica")
+        mvc.perform(post("/api/v1/integraciones/despachos/eventos").header("Idempotency-Key", clave)
+                        .header("Authorization", "Bearer " + servicio("ventas:pedidos:crear"))
+                        .contentType(MediaType.APPLICATION_JSON).content(cuerpo))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/integraciones/despachos/eventos").header("Idempotency-Key", clave)
                         .header("Authorization", "Bearer " + usuario(ISSUER, List.of("ADMIN_VENTAS")))
                         .contentType(MediaType.APPLICATION_JSON).content(cuerpo))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void lasRutasViejasDe15Y16YaNoExisten() throws Exception {
+        mvc.perform(patch("/api/v1/pedidos/PED-2026-00001/estado").header("Authorization", "Bearer " + servicio("ventas:pedidos:estado")))
+                .andExpect(status().isForbidden());   // denyAll: ninguna regla la permite
+        mvc.perform(post("/api/v1/pedidos/PED-2026-00001/eventos-logistica").header("Authorization", "Bearer " + servicio("ventas:pedidos:estado")))
                 .andExpect(status().isForbidden());
     }
 
@@ -241,8 +230,6 @@ class MisPedidosSeguridadTest {
                     .andExpect(status().isForbidden());
         }
     }
-
-    private static final String CAMBIO = "{\"nuevoEstado\": \"DESPACHADO\", \"actor\": \"SISTEMA_LOGISTICA\"}";
 
     @Test
     void tokenDeServicioSinScopeConsultarRecibe403() throws Exception {

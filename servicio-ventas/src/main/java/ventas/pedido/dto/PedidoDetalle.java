@@ -27,9 +27,9 @@ public record PedidoDetalle(
 
     public record Pago(BigDecimal total, String moneda, String metodoPago) {}
 
-    /** tiendaId solo en RETAIL (acuerdo G4); en los demás canales es null. */
+    /** tiendaId solo en RETAIL (acuerdo G4). fechaEstimadaEntrega la fija Despacho al reprogramar (G2 D3). */
     public record Envio(String modalidad, String direccion, String distrito, String tiendaId,
-                        String departamento, String provincia, String referencia) {}
+                        String departamento, String provincia, String referencia, OffsetDateTime fechaEstimadaEntrega) {}
 
     public record Item(String productoId, String sku, String descripcion, Integer cantidad, BigDecimal precioUnitario) {}
 
