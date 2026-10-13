@@ -28,10 +28,11 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import ventas.compartido.ConflictoException;
+import ventas.compartido.DependenciaNoDisponibleException;
+import ventas.compartido.NoProcesableException;
 import ventas.compartido.SecurityConfig;
-import ventas.pedido.dto.CambiarEstadoResponse;
 import ventas.pedido.dto.CrearPedidoResponse;
-import ventas.pedido.dto.EventoLogisticaResponse;
+import ventas.pedido.dto.DespachoPedidoResponse;
 import ventas.pedido.dto.ListadoPedidosResponse;
 import ventas.pedido.dto.NotificacionPagoResponse;
 import ventas.pedido.dto.PedidoDetalle;
@@ -58,10 +59,7 @@ class PedidoControllerTest {
     ConsultarPedidoService consultarPedidoService;
 
     @MockitoBean
-    CambiarEstadoService cambiarEstadoService;
-
-    @MockitoBean
-    EventoLogisticaService eventoLogisticaService;
+    DespachoPedidoService despachoPedidoService;
 
     @Test
     void crearPedidoNuevoResponde201ConLocation() throws Exception {
@@ -144,7 +142,7 @@ class PedidoControllerTest {
                 new PedidoDetalle.Contacto(java.util.UUID.fromString("11111111-1111-1111-1111-111111111111"),
                         "Juan", "DNI", "72458912", "j@x.com", null),
                 new PedidoDetalle.Pago(new BigDecimal("129.90"), "PEN", "TARJETA_CREDITO"),
-                new PedidoDetalle.Envio("DELIVERY", "Av. La Marina 1234", "San Miguel", null),
+                new PedidoDetalle.Envio("DELIVERY", "Av. La Marina 1234", "San Miguel", null, "Lima", "Lima", null, null),
                 java.util.List.of(new PedidoDetalle.Item("PROD-101", "SKU-AUR-01", "Audífonos", 1, new BigDecimal("129.90"))),
                 OffsetDateTime.parse("2026-09-23T00:05:00Z"), OffsetDateTime.parse("2026-09-25T10:00:00Z"),
                 java.util.List.of(new PedidoDetalle.Historial(EstadoPedido.CREADO,
@@ -218,82 +216,44 @@ class PedidoControllerTest {
         verifyNoInteractions(pedidoService);
     }
 
-    // ---------- 1.5 Cambiar estado ----------
+    // ---------- Botones del Gestor: preparación y paquete sellado ----------
 
     @Test
-    void cambiarEstadoResponde200ConLaTransicion() throws Exception {
-        when(cambiarEstadoService.cambiar(eq("PED-2026-00981"), any())).thenReturn(new CambiarEstadoResponse(
-                "PED-2026-00981", EstadoPedido.EN_PREPARACION, EstadoPedido.DESPACHADO, OffsetDateTime.parse("2026-10-13T10:00:00Z")));
+    void iniciarPreparacionYPaqueteSelladoResponden200() throws Exception {
+        when(despachoPedidoService.iniciarPreparacion("PED-2026-00981")).thenReturn(
+                new DespachoPedidoResponse("PED-2026-00981", EstadoPedido.EN_PREPARACION, null, "Pedido en preparación"));
+        when(despachoPedidoService.paqueteSellado("PED-2026-00981")).thenReturn(
+                new DespachoPedidoResponse("PED-2026-00981", EstadoPedido.EN_PREPARACION, "DESP-00412", "Despacho solicitado a G2"));
 
-        mvc.perform(patch("/api/v1/pedidos/PED-2026-00981/estado").contentType(MediaType.APPLICATION_JSON).content(CAMBIO_ESTADO))
+        mvc.perform(post("/api/v1/pedidos/PED-2026-00981/preparacion"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.pedidoId").value("PED-2026-00981"))
-                .andExpect(jsonPath("$.estadoAnterior").value("EN_PREPARACION"))
-                .andExpect(jsonPath("$.nuevoEstado").value("DESPACHADO"))
-                .andExpect(jsonPath("$.fechaTransicion").value("2026-10-13T10:00:00Z"));
+                .andExpect(jsonPath("$.estado").value("EN_PREPARACION"));
+        mvc.perform(post("/api/v1/pedidos/PED-2026-00981/despacho"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.idDespacho").value("DESP-00412"));
     }
 
     @Test
-    void cambiarEstadoSinCamposOConEnumInvalidoResponde400() throws Exception {
+    void sinCoberturaResponde422YDespachoCaidoResponde503() throws Exception {
+        when(despachoPedidoService.paqueteSellado("PED-2026-00981"))
+                .thenThrow(new NoProcesableException("DESP_ERROR_SIN_COBERTURA", "sin cobertura"))
+                .thenThrow(new DependenciaNoDisponibleException("DESPACHO_NO_DISPONIBLE", "caído"));
+
+        mvc.perform(post("/api/v1/pedidos/PED-2026-00981/despacho"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.codigo").value("DESP_ERROR_SIN_COBERTURA"));
+        mvc.perform(post("/api/v1/pedidos/PED-2026-00981/despacho"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.codigo").value("DESPACHO_NO_DISPONIBLE"));
+    }
+
+    @Test
+    void lasRutasViejasDe15Y16Responden404() throws Exception {
         mvc.perform(patch("/api/v1/pedidos/PED-2026-00981/estado").contentType(MediaType.APPLICATION_JSON).content("{}"))
-                .andExpect(status().isBadRequest());
-        mvc.perform(patch("/api/v1/pedidos/PED-2026-00981/estado").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"nuevoEstado\": \"VOLANDO\", \"actor\": \"SISTEMA_LOGISTICA\"}"))
-                .andExpect(status().isBadRequest());
-        mvc.perform(patch("/api/v1/pedidos/PED-2026-00981/estado").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"nuevoEstado\": \"DESPACHADO\", \"actor\": \"SISTEMA_LOGISTICA\", \"motivo\": \"" + "x".repeat(61) + "\"}"))
-                .andExpect(status().isBadRequest());
-        verifyNoInteractions(cambiarEstadoService);
+                .andExpect(status().isNotFound());
+        mvc.perform(post("/api/v1/pedidos/PED-2026-00981/eventos-logistica").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isNotFound());
     }
-
-    @Test
-    void cambiarEstadoNoPermitidoResponde409() throws Exception {
-        when(cambiarEstadoService.cambiar(eq("PED-2026-00981"), any()))
-                .thenThrow(new ConflictoException("TRANSICION_NO_PERMITIDA", "No se permite pasar de CREADO a DESPACHADO"));
-        mvc.perform(patch("/api/v1/pedidos/PED-2026-00981/estado").contentType(MediaType.APPLICATION_JSON).content(CAMBIO_ESTADO))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.codigo").value("TRANSICION_NO_PERMITIDA"));
-    }
-
-    /** Ejemplo de api-ventas.md 1.5. */
-    static final String CAMBIO_ESTADO = """
-            {"nuevoEstado": "DESPACHADO", "actor": "SISTEMA_LOGISTICA", "motivo": "Guía de remisión GR-00892 asignada a transporte"}
-            """;
-
-    // ---------- 1.6 Eventos de logística ----------
-
-    @Test
-    void eventoLogisticaResponde200ConElFormatoDelContrato() throws Exception {
-        when(eventoLogisticaService.procesar(eq("PED-2026-00981"), any())).thenReturn(new EventoLogisticaResponse(
-                "PED-2026-00981", EstadoPedido.ANULADO, "ANUL-0012",
-                new EventoLogisticaResponse.Reembolso("REEM-90815", "EN_PROCESO", new BigDecimal("129.90"), "PEN"),
-                "Pedido anulado e instrucción de reembolso generada hacia M2 con origen ANULACION"));
-
-        mvc.perform(post("/api/v1/pedidos/PED-2026-00981/eventos-logistica")
-                        .contentType(MediaType.APPLICATION_JSON).content(EVENTO_LOGISTICA))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.pedidoId").value("PED-2026-00981"))
-                .andExpect(jsonPath("$.estadoPedido").value("ANULADO"))
-                .andExpect(jsonPath("$.reembolso.solicitudId").value("REEM-90815"))
-                .andExpect(jsonPath("$.reembolso.estado").value("EN_PROCESO"))
-                .andExpect(jsonPath("$.reembolso.monto").value(129.90))
-                .andExpect(jsonPath("$.reembolso.moneda").value("PEN"))
-                .andExpect(jsonPath("$.mensaje").isNotEmpty());
-    }
-
-    @Test
-    void eventoLogisticaSinGuiaResponde400() throws Exception {
-        mvc.perform(post("/api/v1/pedidos/PED-2026-00981/eventos-logistica")
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"evento\": \"ENTREGA_FALLIDA_DEFINITIVA\"}"))
-                .andExpect(status().isBadRequest());
-        verifyNoInteractions(eventoLogisticaService);
-    }
-
-    /** Ejemplo de api-ventas.md 1.6. */
-    static final String EVENTO_LOGISTICA = """
-            {"evento": "ENTREGA_FALLIDA_DEFINITIVA", "guiaRemision": "GR-00892",
-             "motivo": "Dirección inexistente tras 3 visitas; devuelto a almacén central", "requiereReembolso": true}
-            """;
 
     @Test
     void rutaInexistenteResponde404ConFormatoDelContrato() throws Exception {

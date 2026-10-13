@@ -15,7 +15,6 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -24,12 +23,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import ventas.pedido.dto.CambiarEstadoRequest;
-import ventas.pedido.dto.CambiarEstadoResponse;
 import ventas.pedido.dto.CrearPedidoRequest;
 import ventas.pedido.dto.CrearPedidoResponse;
-import ventas.pedido.dto.EventoLogisticaRequest;
-import ventas.pedido.dto.EventoLogisticaResponse;
+import ventas.pedido.dto.DespachoPedidoResponse;
 import ventas.pedido.dto.ListadoPedidosResponse;
 import ventas.pedido.dto.MisPedidosResponse;
 import ventas.pedido.dto.NotificacionPagoRequest;
@@ -44,8 +40,7 @@ public class PedidoController {
     private final CrearPedidoService crearPedidoService;
     private final NotificacionPagoService notificacionPagoService;
     private final ConsultarPedidoService consultarPedidoService;
-    private final CambiarEstadoService cambiarEstadoService;
-    private final EventoLogisticaService eventoLogisticaService;
+    private final DespachoPedidoService despachoPedidoService;
     private final boolean seguridadHabilitada;
     private final UUID clientePrueba;
 
@@ -53,16 +48,14 @@ public class PedidoController {
                             CrearPedidoService crearPedidoService,
                             NotificacionPagoService notificacionPagoService,
                             ConsultarPedidoService consultarPedidoService,
-                            CambiarEstadoService cambiarEstadoService,
-                            EventoLogisticaService eventoLogisticaService,
+                            DespachoPedidoService despachoPedidoService,
                             @Value("${seguridad.habilitada:true}") boolean seguridadHabilitada,
                             @Value("${seguridad.cliente-prueba:11111111-1111-1111-1111-111111111111}") UUID clientePrueba) {
         this.pedidoService = pedidoService;
         this.crearPedidoService = crearPedidoService;
         this.notificacionPagoService = notificacionPagoService;
         this.consultarPedidoService = consultarPedidoService;
-        this.cambiarEstadoService = cambiarEstadoService;
-        this.eventoLogisticaService = eventoLogisticaService;
+        this.despachoPedidoService = despachoPedidoService;
         this.seguridadHabilitada = seguridadHabilitada;
         this.clientePrueba = clientePrueba;
     }
@@ -129,18 +122,16 @@ public class PedidoController {
         return ResponseEntity.ok(pedidoService.listar(clienteId, estado, desde, hasta, pagina, tamano));
     }
 
-    /** 1.5 Cambiar estado. Despacho / Logística (scope ventas:pedidos:estado) o Gestor (lo exige SecurityConfig). */
-    @PatchMapping("/{pedidoId}/estado")
-    public ResponseEntity<CambiarEstadoResponse> cambiarEstado(@PathVariable String pedidoId,
-                                                               @Valid @RequestBody CambiarEstadoRequest solicitud) {
-        return ResponseEntity.ok(cambiarEstadoService.cambiar(pedidoId, solicitud));
+    /** Botón del Gestor "Iniciar preparación": PAGADO -> EN_PREPARACION. Rol ADMIN_VENTAS (SecurityConfig). */
+    @PostMapping("/{pedidoId}/preparacion")
+    public ResponseEntity<DespachoPedidoResponse> iniciarPreparacion(@PathVariable String pedidoId) {
+        return ResponseEntity.ok(despachoPedidoService.iniciarPreparacion(pedidoId));
     }
 
-    /** 1.6 Eventos de logística (entrega fallida definitiva). Scope ventas:pedidos:estado (lo exige SecurityConfig). */
-    @PostMapping("/{pedidoId}/eventos-logistica")
-    public ResponseEntity<EventoLogisticaResponse> eventoLogistica(@PathVariable String pedidoId,
-                                                                   @Valid @RequestBody EventoLogisticaRequest evento) {
-        return ResponseEntity.ok(eventoLogisticaService.procesar(pedidoId, evento));
+    /** Botón del Gestor "Paquete sellado": crea el despacho en G2 (contrato 7.1). Rol ADMIN_VENTAS (SecurityConfig). */
+    @PostMapping("/{pedidoId}/despacho")
+    public ResponseEntity<DespachoPedidoResponse> paqueteSellado(@PathVariable String pedidoId) {
+        return ResponseEntity.ok(despachoPedidoService.paqueteSellado(pedidoId));
     }
 
     /**

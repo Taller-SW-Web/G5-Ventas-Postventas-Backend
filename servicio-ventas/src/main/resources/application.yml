@@ -60,6 +60,8 @@ integracion:
   pasarela-url: ${PASARELA_URL:http://localhost:8083}      # simulador-pasarela (cobro de MARKETPLACE)
   postventa-url: ${POSTVENTA_URL:http://localhost:8082}     # M2: reembolsos (2.6) y eventos (2.13)
   postventa-simulado: ${POSTVENTA_SIMULADO:${INTEGRACION_SIMULADA:true}}   # false: llama a M2 aunque Productos siga simulado
+  despacho-url: ${DESPACHO_URL:http://localhost:8092}       # Módulo E (G2): POST /api/v1/despachos (contrato 7.1)
+  despacho-simulado: ${DESPACHO_SIMULADO:${INTEGRACION_SIMULADA:true}}       # true: "paquete sellado" no llama a Despacho
   pasarela-simulada: ${PASARELA_SIMULADA:true}             # true: solo log; false: llama al simulador
   productos-cola: po.sales.q
   eventos:
