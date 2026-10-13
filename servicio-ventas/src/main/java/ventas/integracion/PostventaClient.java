@@ -2,6 +2,7 @@ package ventas.integracion;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 import java.util.UUID;
 
 import lombok.extern.slf4j.Slf4j;
@@ -23,30 +24,39 @@ public class PostventaClient {
     private record ReembolsoRequest(String origen, String origenId, String referenciaId, BigDecimal monto,
                                     String moneda, String motivo, String solicitadoPor) {}
 
+    /** Lo que M2 devuelve en el 201 de 2.6 (solo los campos que usa M1). */
+    public record ReembolsoRegistrado(String reembolsoId, String estado) {}
+
     private final boolean simulado;
     private final RestClient http;
 
     public PostventaClient(@Value("${integracion.simulado:true}") boolean simulado,
-                           @Value("${integracion.postventa-url:http://localhost:8082}") String url) {
+                           @Value("${integracion.postventa-url:http://localhost:8082}") String url,
+                           RestClient.Builder builder) {
         this.simulado = simulado;
-        this.http = RestClient.builder().baseUrl(url).build();
+        this.http = builder.baseUrl(url).build();
     }
 
-    /** Nunca lanza excepción: si M2 no responde, queda en el log para reintentarlo. */
-    public void solicitarReembolso(String anulacionId, String pedidoId, BigDecimal monto, String moneda, String motivo) {
+    /**
+     * Nunca lanza excepción. Devuelve vacío en modo simulado o si M2 no respondió bien (queda en el log
+     * para reintentarlo; como la clave es fija, reintentar no duplica el pago).
+     */
+    public Optional<ReembolsoRegistrado> solicitarReembolso(String anulacionId, String pedidoId, BigDecimal monto,
+                                                            String moneda, String motivo) {
         String clave = claveIdempotencia(anulacionId);
         if (simulado) {
             log.info("[simulado] reembolso de {} ({}) por {} {}, clave {}", pedidoId, anulacionId, monto, moneda, clave);
-            return;
+            return Optional.empty();
         }
         try {
-            http.post().uri("/api/v2/reembolsos")
+            return Optional.ofNullable(http.post().uri("/api/v2/reembolsos")
                     .header("X-Idempotency-Key", clave)
                     .body(new ReembolsoRequest("ANULACION", anulacionId, pedidoId, monto, moneda, motivo, "SISTEMA_M1"))
                     .retrieve()
-                    .toBodilessEntity();
+                    .body(ReembolsoRegistrado.class));
         } catch (RestClientException e) {
             log.error("No se pudo pedir el reembolso de {} ({}) a M2: {}", pedidoId, anulacionId, e.getMessage());
+            return Optional.empty();
         }
     }
 
