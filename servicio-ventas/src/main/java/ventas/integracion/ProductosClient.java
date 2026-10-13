@@ -15,7 +15,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
-import ventas.compartido.ConflictoException;
+import ventas.compartido.DependenciaNoDisponibleException;
 
 /**
  * Módulo F (Productos, G6), según su openapi.yaml (base /api/v1). Las tres operaciones responden 202:
@@ -56,7 +56,7 @@ public class ProductosClient {
 
     /**
      * Pide la reserva. Se llama dentro de la transacción que guarda el pedido: si Productos no admite el comando
-     * lanza 409 PRODUCTOS_NO_DISPONIBLE y el pedido no se guarda (RNF-05). La falta de stock NO llega aquí:
+     * lanza 503 PRODUCTOS_NO_DISPONIBLE y el pedido no se guarda (RNF-05). La falta de stock NO llega aquí:
      * llega después como inventory.consumption.rejected. En modo simulado devuelve el mensaje de reserva creada.
      */
     public Optional<MensajeInventario> reservar(String pedidoId, String canal, List<LineaReserva> lineas) {
@@ -81,8 +81,8 @@ public class ProductosClient {
             return Optional.empty();
         } catch (RestClientException e) {
             log.error("Productos no admitió la reserva de {}: {}", pedidoId, e.getMessage());
-            throw new ConflictoException("PRODUCTOS_NO_DISPONIBLE",
-                    "No se pudo reservar el stock en Productos; intente nuevamente");
+            throw new DependenciaNoDisponibleException("PRODUCTOS_NO_DISPONIBLE",
+                    "No se pudo reservar el stock en Productos; intente nuevamente", e);
         }
     }
 

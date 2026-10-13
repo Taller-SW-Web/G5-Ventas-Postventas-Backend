@@ -28,6 +28,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.support.TransactionOperations;
 
 import ventas.compartido.ConflictoException;
+import ventas.compartido.DependenciaNoDisponibleException;
 import ventas.compartido.SolicitudInvalidaException;
 import ventas.integracion.MensajeInventario;
 import ventas.integracion.ProductosClient;
@@ -233,7 +234,7 @@ class CrearPedidoServiceTest {
         // Con transacción real el pedido se deshace; aquí basta con ver que el error sale y no se aplica nada más
         when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
         conIdGenerado(9);
-        doThrow(new ConflictoException("PRODUCTOS_NO_DISPONIBLE", "Productos no responde"))
+        doThrow(new DependenciaNoDisponibleException("PRODUCTOS_NO_DISPONIBLE", "Productos no responde"))
                 .when(productos).reservar(anyString(), anyString(), anyList());
 
         assertThatThrownBy(() -> servicio.crear(CLAVE, ValidadorPedidoTest.chatbot(contacto())))
