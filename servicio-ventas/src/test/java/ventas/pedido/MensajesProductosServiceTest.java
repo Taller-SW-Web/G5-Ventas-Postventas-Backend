@@ -22,9 +22,9 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.support.TransactionOperations;
 
 import ventas.anulacion.AnulacionSistemaService;
+import ventas.anulacion.ReembolsoAnulacionService;
 import ventas.integracion.MensajeInventario;
 import ventas.integracion.PasarelaClient;
-import ventas.integracion.PostventaClient;
 import ventas.integracion.ProductosClient;
 import ventas.integracion.ProductosClient.MotivoLiberacion;
 import ventas.integracion.ProductosClient.Operacion;
@@ -45,7 +45,7 @@ class MensajesProductosServiceTest {
     @Mock AnulacionSistemaService anulaciones;
     @Mock ProductosClient productos;
     @Mock PasarelaClient pasarela;
-    @Mock PostventaClient postventa;
+    @Mock ReembolsoAnulacionService reembolsos;
 
     MensajesProductosService servicio;
     Pedido pedido;
@@ -53,7 +53,7 @@ class MensajesProductosServiceTest {
     @BeforeEach
     void armar() {
         servicio = new MensajesProductosService(pedidos, pagos, recibidos, maquina, anulaciones, productos, pasarela,
-                postventa, TransactionOperations.withoutTransaction());
+                reembolsos, TransactionOperations.withoutTransaction());
         pedido = new Pedido();
         pedido.setId(981L);
         pedido.setCodigo(CODIGO);
@@ -142,7 +142,7 @@ class MensajesProductosServiceTest {
 
         verify(maquina).cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_PRODUCTOS,
                 MensajesProductosService.MOTIVO_SIN_STOCK);
-        verifyNoInteractions(postventa, pasarela);
+        verifyNoInteractions(reembolsos, pasarela);
     }
 
     @Test
@@ -156,7 +156,8 @@ class MensajesProductosServiceTest {
 
         verify(maquina).cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_PRODUCTOS,
                 MensajesProductosService.MOTIVO_SIN_STOCK);
-        verify(postventa).solicitarReembolso(eq("ANUL-0007"), eq(CODIGO), eq(new BigDecimal("129.90")), eq("PEN"), anyString());
+        verify(reembolsos).registrar(eq("ANUL-0007"), eq(981L), eq(new BigDecimal("129.90")), eq("PEN"), anyString());
+        verify(reembolsos).enviar("ANUL-0007");
     }
 
     @Test
@@ -169,7 +170,8 @@ class MensajesProductosServiceTest {
 
         verify(maquina).cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_PRODUCTOS,
                 MensajesProductosService.MOTIVO_RESERVA_EXPIRADA);
-        verify(postventa).solicitarReembolso(eq("ANUL-0008"), eq(CODIGO), any(), eq("PEN"), anyString());
+        verify(reembolsos).registrar(eq("ANUL-0008"), eq(981L), any(), eq("PEN"), anyString());
+        verify(reembolsos).enviar("ANUL-0008");
     }
 
     @Test
@@ -178,7 +180,7 @@ class MensajesProductosServiceTest {
 
         servicio.procesar(mensaje(MensajeInventario.CONSUMO_RECHAZADO, "otra-operacion", Map.of()));
 
-        verifyNoInteractions(maquina, postventa, anulaciones);
+        verifyNoInteractions(maquina, reembolsos, anulaciones);
     }
 
     // ---------- inventory.reservation.expired y los que solo se registran ----------
@@ -210,7 +212,7 @@ class MensajesProductosServiceTest {
 
         servicio.procesar(mensaje(MensajeInventario.RESERVA_CONSUMIDA, null, Map.of()));
 
-        verifyNoInteractions(maquina, pasarela, productos, postventa);
+        verifyNoInteractions(maquina, pasarela, productos, reembolsos);
         verify(recibidos).saveAndFlush(any());
     }
 
@@ -260,6 +262,7 @@ class MensajesProductosServiceTest {
 
         verify(maquina).cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_PRODUCTOS,
                 MensajesProductosService.MOTIVO_RESERVA_EXPIRADA);
-        verify(postventa).solicitarReembolso(eq("ANUL-0009"), eq(CODIGO), any(), eq("PEN"), anyString());
+        verify(reembolsos).registrar(eq("ANUL-0009"), eq(981L), any(), eq("PEN"), anyString());
+        verify(reembolsos).enviar("ANUL-0009");
     }
 }

@@ -10,9 +10,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 
 import ventas.anulacion.AnulacionSistemaService;
+import ventas.anulacion.ReembolsoAnulacionService;
 import ventas.integracion.MensajeInventario;
 import ventas.integracion.PasarelaClient;
-import ventas.integracion.PostventaClient;
 import ventas.integracion.ProductosClient;
 import ventas.integracion.ProductosClient.MotivoLiberacion;
 import ventas.integracion.ProductosClient.Operacion;
@@ -61,7 +61,7 @@ public class MensajesProductosService {
     private final AnulacionSistemaService anulaciones;
     private final ProductosClient productos;
     private final PasarelaClient pasarela;
-    private final PostventaClient postventa;
+    private final ReembolsoAnulacionService reembolsos;
     private final TransactionOperations transaccion;
 
     public Desenlace procesar(MensajeInventario m) {
@@ -160,6 +160,8 @@ public class MensajesProductosService {
     /** Ya cobrado: se registra la anulación (el reembolso exige su ANUL-NNNN), se anula y se pide el reembolso. */
     private Paso anularPagado(Pedido pedido, String motivo) {
         String anulacionId = anulaciones.registrarEjecutada(pedido.getId(), motivo);
+        reembolsos.registrar(anulacionId, pedido.getId(), pedido.getTotal(), pedido.getMoneda().trim(),
+                "Anulación automática de M1 por " + motivo);
         maquina.cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_PRODUCTOS, motivo);
         return new Paso(Desenlace.APLICADO, Accion.REEMBOLSAR, pedido, anulacionId, motivo);
     }
@@ -174,8 +176,7 @@ public class MensajesProductosService {
                 }
             }
             case LIBERAR -> productos.liberar(p.getCodigo(), paso.dato(), MotivoLiberacion.ANULACION);
-            case REEMBOLSAR -> postventa.solicitarReembolso(paso.dato(), p.getCodigo(), p.getTotal(),
-                    p.getMoneda().trim(), "Anulación automática de M1 por " + paso.motivo());
+            case REEMBOLSAR -> reembolsos.enviar(paso.dato());   // si M2 falla, queda PENDIENTE y se reintenta
             case NINGUNA -> { }
         }
     }
