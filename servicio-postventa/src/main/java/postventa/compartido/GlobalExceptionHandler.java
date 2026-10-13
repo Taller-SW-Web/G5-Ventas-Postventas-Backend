@@ -10,12 +10,9 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
-import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
-import org.springframework.web.multipart.MaxUploadSizeExceededException;
-import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /** Convierte toda excepción al formato de error del contrato. */
@@ -36,12 +33,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ConflictoException.class)
     public ResponseEntity<ErrorResponse> conflicto(ConflictoException e) {
         return responder(HttpStatus.CONFLICT, ErrorResponse.de(e.getCodigo(), e.getMessage()));
-    }
-
-    @ExceptionHandler(DependenciaNoDisponibleException.class)
-    public ResponseEntity<ErrorResponse> dependenciaNoDisponible(DependenciaNoDisponibleException e) {
-        log.warn("Dependencia no disponible: {}", e.getMessage(), e.getCause());
-        return responder(HttpStatus.SERVICE_UNAVAILABLE, ErrorResponse.de(e.getCodigo(), e.getMessage()));
     }
 
     @ExceptionHandler(NoImplementadoException.class)
@@ -68,20 +59,6 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> cabeceraFaltante(MissingRequestHeaderException e) {
         return responder(HttpStatus.BAD_REQUEST,
                 ErrorResponse.de("CABECERA_FALTANTE", "Falta la cabecera " + e.getHeaderName()));
-    }
-
-    @ExceptionHandler({MissingServletRequestParameterException.class, MissingServletRequestPartException.class})
-    public ResponseEntity<ErrorResponse> parametroFaltante(Exception e) {
-        String nombre = e instanceof MissingServletRequestParameterException p ? p.getParameterName()
-                : ((MissingServletRequestPartException) e).getRequestPartName();
-        return responder(HttpStatus.BAD_REQUEST,
-                ErrorResponse.de("PARAMETRO_FALTANTE", "Falta el parámetro " + nombre));
-    }
-
-    @ExceptionHandler(MaxUploadSizeExceededException.class)
-    public ResponseEntity<ErrorResponse> archivoMuyGrande(MaxUploadSizeExceededException e) {
-        return responder(HttpStatus.BAD_REQUEST,
-                ErrorResponse.de("ARCHIVO_INVALIDO", "El archivo supera el tamaño máximo de 5 MB"));
     }
 
     @ExceptionHandler(AccessDeniedException.class)

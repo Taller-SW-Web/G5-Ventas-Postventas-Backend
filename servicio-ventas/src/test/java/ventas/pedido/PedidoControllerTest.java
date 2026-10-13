@@ -157,6 +157,17 @@ class PedidoControllerTest {
     }
 
     @Test
+    void productosNoDisponibleResponde503() throws Exception {
+        when(crearPedidoService.crear(eq(CLAVE), any())).thenThrow(new ventas.compartido.DependenciaNoDisponibleException(
+                "PRODUCTOS_NO_DISPONIBLE", "No se pudo reservar el stock en Productos; intente nuevamente"));
+
+        mvc.perform(post("/api/v1/pedidos").header("Idempotency-Key", CLAVE)
+                        .contentType(MediaType.APPLICATION_JSON).content(CUERPO))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.codigo").value("PRODUCTOS_NO_DISPONIBLE"));
+    }
+
+    @Test
     void consultarPedidoInexistenteResponde404() throws Exception {
         when(consultarPedidoService.consultar(eq("PED-2026-99999"), any()))
                 .thenThrow(new ventas.compartido.RecursoNoEncontradoException("PEDIDO_NO_ENCONTRADO", "No existe"));
