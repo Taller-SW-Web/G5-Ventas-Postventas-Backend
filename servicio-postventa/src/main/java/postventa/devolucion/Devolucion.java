@@ -93,7 +93,7 @@ public class Devolucion {
     @OrderBy("id")
     private List<EvidenciaDevolucion> evidencias = new ArrayList<>();
 
-    public void agregarItem(long idProducto, int cantidad) {
+    public void agregarItem(String idProducto, int cantidad) {
         DevolucionItem item = new DevolucionItem();
         item.setDevolucion(this);
         item.setIdProducto(idProducto);
