@@ -6,10 +6,12 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,6 +22,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import postventa.compartido.CodigoPublico;
 import postventa.compartido.DependenciaNoDisponibleException;
@@ -27,9 +31,8 @@ import postventa.compartido.DependenciaNoDisponibleException;
 /**
  * M1: consulta de un pedido (GET /api/v1/pedidos/{pedidoId}, api-ventas 1.3). Lo usan F3 y F5.
  *
- * Token: el de servicio de modulo-postventa (TokenServicio), con el scope ventas:pedidos:consultar que 1.3 acepta.
- * La titularidad del cliente la revisa F3, no M1. Hasta que Seguridad registre ese scope para modulo-postventa,
- * M1 responde 403 con la seguridad prendida; con SEGURIDAD_HABILITADA=false no se manda token.
+ * Token: 1.3 solo acepta rol CLIENTE (su propio pedido) o ADMIN_VENTAS, no hay scope de servicio para M2.
+ * Mientras Seguridad no registre uno, se reenvía el token de la petición que se está atendiendo.
  *
  * Con integracion.simulado=true no llama a M1 y responde un pedido ENTREGADO hace 2 días, del cliente
  * de prueba, por 129.90 PEN (PROD-101 x1 a 99.90 y PROD-999 x1 a 30.00). Para probar errores:
@@ -57,29 +60,26 @@ public class VentasClient {
 
     private final boolean simulado;
     private final UUID clientePrueba;
-    private final TokenServicio tokenServicio;
     private final Clock reloj;
     private final RestClient http;
 
     @Autowired
     public VentasClient(@Value("${integracion.simulado:true}") boolean simulado,
                         @Value("${integracion.ventas-url:http://localhost:8081}") String url,
-                        @Value("${seguridad.cliente-prueba:11111111-1111-1111-1111-111111111111}") UUID clientePrueba,
-                        TokenServicio tokenServicio) {
-        this(simulado, clientePrueba, tokenServicio, Clock.systemUTC(), RestClient.builder().baseUrl(url));
+                        @Value("${seguridad.cliente-prueba:11111111-1111-1111-1111-111111111111}") UUID clientePrueba) {
+        this(simulado, url, clientePrueba, Clock.systemUTC());
     }
 
-    VentasClient(boolean simulado, UUID clientePrueba, TokenServicio tokenServicio, Clock reloj, RestClient.Builder http) {
+    VentasClient(boolean simulado, String url, UUID clientePrueba, Clock reloj) {
         this.simulado = simulado;
         this.clientePrueba = clientePrueba;
-        this.tokenServicio = tokenServicio;
         this.reloj = reloj;
-        this.http = http.build();
+        this.http = RestClient.builder().baseUrl(url).build();
     }
 
     /**
-     * Vacío si el pedido no existe. Si M1 rechaza el token de M2 (403), lanza AccessDeniedException.
-     * Si M1 no responde, 503 VENTAS_NO_DISPONIBLE.
+     * Vacío si el pedido no existe. Si M1 dice que el cliente del token no es el titular, lanza
+     * AccessDeniedException (403). Si M1 no responde, 503 VENTAS_NO_DISPONIBLE.
      */
     public Optional<PedidoResumen> consultarPedido(String pedidoId) {
         if (simulado) {
@@ -87,7 +87,7 @@ public class VentasClient {
         }
         try {
             PedidoM1 pedido = http.get().uri("/api/v1/pedidos/{pedidoId}", pedidoId)
-                    .headers(h -> tokenServicio.authorization().ifPresent(t -> h.set(HttpHeaders.AUTHORIZATION, t)))
+                    .headers(h -> tokenActual().ifPresent(t -> h.set(HttpHeaders.AUTHORIZATION, t)))
                     .retrieve()
                     .body(PedidoM1.class);
             return Optional.ofNullable(pedido).map(VentasClient::convertir);
@@ -96,7 +96,7 @@ public class VentasClient {
                 return Optional.empty();
             }
             if (e.getStatusCode() == HttpStatus.FORBIDDEN) {
-                throw new AccessDeniedException("Ventas rechazó la consulta del pedido con el token de servicio de M2");
+                throw new AccessDeniedException("El pedido no pertenece al cliente autenticado");
             }
             throw new DependenciaNoDisponibleException("VENTAS_NO_DISPONIBLE",
                     "No se pudo consultar el pedido en Ventas", e);
@@ -148,5 +148,13 @@ public class VentasClient {
                 List.of(new PedidoResumen.Item(101, 1, new BigDecimal("99.90")),
                         new PedidoResumen.Item(999, 1, new BigDecimal("30.00"))),
                 entrega));
+    }
+
+    private static Optional<String> tokenActual() {
+        return Optional.ofNullable(RequestContextHolder.getRequestAttributes())
+                .filter(ServletRequestAttributes.class::isInstance)
+                .map(a -> ((ServletRequestAttributes) a).getRequest())
+                .map((HttpServletRequest r) -> r.getHeader(HttpHeaders.AUTHORIZATION))
+                .filter(Objects::nonNull);
     }
 }

@@ -19,8 +19,7 @@ import org.springframework.web.client.RestClientException;
  *   así un reintento nunca paga dos veces.
  * - POST /api/v2/eventos (2.13): eventos del outbox (pedido.pagado, .anulado, .entregado).
  * Con integracion.postventa-simulado=true no llama a M2: solo deja un log y responde SIMULADO.
- * Ambas llevan el token de servicio de modulo-ventas con scope postventa:reembolsos:procesar
- * (M2 exige ese mismo scope en /api/v2/eventos).
+ * Ambas llevan el token de servicio de modulo-ventas (M2 exige postventa:reembolsos:procesar en las dos).
  */
 @Slf4j
 @Component
@@ -46,8 +45,6 @@ public class PostventaClient {
         }
     }
 
-    static final String SCOPE = "postventa:reembolsos:procesar";
-
     private final boolean simulado;
     private final RestClient http;
     private final TokenServicio tokens;
@@ -70,7 +67,7 @@ public class PostventaClient {
         }
         try {
             ReembolsoRegistrado r = http.post().uri("/api/v2/reembolsos")
-                    .headers(tokens.autorizacion(SCOPE))
+                    .headers(tokens.autorizacion())
                     .header("X-Idempotency-Key", clave)
                     .body(new ReembolsoRequest("ANULACION", anulacionId, pedidoId, monto, moneda, motivo, "SISTEMA_M1"))
                     .retrieve()
@@ -78,7 +75,7 @@ public class PostventaClient {
             return r == null ? new RespuestaReembolso(Envio.ACEPTADO, null, null, null)
                     : new RespuestaReembolso(Envio.ACEPTADO, r.reembolsoId(), r.estado(), null);
         } catch (RestClientException e) {
-            tokens.revisar(e, SCOPE);
+            tokens.revisar(e);
             Envio envio = clasificar(e);
             log.error("Reembolso de {} ({}) a M2: {} ({})", pedidoId, anulacionId, envio, e.getMessage());
             return RespuestaReembolso.sin(envio, recortar(e.getMessage()));
@@ -93,14 +90,14 @@ public class PostventaClient {
         }
         try {
             http.post().uri("/api/v2/eventos")
-                    .headers(tokens.autorizacion(SCOPE))
+                    .headers(tokens.autorizacion())
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(payloadJson)
                     .retrieve()
                     .toBodilessEntity();
             return Envio.ACEPTADO;
         } catch (RestClientException e) {
-            tokens.revisar(e, SCOPE);
+            tokens.revisar(e);
             Envio envio = clasificar(e);
             log.warn("Evento {} a M2: {} ({})", idEvento, envio, e.getMessage());
             return envio;

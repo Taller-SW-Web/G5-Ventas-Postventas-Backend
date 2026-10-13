@@ -51,11 +51,11 @@ public record CrearPedidoRequest(
             @Size(max = 30) String modalidad,
             @PositiveOrZero BigDecimal costo,
             @Size(max = 150) String destinatario,
-            String departamento,
-            String provincia,
+            @Size(max = 80) String departamento,
+            @Size(max = 80) String provincia,
             @Size(max = 80) String distrito,
             @Size(max = 255) String direccion,
-            String referencia,
+            @Size(max = 255) String referencia,
             @Size(max = 60) String tiendaId) {}   // solo RETAIL (acuerdo G4, R5)
 
     public record Pago(

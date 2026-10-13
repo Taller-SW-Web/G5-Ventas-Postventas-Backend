@@ -35,6 +35,11 @@ public class GlobalExceptionHandler {
         return responder(HttpStatus.CONFLICT, ErrorResponse.de(e.getCodigo(), e.getMessage()));
     }
 
+    @ExceptionHandler(NoProcesableException.class)
+    public ResponseEntity<ErrorResponse> noProcesable(NoProcesableException e) {
+        return responder(HttpStatus.UNPROCESSABLE_ENTITY, ErrorResponse.de(e.getCodigo(), e.getMessage()));
+    }
+
     @ExceptionHandler(DependenciaNoDisponibleException.class)
     public ResponseEntity<ErrorResponse> dependenciaNoDisponible(DependenciaNoDisponibleException e) {
         log.warn("Dependencia no disponible: {}", e.getMessage(), e.getCause());
