@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -28,6 +29,7 @@ import org.springframework.transaction.support.TransactionOperations;
 
 import ventas.compartido.ConflictoException;
 import ventas.compartido.SolicitudInvalidaException;
+import ventas.integracion.MensajeInventario;
 import ventas.integracion.ProductosClient;
 import ventas.pedido.dto.CrearPedidoRequest;
 import ventas.pedido.dto.CrearPedidoRequest.Item;
@@ -42,13 +44,13 @@ class CrearPedidoServiceTest {
     @Mock PagoRepository pagos;
     @Mock MaquinaEstados maquina;
     @Mock ProductosClient productos;
-    @Mock ResultadoReservaService resultadoReserva;
+    @Mock MensajesProductosService mensajesProductos;
 
     CrearPedidoService servicio;
 
     @BeforeEach
     void armar() {
-        servicio = new CrearPedidoService(new ValidadorPedido(), pedidos, pagos, maquina, productos, resultadoReserva,
+        servicio = new CrearPedidoService(new ValidadorPedido(), pedidos, pagos, maquina, productos, mensajesProductos,
                 TransactionOperations.withoutTransaction());
     }
 
@@ -77,11 +79,12 @@ class CrearPedidoServiceTest {
         assertThat(r.pedido().moneda()).isEqualTo("PEN");
         assertThat(r.pedido().fechaCreacion()).isNotNull();
 
-        verify(productos).reservar(eq(CLAVE), eq(contacto().clienteId()), anyList());
+        // Se reserva con el código del pedido ya guardado y el canal
+        verify(productos).reservar(eq(r.pedido().pedidoId()), eq("CHATBOT"), anyList());
         verify(maquina).registrarInicial(any(Pedido.class), eq(ActorHistorial.CANAL_CHATBOT),
                 eq(CrearPedidoService.MOTIVO_INICIAL), any(OffsetDateTime.class));
         verify(maquina, never()).cambiar(any(), any(), any(), any(), any());
-        verifyNoInteractions(resultadoReserva);   // en modo real el resultado llega por po.sales.q
+        verifyNoInteractions(mensajesProductos);   // en modo real el resultado llega por po.sales.q
 
         ArgumentCaptor<Pago> pago = ArgumentCaptor.forClass(Pago.class);
         verify(pagos).save(pago.capture());
@@ -114,8 +117,8 @@ class CrearPedidoServiceTest {
     @Test
     void conReservaInmediataSeAplicaDespuesDeGuardar() {
         // Modo simulado: ProductosClient devuelve el resultado al instante y se aplica tras el commit
-        ProductosClient.ResultadoReserva reserva = new ProductosClient.ResultadoReserva(CLAVE, "SIM-" + CLAVE, true);
-        when(productos.reservar(eq(CLAVE), any(), anyList())).thenReturn(Optional.of(reserva));
+        MensajeInventario reserva = new MensajeInventario("SIM-1", MensajeInventario.RESERVA_CREADA, "op", Map.of());
+        when(productos.reservar(anyString(), eq("MARKETPLACE"), anyList())).thenReturn(Optional.of(reserva));
         when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
         conIdGenerado(7);
         CrearPedidoRequest base = ValidadorPedidoTest.chatbot(contacto());
@@ -126,7 +129,7 @@ class CrearPedidoServiceTest {
 
         assertThat(r.pedido().estado()).isEqualTo(EstadoPedido.CREADO);
         verify(maquina).registrarInicial(any(), eq(ActorHistorial.CLIENTE), anyString(), any());
-        verify(resultadoReserva).procesar(reserva);
+        verify(mensajesProductos).procesar(reserva);
     }
 
     @Test
@@ -136,7 +139,7 @@ class CrearPedidoServiceTest {
 
         servicio.crear(CLAVE, ValidadorPedidoTest.retail("TARJETA_POS", "VOU-778", null, null, null));
 
-        verifyNoInteractions(productos, resultadoReserva);
+        verifyNoInteractions(productos, mensajesProductos);
         ArgumentCaptor<Pedido> captor = ArgumentCaptor.forClass(Pedido.class);
         verify(maquina).registrarInicial(captor.capture(), eq(ActorHistorial.CLIENTE), anyString(), any());
         assertThat(captor.getValue().getEstado()).isEqualTo(EstadoPedido.PAGADO);
@@ -194,7 +197,7 @@ class CrearPedidoServiceTest {
         assertThat(r.creado()).isFalse();
         assertThat(r.pedido().pedidoId()).isEqualTo("PED-2026-00981");
         verify(pedidos, never()).saveAndFlush(any());
-        verifyNoInteractions(productos, pagos, maquina, resultadoReserva);
+        verifyNoInteractions(productos, pagos, maquina, mensajesProductos);
     }
 
     @Test
@@ -226,26 +229,27 @@ class CrearPedidoServiceTest {
     }
 
     @Test
-    void sinStockDa409YNoSeGuardaElPedido() {
+    void siProductosNoAdmiteLaReservaFallaDentroDeLaTransaccion() {
+        // Con transacción real el pedido se deshace; aquí basta con ver que el error sale y no se aplica nada más
         when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
-        doThrow(new ConflictoException("ITEM_SIN_DISPONIBILIDAD", "sin stock"))
-                .when(productos).reservar(eq(CLAVE), any(), anyList());
+        conIdGenerado(9);
+        doThrow(new ConflictoException("PRODUCTOS_NO_DISPONIBLE", "Productos no responde"))
+                .when(productos).reservar(anyString(), anyString(), anyList());
 
         assertThatThrownBy(() -> servicio.crear(CLAVE, ValidadorPedidoTest.chatbot(contacto())))
-                .extracting("codigo").isEqualTo("ITEM_SIN_DISPONIBILIDAD");
-        verify(pedidos, never()).saveAndFlush(any());
+                .extracting("codigo").isEqualTo("PRODUCTOS_NO_DISPONIBLE");
+        verifyNoInteractions(mensajesProductos);
     }
 
     @Test
-    void siFallaElGuardadoNoSeLiberaAunPorqueNoHayReservaId() {
-        // El reservaId llega después por po.sales.q; ahí se libera la reserva sin pedido (acuerdo G6)
+    void siFallaElGuardadoNoSeReserva() {
+        // Primero se guarda y luego se reserva: si el guardado falla, Productos no se entera
         when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
         when(pedidos.saveAndFlush(any(Pedido.class))).thenThrow(new IllegalStateException("base caída"));
 
         assertThatThrownBy(() -> servicio.crear(CLAVE, ValidadorPedidoTest.chatbot(contacto())))
                 .isInstanceOf(IllegalStateException.class);
-        verify(productos).reservar(eq(CLAVE), eq(contacto().clienteId()), anyList());
-        verify(productos, never()).liberar(anyString());
+        verifyNoInteractions(productos);
     }
 
     @Test
@@ -268,8 +272,8 @@ class CrearPedidoServiceTest {
 
         assertThat(r.creado()).isFalse();
         assertThat(r.pedido().pedidoId()).isEqualTo("PED-2026-00981");
-        // la reserva es la del pedido ganador (misma referencia): no se libera
-        verify(productos, never()).liberar(anyString());
+        // Falló al guardar: no se llegó a reservar
+        verifyNoInteractions(productos);
     }
 
     @Test
