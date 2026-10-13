@@ -19,8 +19,6 @@ import ventas.compartido.ConflictoException;
  * - Reservar: POST /api/v1/inventario/reservas -> 202. El resultado y el reservaId llegan después por RabbitMQ (po.sales.q).
  * - Confirmar: POST /api/v1/inventario/{reservaId}/confirmar cuando el pedido pasa a PAGADO.
  * - Liberar: POST /api/v1/inventario/{reservaId}/liberar en anulaciones antes del consumo.
- * - Cupón: solo por eventos en RabbitMQ (po.commands.x). Mientras la topología 0.6.0-rc.1 no esté operativa,
- *   en modo real solo queda en el log.
  * Retail no usa nada de esto (acuerdo G4, R9). Con integracion.simulado=true no se llama a nadie.
  */
 @Slf4j
@@ -79,20 +77,6 @@ public class ProductosClient {
     /** Devuelve el stock reservado cuando el pedido se anula antes del consumo. Nunca lanza excepción. */
     public void liberar(String reservaId) {
         llamar("/api/v1/inventario/{reservaId}/liberar", reservaId, "liberar");
-    }
-
-    /**
-     * Pide a Productos que restaure un cupón ya consumido (promotions.coupon.restoration.requested),
-     * cuando el pedido se anula. Nunca lanza excepción.
-     */
-    public void restaurarCupon(String codigoCupon, String pedidoId, UUID customerRef) {
-        if (simulado) {
-            log.info("[simulado] restaurar cupón {} del pedido {}", codigoCupon, pedidoId);
-            return;
-        }
-        // Pendiente: publicar en po.commands.x cuando Productos confirme el formato del evento (acuerdo G6)
-        log.warn("Restauración del cupón {} del pedido {} pendiente: RabbitMQ de Productos no operativo",
-                codigoCupon, pedidoId);
     }
 
     private void llamar(String ruta, String reservaId, String accion) {
