@@ -1,12 +1,15 @@
 package ventas.pedido;
 
 import java.net.URI;
+import java.util.Optional;
 import java.util.UUID;
 
 import jakarta.validation.Valid;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,6 +28,7 @@ import ventas.pedido.dto.CrearPedidoResponse;
 import ventas.pedido.dto.MisPedidosResponse;
 import ventas.pedido.dto.NotificacionPagoRequest;
 import ventas.pedido.dto.NotificacionPagoResponse;
+import ventas.pedido.dto.PedidoDetalle;
 
 @RestController
 @RequestMapping("/api/v1/pedidos")
@@ -33,17 +37,20 @@ public class PedidoController {
     private final PedidoService pedidoService;
     private final CrearPedidoService crearPedidoService;
     private final NotificacionPagoService notificacionPagoService;
+    private final ConsultarPedidoService consultarPedidoService;
     private final boolean seguridadHabilitada;
     private final UUID clientePrueba;
 
     public PedidoController(PedidoService pedidoService,
                             CrearPedidoService crearPedidoService,
                             NotificacionPagoService notificacionPagoService,
+                            ConsultarPedidoService consultarPedidoService,
                             @Value("${seguridad.habilitada:true}") boolean seguridadHabilitada,
                             @Value("${seguridad.cliente-prueba:11111111-1111-1111-1111-111111111111}") UUID clientePrueba) {
         this.pedidoService = pedidoService;
         this.crearPedidoService = crearPedidoService;
         this.notificacionPagoService = notificacionPagoService;
+        this.consultarPedidoService = consultarPedidoService;
         this.seguridadHabilitada = seguridadHabilitada;
         this.clientePrueba = clientePrueba;
     }
@@ -87,9 +94,15 @@ public class PedidoController {
         return ResponseEntity.ok(pedidoService.listarMios(clienteDelToken(jwt), estado, page, pageSize));
     }
 
+    /**
+     * 1.3 Consultar pedido. Cliente (solo sus pedidos), Gestor o M2 con scope ventas:pedidos:consultar
+     * (lo exige SecurityConfig). La titularidad del cliente se valida contra el claim sub.
+     */
     @GetMapping("/{pedidoId}")
-    public ResponseEntity<Void> consultar() {
-        throw new NoImplementadoException("1.3 Consultar pedido");
+    public ResponseEntity<PedidoDetalle> consultar(@PathVariable String pedidoId,
+                                                   @AuthenticationPrincipal Jwt jwt,
+                                                   Authentication autenticacion) {
+        return ResponseEntity.ok(consultarPedidoService.consultar(pedidoId, soloCliente(jwt, autenticacion)));
     }
 
     @GetMapping
@@ -105,6 +118,25 @@ public class PedidoController {
     @PostMapping("/{pedidoId}/eventos-logistica")
     public ResponseEntity<Void> eventoLogistica() {
         throw new NoImplementadoException("1.6 Eventos de logística");
+    }
+
+    /**
+     * Solo un token de usuario CLIENTE (sin rol de Gestor) queda limitado a sus pedidos.
+     * Gestor, token de servicio de M2 y seguridad apagada ven cualquier pedido.
+     */
+    static Optional<UUID> soloCliente(Jwt jwt, Authentication autenticacion) {
+        if (jwt == null || autenticacion == null) {
+            return Optional.empty();
+        }
+        boolean cliente = false;
+        for (GrantedAuthority a : autenticacion.getAuthorities()) {
+            switch (a.getAuthority()) {
+                case "ROLE_ADMIN_VENTAS", "SCOPE_ventas:pedidos:consultar" -> { return Optional.empty(); }
+                case "ROLE_CLIENTE" -> cliente = true;
+                default -> { }
+            }
+        }
+        return cliente ? Optional.of(UUID.fromString(jwt.getSubject())) : Optional.empty();
     }
 
     /** Con seguridad apagada (solo local) usa el cliente de prueba de Seguridad (kit §6). */
