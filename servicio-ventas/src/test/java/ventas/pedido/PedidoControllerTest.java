@@ -28,7 +28,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import ventas.compartido.ConflictoException;
 import ventas.compartido.SecurityConfig;
+import ventas.pedido.dto.CambiarEstadoResponse;
 import ventas.pedido.dto.CrearPedidoResponse;
 import ventas.pedido.dto.ListadoPedidosResponse;
 import ventas.pedido.dto.NotificacionPagoResponse;
@@ -55,9 +57,11 @@ class PedidoControllerTest {
     @MockitoBean
     ConsultarPedidoService consultarPedidoService;
 
+    @MockitoBean
+    CambiarEstadoService cambiarEstadoService;
+
     @Test
     void losEndpointsPendientesDeF1Responden501() throws Exception {
-        esperar501(mvc.perform(patch("/api/v1/pedidos/PED-2026-00001/estado")));
         esperar501(mvc.perform(post("/api/v1/pedidos/PED-2026-00001/eventos-logistica")));
     }
 
@@ -215,6 +219,48 @@ class PedidoControllerTest {
                 .andExpect(status().isBadRequest());
         verifyNoInteractions(pedidoService);
     }
+
+    // ---------- 1.5 Cambiar estado ----------
+
+    @Test
+    void cambiarEstadoResponde200ConLaTransicion() throws Exception {
+        when(cambiarEstadoService.cambiar(eq("PED-2026-00981"), any())).thenReturn(new CambiarEstadoResponse(
+                "PED-2026-00981", EstadoPedido.EN_PREPARACION, EstadoPedido.DESPACHADO, OffsetDateTime.parse("2026-10-13T10:00:00Z")));
+
+        mvc.perform(patch("/api/v1/pedidos/PED-2026-00981/estado").contentType(MediaType.APPLICATION_JSON).content(CAMBIO_ESTADO))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pedidoId").value("PED-2026-00981"))
+                .andExpect(jsonPath("$.estadoAnterior").value("EN_PREPARACION"))
+                .andExpect(jsonPath("$.nuevoEstado").value("DESPACHADO"))
+                .andExpect(jsonPath("$.fechaTransicion").value("2026-10-13T10:00:00Z"));
+    }
+
+    @Test
+    void cambiarEstadoSinCamposOConEnumInvalidoResponde400() throws Exception {
+        mvc.perform(patch("/api/v1/pedidos/PED-2026-00981/estado").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(patch("/api/v1/pedidos/PED-2026-00981/estado").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nuevoEstado\": \"VOLANDO\", \"actor\": \"SISTEMA_LOGISTICA\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(patch("/api/v1/pedidos/PED-2026-00981/estado").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nuevoEstado\": \"DESPACHADO\", \"actor\": \"SISTEMA_LOGISTICA\", \"motivo\": \"" + "x".repeat(61) + "\"}"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(cambiarEstadoService);
+    }
+
+    @Test
+    void cambiarEstadoNoPermitidoResponde409() throws Exception {
+        when(cambiarEstadoService.cambiar(eq("PED-2026-00981"), any()))
+                .thenThrow(new ConflictoException("TRANSICION_NO_PERMITIDA", "No se permite pasar de CREADO a DESPACHADO"));
+        mvc.perform(patch("/api/v1/pedidos/PED-2026-00981/estado").contentType(MediaType.APPLICATION_JSON).content(CAMBIO_ESTADO))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.codigo").value("TRANSICION_NO_PERMITIDA"));
+    }
+
+    /** Ejemplo de api-ventas.md 1.5. */
+    static final String CAMBIO_ESTADO = """
+            {"nuevoEstado": "DESPACHADO", "actor": "SISTEMA_LOGISTICA", "motivo": "Guía de remisión GR-00892 asignada a transporte"}
+            """;
 
     @Test
     void rutaInexistenteResponde404ConFormatoDelContrato() throws Exception {

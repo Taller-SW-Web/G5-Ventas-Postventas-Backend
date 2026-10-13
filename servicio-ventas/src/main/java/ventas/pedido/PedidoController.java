@@ -25,6 +25,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import ventas.compartido.NoImplementadoException;
+import ventas.pedido.dto.CambiarEstadoRequest;
+import ventas.pedido.dto.CambiarEstadoResponse;
 import ventas.pedido.dto.CrearPedidoRequest;
 import ventas.pedido.dto.CrearPedidoResponse;
 import ventas.pedido.dto.ListadoPedidosResponse;
@@ -41,6 +43,7 @@ public class PedidoController {
     private final CrearPedidoService crearPedidoService;
     private final NotificacionPagoService notificacionPagoService;
     private final ConsultarPedidoService consultarPedidoService;
+    private final CambiarEstadoService cambiarEstadoService;
     private final boolean seguridadHabilitada;
     private final UUID clientePrueba;
 
@@ -48,12 +51,14 @@ public class PedidoController {
                             CrearPedidoService crearPedidoService,
                             NotificacionPagoService notificacionPagoService,
                             ConsultarPedidoService consultarPedidoService,
+                            CambiarEstadoService cambiarEstadoService,
                             @Value("${seguridad.habilitada:true}") boolean seguridadHabilitada,
                             @Value("${seguridad.cliente-prueba:11111111-1111-1111-1111-111111111111}") UUID clientePrueba) {
         this.pedidoService = pedidoService;
         this.crearPedidoService = crearPedidoService;
         this.notificacionPagoService = notificacionPagoService;
         this.consultarPedidoService = consultarPedidoService;
+        this.cambiarEstadoService = cambiarEstadoService;
         this.seguridadHabilitada = seguridadHabilitada;
         this.clientePrueba = clientePrueba;
     }
@@ -120,9 +125,11 @@ public class PedidoController {
         return ResponseEntity.ok(pedidoService.listar(clienteId, estado, desde, hasta, pagina, tamano));
     }
 
+    /** 1.5 Cambiar estado. Despacho / Logística (scope ventas:pedidos:estado) o Gestor (lo exige SecurityConfig). */
     @PatchMapping("/{pedidoId}/estado")
-    public ResponseEntity<Void> cambiarEstado() {
-        throw new NoImplementadoException("1.5 Cambiar estado");
+    public ResponseEntity<CambiarEstadoResponse> cambiarEstado(@PathVariable String pedidoId,
+                                                               @Valid @RequestBody CambiarEstadoRequest solicitud) {
+        return ResponseEntity.ok(cambiarEstadoService.cambiar(pedidoId, solicitud));
     }
 
     @PostMapping("/{pedidoId}/eventos-logistica")
