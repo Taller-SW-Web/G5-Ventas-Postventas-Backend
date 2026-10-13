@@ -86,9 +86,9 @@ class PedidoServiceTest {
     @Test
     void rechazaPageMenorAUnoYPageSizeMayorA50() {
         assertThatThrownBy(() -> servicio.listarMios(CLIENTE, null, 0, 10))
-                .isInstanceOf(SolicitudInvalidaException.class);
+                .isInstanceOf(SolicitudInvalidaException.class).hasFieldOrPropertyWithValue("codigo", "PAGINACION_INVALIDA");
         assertThatThrownBy(() -> servicio.listarMios(CLIENTE, null, 1, 51))
-                .isInstanceOf(SolicitudInvalidaException.class);
+                .isInstanceOf(SolicitudInvalidaException.class).hasFieldOrPropertyWithValue("codigo", "PAGINACION_INVALIDA");
     }
 
     // ---------- 1.4 Listar pedidos (Gestor) ----------
@@ -122,15 +122,15 @@ class PedidoServiceTest {
     @Test
     void listarRechazaParametrosInvalidos() {
         assertThatThrownBy(() -> servicio.listar(null, null, null, null, 0, 10))
-                .isInstanceOf(SolicitudInvalidaException.class);
+                .isInstanceOf(SolicitudInvalidaException.class).hasFieldOrPropertyWithValue("codigo", "PARAMETRO_FALTANTE");
         assertThatThrownBy(() -> servicio.listar(CLIENTE, null, null, null, -1, 10))
-                .isInstanceOf(SolicitudInvalidaException.class);
+                .isInstanceOf(SolicitudInvalidaException.class).hasFieldOrPropertyWithValue("codigo", "PAGINACION_INVALIDA");
         assertThatThrownBy(() -> servicio.listar(CLIENTE, null, null, null, 0, 0))
-                .isInstanceOf(SolicitudInvalidaException.class);
+                .isInstanceOf(SolicitudInvalidaException.class).hasFieldOrPropertyWithValue("codigo", "PAGINACION_INVALIDA");
         assertThatThrownBy(() -> servicio.listar(CLIENTE, null, null, null, 0, 51))
-                .isInstanceOf(SolicitudInvalidaException.class);
+                .isInstanceOf(SolicitudInvalidaException.class).hasFieldOrPropertyWithValue("codigo", "PAGINACION_INVALIDA");
         assertThatThrownBy(() -> servicio.listar(CLIENTE, null, LocalDate.of(2026, 10, 2), LocalDate.of(2026, 10, 1), 0, 10))
-                .isInstanceOf(SolicitudInvalidaException.class);
+                .isInstanceOf(SolicitudInvalidaException.class).hasFieldOrPropertyWithValue("codigo", "PARAMETRO_INVALIDO");
         verifyNoInteractions(pedidos);
     }
 

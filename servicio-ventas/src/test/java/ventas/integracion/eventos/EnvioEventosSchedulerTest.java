@@ -29,7 +29,7 @@ class EnvioEventosSchedulerTest {
     @Test
     void marcaEnviadosLosAceptadosYSigueSiUnoEsRechazado() {
         OutboxEvento a = evento(), b = evento(), c = evento();
-        when(outbox.findTop50ByEnviadoEnIsNullOrderByCreadoEnAsc()).thenReturn(List.of(a, b, c));
+        when(outbox.findTop50ByEnviadoEnIsNullAndIntentosLessThanOrderByCreadoEnAsc(EnvioEventosScheduler.MAXIMO_INTENTOS)).thenReturn(List.of(a, b, c));
         when(postventa.enviarEvento(a.getIdEvento(), a.getPayload())).thenReturn(Envio.ACEPTADO);
         when(postventa.enviarEvento(b.getIdEvento(), b.getPayload())).thenReturn(Envio.RECHAZADO);
         when(postventa.enviarEvento(c.getIdEvento(), c.getPayload())).thenReturn(Envio.ACEPTADO);
@@ -38,7 +38,7 @@ class EnvioEventosSchedulerTest {
 
         assertThat(a.getEnviadoEn()).isNotNull();
         assertThat(b.getEnviadoEn()).isNull();
-        assertThat(b.getIntentos()).isEqualTo(1);
+        assertThat(b.getIntentos()).isEqualTo(EnvioEventosScheduler.MAXIMO_INTENTOS);   // rechazado: no se reintenta
         assertThat(c.getEnviadoEn()).isNotNull();
         verify(outbox).save(a);
         verify(outbox).save(b);
@@ -48,7 +48,7 @@ class EnvioEventosSchedulerTest {
     @Test
     void siM2NoEstaDisponibleCortaLaVuelta() {
         OutboxEvento a = evento(), b = evento();
-        when(outbox.findTop50ByEnviadoEnIsNullOrderByCreadoEnAsc()).thenReturn(List.of(a, b));
+        when(outbox.findTop50ByEnviadoEnIsNullAndIntentosLessThanOrderByCreadoEnAsc(EnvioEventosScheduler.MAXIMO_INTENTOS)).thenReturn(List.of(a, b));
         when(postventa.enviarEvento(a.getIdEvento(), a.getPayload())).thenReturn(Envio.NO_DISPONIBLE);
 
         scheduler.enviarPendientes();
@@ -60,8 +60,22 @@ class EnvioEventosSchedulerTest {
     }
 
     @Test
+    void enModoSimuladoNoCuentaIntentosNiGuarda() {
+        OutboxEvento a = evento(), b = evento();
+        when(outbox.findTop50ByEnviadoEnIsNullAndIntentosLessThanOrderByCreadoEnAsc(EnvioEventosScheduler.MAXIMO_INTENTOS))
+                .thenReturn(List.of(a, b));
+        when(postventa.enviarEvento(a.getIdEvento(), a.getPayload())).thenReturn(Envio.SIMULADO);
+
+        scheduler.enviarPendientes();
+
+        assertThat(a.getIntentos()).isZero();
+        verify(outbox, never()).save(any());
+        verify(postventa, never()).enviarEvento(b.getIdEvento(), b.getPayload());
+    }
+
+    @Test
     void sinPendientesNoLlamaAM2() {
-        when(outbox.findTop50ByEnviadoEnIsNullOrderByCreadoEnAsc()).thenReturn(List.of());
+        when(outbox.findTop50ByEnviadoEnIsNullAndIntentosLessThanOrderByCreadoEnAsc(EnvioEventosScheduler.MAXIMO_INTENTOS)).thenReturn(List.of());
         scheduler.enviarPendientes();
         verify(postventa, never()).enviarEvento(any(), any());
     }
