@@ -89,6 +89,10 @@ public class Pedido {
     @Column(name = "referencia_envio")
     private String referenciaEnvio;
 
+    /** La actualiza DESPACHO_REPROGRAMADO (datos.nuevaFechaProgramada, acuerdo G2 D3). null hasta entonces. */
+    @Column(name = "fecha_estimada_entrega")
+    private OffsetDateTime fechaEstimadaEntrega;
+
     /** Acuerdo H-02: cabecera Idempotency-Key de 1.1. Única; null en pedidos anteriores al acuerdo. */
     @Column(name = "idempotency_key", unique = true, length = 128)
     private String idempotencyKey;
