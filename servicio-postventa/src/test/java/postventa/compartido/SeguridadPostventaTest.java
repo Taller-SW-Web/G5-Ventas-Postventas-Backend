@@ -41,6 +41,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.ResultActions;
 
+import postventa.calificacion.CalificacionService;
 import postventa.devolucion.DevolucionService;
 import postventa.devolucion.EvidenciaService;
 
@@ -64,6 +65,8 @@ class SeguridadPostventaTest {
 
     @MockitoBean DevolucionService devolucionService;
     @MockitoBean EvidenciaService evidenciaService;
+    @MockitoBean
+    CalificacionService calificacionService;
 
     @TestConfiguration
     static class Claves {
