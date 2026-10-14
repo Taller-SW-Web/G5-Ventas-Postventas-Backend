@@ -13,6 +13,8 @@ import java.util.Objects;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -147,5 +149,27 @@ class CalificacionControllerTest {
                         .content(CUERPO))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.codigo").value("VENTAS_NO_DISPONIBLE"));
+    }
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "abc",
+            "981",
+            "DEV-2026-00981",
+            "PED-2026-981",
+            "PED-2026-ABCDE"
+    })
+    void pedidoIdMalFormadoResponde400SinInvocarServicio(String pedidoId)
+            throws Exception {
+
+        String cuerpoInvalido = Objects.requireNonNull(
+                CUERPO.replace("PED-2026-00981", pedidoId));
+
+        mvc.perform(post("/api/v2/csat")
+                        .contentType("application/json")
+                        .content(cuerpoInvalido))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.codigo").value("DATOS_INVALIDOS"));
+
+        verifyNoInteractions(servicio);
     }
 }
