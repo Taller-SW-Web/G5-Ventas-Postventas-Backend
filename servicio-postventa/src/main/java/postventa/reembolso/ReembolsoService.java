@@ -4,22 +4,54 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.UUID;
+import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionOperations;
+import org.springframework.transaction.support.TransactionTemplate;
 import postventa.compartido.*;
+import postventa.devolucion.Devolucion;
+import postventa.devolucion.DevolucionRepository;
+import postventa.devolucion.EstadoDevolucion;
+import postventa.devolucion.TipoResolucion;
 import postventa.integracion.*;
 import postventa.reembolso.dto.*;
 
 @Service
 public class ReembolsoService {
-    private final ReembolsoRepository repositorio; private final VentasClient ventas; private final PasarelaClient pasarela; private final Clock reloj;
+    private final ReembolsoRepository repositorio; private final VentasClient ventas; private final PasarelaClient pasarela; private final DevolucionRepository devoluciones; private final Clock reloj; private final TransactionOperations transacciones;
     @Autowired
-    public ReembolsoService(ReembolsoRepository r, VentasClient v, PasarelaClient p) { this(r,v,p,Clock.systemUTC()); }
-    ReembolsoService(ReembolsoRepository r, VentasClient v, PasarelaClient p, Clock c) { repositorio=r; ventas=v; pasarela=p; reloj=c; }
-    @Transactional
+    public ReembolsoService(ReembolsoRepository r, VentasClient v, PasarelaClient p, DevolucionRepository d,
+                            PlatformTransactionManager gestorTransacciones) { this(r, v, p, d, Clock.systemUTC(), new TransactionTemplate(gestorTransacciones)); }
+    ReembolsoService(ReembolsoRepository r, VentasClient v, PasarelaClient p, DevolucionRepository d, Clock c) { this(r, v, p, d, c, sinTransaccion()); }
+    ReembolsoService(ReembolsoRepository r, VentasClient v, PasarelaClient p, DevolucionRepository d, Clock c, TransactionOperations t) { repositorio=r; ventas=v; pasarela=p; devoluciones=d; reloj=c; transacciones=t; }
+    public java.util.Optional<ProcesarReembolsoResponse> consultarPorOrigen(OrigenReembolso origen, long origenId) {
+        return repositorio.findByTipoOrigenAndIdOrigen(origen, origenId).map(this::respuesta);
+    }
     public ProcesarReembolsoResponse procesar(String clave, ProcesarReembolsoRequest s) {
+        Preparacion preparacion = transacciones.execute(estado -> preparar(clave, s));
+        if (preparacion.respuesta() != null) return preparacion.respuesta();
+        PasarelaClient.ResultadoExtorno resultado;
+        try {
+            resultado = pasarela.solicitarExtorno(preparacion.clavePasarela(), preparacion.reembolso().codigo(),
+                    preparacion.reembolso().getMonto(), preparacion.reembolso().getMoneda());
+        } catch (RuntimeException e) {
+            resultado = new PasarelaClient.ResultadoExtorno(EstadoReembolso.FALLIDO, null,
+                    "No se pudo comunicar con la pasarela: " + e.getClass().getSimpleName());
+        }
+        PasarelaClient.ResultadoExtorno finalResultado = resultado;
+        return transacciones.execute(estado -> registrarResultado(preparacion.reembolso(), finalResultado));
+    }
+    private Preparacion preparar(String clave, ProcesarReembolsoRequest s) {
         if (clave == null || clave.isBlank()) throw new SolicitudInvalidaException("CLAVE_IDEMPOTENCIA_REQUERIDA", "X-Idempotency-Key es obligatoria");
+        if (clave.length() > 100) throw new SolicitudInvalidaException("CLAVE_IDEMPOTENCIA_INVALIDA", "X-Idempotency-Key no puede superar 100 caracteres");
+        validarMonto(s.monto());
+        long pedidoId=CodigoPublico.id(s.referenciaId()); long origenId=CodigoPublico.id(s.origenId());
+        repositorio.bloquearSaldoPedido(pedidoId);
+        List<Reembolso> reembolsosPedido = repositorio.bloquearReembolsosDelPedido(pedidoId);
         Reembolso existente = repositorio.findByIdempotencyKey(clave).orElse(null);
         if (existente != null) {
             if (existente.getTipoOrigen() != s.origen()
@@ -28,17 +60,71 @@ public class ReembolsoService {
                     || existente.getMonto().compareTo(s.monto()) != 0
                     || !existente.getMoneda().equals(s.moneda()))
                 throw new ConflictoException("CLAVE_IDEMPOTENCIA_EN_CONFLICTO", "La clave ya fue usada con datos distintos");
-            if (existente.getEstado()==EstadoReembolso.EXITOSO) return respuesta(existente);
-            return ejecutar(existente);
+            if (existente.getEstado()==EstadoReembolso.EXITOSO || existente.getEstado()==EstadoReembolso.PENDIENTE)
+                return Preparacion.respondida(respuesta(existente));
+            validarSaldoParaReintento(s.referenciaId(), existente.getMoneda(), reembolsosPedido);
+            return Preparacion.paraEjecutar(existente, clavePasarela(existente));
         }
-        long pedidoId=CodigoPublico.id(s.referenciaId()); long origenId=CodigoPublico.id(s.origenId());
-        PedidoResumen pedido=ventas.consultarPedido(s.referenciaId()).orElseThrow(() -> new RecursoNoEncontradoException("PEDIDO_NO_ENCONTRADO", "No existe el pedido"));
-        if (pedido.total()==null || pedido.moneda()==null || !pedido.moneda().equals(s.moneda())) throw new SolicitudInvalidaException("PAGO_INVALIDO", "El pago original no coincide con el reembolso");
-        BigDecimal comprometido=repositorio.saldoComprometido(pedidoId);
+        if (repositorio.findByTipoOrigenAndIdOrigen(s.origen(), origenId).isPresent())
+            throw new ConflictoException("ORIGEN_YA_REEMBOLSADO", "El origen ya tiene un reembolso registrado");
+        PedidoResumen pedido=consultarPagoConfirmado(s.referenciaId(), s.moneda());
+        validarOrigen(s, origenId, pedidoId, pedido);
+        BigDecimal comprometido=saldoComprometido(reembolsosPedido);
         if (comprometido.add(s.monto()).compareTo(pedido.total())>0) throw new ConflictoException("SALDO_INSUFICIENTE", "El monto supera el saldo reembolsable");
-        Reembolso r=new Reembolso(); r.setIdPedido(pedidoId); r.setIdOrigen(origenId); r.setTipoOrigen(s.origen()); r.setIdempotencyKey(clave); r.setMonto(s.monto()); r.setMoneda(s.moneda()); r.setEstado(EstadoReembolso.PENDIENTE); r.setFecha(OffsetDateTime.now(reloj).toLocalDate());
-        return ejecutar(repositorio.save(r));
+        Reembolso r=new Reembolso(); r.setIdPedido(pedidoId); r.setIdOrigen(origenId); r.setTipoOrigen(s.origen()); r.setIdempotencyKey(clave); r.setMonto(s.monto()); r.setMoneda(s.moneda()); r.setEstado(EstadoReembolso.PENDIENTE); r.setIdAutorizador(autorizador(s.solicitadoPor())); r.setFecha(OffsetDateTime.now(reloj).toLocalDate());
+        Reembolso guardado = repositorio.save(r);
+        return Preparacion.paraEjecutar(guardado, clavePasarela(guardado));
     }
-    private ProcesarReembolsoResponse ejecutar(Reembolso r) { PasarelaClient.ResultadoExtorno x=pasarela.solicitarExtorno(r.getIdempotencyKey(),r.codigo(),r.getMonto(),r.getMoneda()); r.setEstado(x.estado()); r.setIdTransaccion(x.transaccionId()); r.agregarIntento(x.estado(),x.transaccionId(),x.detalle()); return respuesta(r); }
-    private ProcesarReembolsoResponse respuesta(Reembolso r) { return new ProcesarReembolsoResponse(r.codigo(),r.getIdTransaccion(),r.getEstado(),r.getMonto(),r.getMoneda(),OffsetDateTime.now(reloj).withOffsetSameInstant(ZoneOffset.UTC)); }
+    private static void validarMonto(BigDecimal monto) {
+        if (monto == null || monto.signum() <= 0 || monto.scale() > 2)
+            throw new SolicitudInvalidaException("MONTO_INVALIDO", "El monto debe ser positivo y tener como máximo dos decimales");
+    }
+    private void validarOrigen(ProcesarReembolsoRequest solicitud, long origenId, long pedidoId, PedidoResumen pedido) {
+        if (solicitud.origen() == OrigenReembolso.ANULACION) {
+            if (!"ANULADO".equals(pedido.estado()))
+                throw new SolicitudInvalidaException("ORIGEN_NO_ELEGIBLE",
+                        "El pedido debe estar ANULADO para reembolsar una anulación");
+            return;
+        }
+        Devolucion devolucion = devoluciones.findById(origenId)
+                .filter(d -> d.codigo().equals(solicitud.origenId().trim()))
+                .filter(d -> d.getIdPedido().equals(pedidoId))
+                .filter(d -> (d.getEstado() == EstadoDevolucion.APROBADA || d.getEstado() == EstadoDevolucion.COMPLETADA)
+                        && d.getResolucion() == TipoResolucion.REEMBOLSO)
+                .orElseThrow(() -> new SolicitudInvalidaException("ORIGEN_NO_ELEGIBLE",
+                        "La devolución no está aprobada para reembolso o no pertenece al pedido indicado"));
+    }
+    private void validarSaldoParaReintento(String referenciaId, String moneda, List<Reembolso> reembolsosPedido) {
+        PedidoResumen pedido = consultarPagoConfirmado(referenciaId, moneda);
+        if (saldoComprometido(reembolsosPedido).compareTo(pedido.total()) > 0)
+            throw new ConflictoException("SALDO_INSUFICIENTE", "El monto comprometido supera el saldo reembolsable");
+    }
+    private static BigDecimal saldoComprometido(List<Reembolso> reembolsos) {
+        return reembolsos.stream()
+                .filter(r -> r.getEstado() == EstadoReembolso.EXITOSO || r.getEstado() == EstadoReembolso.PENDIENTE)
+                .map(Reembolso::getMonto)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+    private PedidoResumen consultarPagoConfirmado(String referenciaId, String moneda) {
+        PedidoResumen pedido=ventas.consultarPedido(referenciaId).orElseThrow(() -> new RecursoNoEncontradoException("PEDIDO_NO_ENCONTRADO", "No existe el pedido"));
+        if (!pedido.pagoConfirmado() || pedido.total()==null || pedido.moneda()==null || !pedido.moneda().equals(moneda)) throw new SolicitudInvalidaException("PAGO_INVALIDO", "El pago original no está confirmado o no coincide con el reembolso");
+        return pedido;
+    }
+    private static UUID autorizador(String solicitadoPor) {
+        if (solicitadoPor == null || solicitadoPor.isBlank()) return null;
+        try {
+            return UUID.fromString(solicitadoPor.trim());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+    private ProcesarReembolsoResponse registrarResultado(Reembolso r, PasarelaClient.ResultadoExtorno x) { r.setEstado(x.estado()); r.setIdTransaccion(x.transaccionId()); r.agregarIntento(x.estado(),x.transaccionId(),x.detalle(), ahora()); return respuesta(repositorio.save(r)); }
+    private static String clavePasarela(Reembolso r) { return r.getIntentos().isEmpty() ? r.getIdempotencyKey() : r.getIdempotencyKey()+"-"+(r.getIntentos().size()+1); }
+    private ProcesarReembolsoResponse respuesta(Reembolso r) { return new ProcesarReembolsoResponse(r.codigo(),r.getIdTransaccion(),r.getEstado(),r.getMonto(),r.getMoneda(),r.getIntentos().isEmpty() ? ahora() : r.getIntentos().get(r.getIntentos().size()-1).getFechaHora()); }
+    private OffsetDateTime ahora() { return OffsetDateTime.now(reloj).withOffsetSameInstant(ZoneOffset.UTC); }
+    private static TransactionOperations sinTransaccion() { return new TransactionOperations() { @Override public <T> T execute(TransactionCallback<T> accion) { return accion.doInTransaction(null); } }; }
+    private record Preparacion(Reembolso reembolso, String clavePasarela, ProcesarReembolsoResponse respuesta) {
+        static Preparacion paraEjecutar(Reembolso reembolso, String clavePasarela) { return new Preparacion(reembolso, clavePasarela, null); }
+        static Preparacion respondida(ProcesarReembolsoResponse respuesta) { return new Preparacion(null, null, respuesta); }
+    }
 }
