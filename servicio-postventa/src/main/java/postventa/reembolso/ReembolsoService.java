@@ -49,6 +49,7 @@ public class ReembolsoService {
         if (clave == null || clave.isBlank()) throw new SolicitudInvalidaException("CLAVE_IDEMPOTENCIA_REQUERIDA", "X-Idempotency-Key es obligatoria");
         if (clave.length() > 100) throw new SolicitudInvalidaException("CLAVE_IDEMPOTENCIA_INVALIDA", "X-Idempotency-Key no puede superar 100 caracteres");
         validarMonto(s.monto());
+        validarPrefijoOrigen(s.origen(), s.origenId());
         long pedidoId=CodigoPublico.id(s.referenciaId()); long origenId=CodigoPublico.id(s.origenId());
         repositorio.bloquearSaldoPedido(pedidoId);
         List<Reembolso> reembolsosPedido = repositorio.bloquearReembolsosDelPedido(pedidoId);
@@ -78,6 +79,13 @@ public class ReembolsoService {
     private static void validarMonto(BigDecimal monto) {
         if (monto == null || monto.signum() <= 0 || monto.scale() > 2)
             throw new SolicitudInvalidaException("MONTO_INVALIDO", "El monto debe ser positivo y tener como máximo dos decimales");
+    }
+    private static void validarPrefijoOrigen(OrigenReembolso origen, String origenId) {
+        String prefijo = origen == OrigenReembolso.ANULACION ? "ANUL-"
+                : origen == OrigenReembolso.DEVOLUCION ? "DEV-" : null;
+        if (prefijo == null || origenId == null || !origenId.trim().startsWith(prefijo))
+            throw new SolicitudInvalidaException("ORIGEN_NO_ELEGIBLE",
+                    "El código del origen no corresponde al tipo de reembolso");
     }
     private void validarOrigen(ProcesarReembolsoRequest solicitud, long origenId, long pedidoId, PedidoResumen pedido) {
         if (solicitud.origen() == OrigenReembolso.ANULACION) {

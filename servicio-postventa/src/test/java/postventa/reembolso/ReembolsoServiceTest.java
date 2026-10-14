@@ -227,6 +227,27 @@ class ReembolsoServiceTest {
     }
 
     @Test
+    void rechazaUnCodigoDeOrigenCuyoPrefijoNoCorrespondeAlTipo() {
+        ProcesarReembolsoRequest origenConPrefijoIncorrecto = new ProcesarReembolsoRequest(
+                OrigenReembolso.ANULACION, "DEV-2026-00012", "PED-2026-00981",
+                new BigDecimal("10.00"), "PEN", "Origen inválido", "SISTEMA_M1");
+
+        assertThatThrownBy(() -> servicio.procesar("clave-001", origenConPrefijoIncorrecto))
+                .isInstanceOf(SolicitudInvalidaException.class)
+                .extracting("codigo").isEqualTo("ORIGEN_NO_ELEGIBLE");
+        verifyNoInteractions(repositorio, ventas, pasarela);
+    }
+
+    @Test
+    void elHistorialDeIntentosNoPuedeEditarNiEliminarRegistros() {
+        Reembolso reembolso = reembolso(EstadoReembolso.PENDIENTE);
+        reembolso.agregarIntento(EstadoReembolso.PENDIENTE, null, "En espera");
+
+        assertThatThrownBy(() -> reembolso.getIntentos().clear())
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
     void reservaElSaldoDelPedidoAntesDeCalcularElAcumulado() {
         servicio.procesar("clave-001", solicitud());
 
