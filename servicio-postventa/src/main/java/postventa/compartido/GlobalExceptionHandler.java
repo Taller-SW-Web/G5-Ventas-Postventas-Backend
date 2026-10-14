@@ -2,7 +2,9 @@ package postventa.compartido;
 
 import java.util.List;
 
+import com.fasterxml.jackson.databind.JsonMappingException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -38,6 +40,13 @@ public class GlobalExceptionHandler {
         return responder(HttpStatus.CONFLICT, ErrorResponse.de(e.getCodigo(), e.getMessage()));
     }
 
+    /** Una carrera contra una restricción única no debe exponer un 500 al cliente. */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> conflictoDeIntegridad(DataIntegrityViolationException e) {
+        return responder(HttpStatus.CONFLICT,
+                ErrorResponse.de("CONFLICTO_DE_CONCURRENCIA", "La operación fue registrada por otra solicitud"));
+    }
+
     @ExceptionHandler(DependenciaNoDisponibleException.class)
     public ResponseEntity<ErrorResponse> dependenciaNoDisponible(DependenciaNoDisponibleException e) {
         log.warn("Dependencia no disponible: {}", e.getMessage(), e.getCause());
@@ -58,10 +67,26 @@ public class GlobalExceptionHandler {
                 ErrorResponse.de("DATOS_INVALIDOS", "La solicitud tiene campos inválidos", detalles));
     }
 
-    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
-    public ResponseEntity<ErrorResponse> formatoInvalido(Exception e) {
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> cuerpoNoLegible(HttpMessageNotReadableException e) {
+        if (esOrigenNoPermitido(e)) {
+            return responder(HttpStatus.FORBIDDEN,
+                    ErrorResponse.de("ORIGEN_NO_PERMITIDO", "El origen debe ser ANULACION o DEVOLUCION"));
+        }
         return responder(HttpStatus.BAD_REQUEST,
                 ErrorResponse.de("FORMATO_INVALIDO", "El cuerpo o un parámetro no tiene el formato esperado"));
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> parametroFormatoInvalido(MethodArgumentTypeMismatchException e) {
+        return responder(HttpStatus.BAD_REQUEST,
+                ErrorResponse.de("FORMATO_INVALIDO", "El cuerpo o un parámetro no tiene el formato esperado"));
+    }
+
+    private static boolean esOrigenNoPermitido(HttpMessageNotReadableException e) {
+        Throwable causa = e.getCause();
+        if (!(causa instanceof JsonMappingException json)) return false;
+        return json.getPath().stream().anyMatch(referencia -> "origen".equals(referencia.getFieldName()));
     }
 
     @ExceptionHandler(MissingRequestHeaderException.class)
