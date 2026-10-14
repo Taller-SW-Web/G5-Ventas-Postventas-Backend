@@ -3,6 +3,7 @@ package postventa.reembolso;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -14,18 +15,31 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionOperations;
 
 import postventa.compartido.ConflictoException;
 import postventa.compartido.SolicitudInvalidaException;
+import postventa.devolucion.DevolucionRepository;
 import postventa.integracion.PasarelaClient;
 import postventa.integracion.PedidoResumen;
 import postventa.integracion.VentasClient;
@@ -42,13 +56,14 @@ class ReembolsoServiceTest {
     @Mock ReembolsoRepository repositorio;
     @Mock VentasClient ventas;
     @Mock PasarelaClient pasarela;
+    @Mock DevolucionRepository devoluciones;
 
     private ReembolsoService servicio;
 
     @BeforeEach
     void preparar() {
-        servicio = new ReembolsoService(repositorio, ventas, pasarela, RELOJ);
-        when(repositorio.saldoComprometido(981L)).thenReturn(BigDecimal.ZERO);
+        servicio = new ReembolsoService(repositorio, ventas, pasarela, devoluciones, RELOJ);
+        when(repositorio.bloquearReembolsosDelPedido(981L)).thenReturn(java.util.List.of());
         when(ventas.consultarPedido("PED-2026-00981")).thenReturn(Optional.of(pedido()));
         when(repositorio.save(any())).thenAnswer(invocacion -> {
             Reembolso reembolso = invocacion.getArgument(0);
@@ -69,12 +84,26 @@ class ReembolsoServiceTest {
         assertThat(respuesta.transaccionPasarelaId()).isEqualTo("TX-001");
         assertThat(respuesta.fechaEjecucion()).isEqualTo(OffsetDateTime.ofInstant(RELOJ.instant(), ZoneOffset.UTC));
         ArgumentCaptor<Reembolso> guardado = ArgumentCaptor.forClass(Reembolso.class);
-        verify(repositorio).save(guardado.capture());
+        verify(repositorio, atLeastOnce()).save(guardado.capture());
         assertThat(guardado.getValue().getIdPedido()).isEqualTo(981L);
         assertThat(guardado.getValue().getIntentos()).singleElement().satisfies(intento -> {
             assertThat(intento.getNumeroIntento()).isEqualTo(1);
             assertThat(intento.getEstado()).isEqualTo(EstadoReembolso.EXITOSO);
         });
+    }
+
+    @Test
+    void conservaElGestorAutorizadorParaAuditoria() {
+        UUID gestor = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        ProcesarReembolsoRequest solicitud = new ProcesarReembolsoRequest(OrigenReembolso.ANULACION,
+                "ANUL-00012", "PED-2026-00981", new BigDecimal("129.90"), "PEN",
+                "Anulación confirmada", gestor.toString());
+
+        servicio.procesar("clave-auditoria", solicitud);
+
+        ArgumentCaptor<Reembolso> guardado = ArgumentCaptor.forClass(Reembolso.class);
+        verify(repositorio, atLeastOnce()).save(guardado.capture());
+        assertThat(guardado.getValue().getIdAutorizador()).isEqualTo(gestor);
     }
 
     @Test
@@ -88,6 +117,33 @@ class ReembolsoServiceTest {
         assertThat(respuesta.transaccionPasarelaId()).isEqualTo("TX-001");
         verifyNoInteractions(ventas, pasarela);
         verify(repositorio, never()).save(any());
+    }
+
+    @Test
+    void claveExitosaRepetidaConservaLaFechaDelIntentoRegistrado() {
+        Reembolso existente = reembolso(EstadoReembolso.EXITOSO);
+        OffsetDateTime ejecucionOriginal = OffsetDateTime.parse("2026-10-12T09:30:00Z");
+        existente.agregarIntento(EstadoReembolso.EXITOSO, "TX-001", "Extorno confirmado", ejecucionOriginal);
+        when(repositorio.findByIdempotencyKey("clave-001")).thenReturn(Optional.of(existente));
+
+        ProcesarReembolsoResponse respuesta = servicio.procesar("clave-001", solicitud());
+
+        assertThat(respuesta.fechaEjecucion()).isEqualTo(ejecucionOriginal);
+        verifyNoInteractions(ventas, pasarela);
+    }
+
+    @Test
+    void consultaUnReembolsoPorOrigenParaF3() {
+        Reembolso existente = reembolso(EstadoReembolso.EXITOSO);
+        existente.agregarIntento(EstadoReembolso.EXITOSO, "TX-001", "Extorno confirmado",
+                OffsetDateTime.parse("2026-10-12T09:30:00Z"));
+        when(repositorio.findByTipoOrigenAndIdOrigen(OrigenReembolso.DEVOLUCION, 42L))
+                .thenReturn(Optional.of(existente));
+
+        Optional<ProcesarReembolsoResponse> respuesta = servicio.consultarPorOrigen(OrigenReembolso.DEVOLUCION, 42L);
+
+        assertThat(respuesta).isPresent();
+        assertThat(respuesta.orElseThrow().reembolsoId()).isEqualTo("REEM-00042");
     }
 
     @Test
@@ -106,7 +162,9 @@ class ReembolsoServiceTest {
 
     @Test
     void rechazaMontoQueExcedeElSaldoDelPedido() {
-        when(repositorio.saldoComprometido(981L)).thenReturn(new BigDecimal("100.00"));
+        Reembolso comprometido = reembolso(EstadoReembolso.EXITOSO);
+        comprometido.setMonto(new BigDecimal("100.00"));
+        when(repositorio.bloquearReembolsosDelPedido(981L)).thenReturn(java.util.List.of(comprometido));
 
         assertThatThrownBy(() -> servicio.procesar("clave-001", solicitud()))
                 .isInstanceOf(ConflictoException.class)
@@ -116,9 +174,71 @@ class ReembolsoServiceTest {
     }
 
     @Test
-    void reintentaUnaOperacionPendienteConLaMismaClaveYConservaElHistorial() {
-        Reembolso existente = reembolso(EstadoReembolso.PENDIENTE);
-        existente.agregarIntento(EstadoReembolso.PENDIENTE, null, "Tiempo de espera agotado");
+    void rechazaElReembolsoSiElPagoOriginalNoEstaConfirmado() {
+        PedidoResumen sinPagoConfirmado = new PedidoResumen("PED-2026-00981", PedidoResumen.ENTREGADO, null,
+                new BigDecimal("129.90"), "PEN", java.util.List.of(), null, false);
+        when(ventas.consultarPedido("PED-2026-00981")).thenReturn(Optional.of(sinPagoConfirmado));
+
+        assertThatThrownBy(() -> servicio.procesar("clave-001", solicitud()))
+                .isInstanceOf(SolicitudInvalidaException.class)
+                .extracting("codigo").isEqualTo("PAGO_INVALIDO");
+        verify(repositorio, never()).save(any());
+        verifyNoInteractions(pasarela);
+    }
+
+    @Test
+    void rechazaLaAnulacionSiElPedidoNoEstaAnulado() {
+        PedidoResumen pedidoNoAnulado = new PedidoResumen("PED-2026-00981", PedidoResumen.ENTREGADO, null,
+                new BigDecimal("129.90"), "PEN", java.util.List.of(), null, true);
+        when(ventas.consultarPedido("PED-2026-00981")).thenReturn(Optional.of(pedidoNoAnulado));
+
+        assertThatThrownBy(() -> servicio.procesar("clave-001", solicitud()))
+                .isInstanceOf(SolicitudInvalidaException.class)
+                .extracting("codigo").isEqualTo("ORIGEN_NO_ELEGIBLE");
+        verify(repositorio, never()).save(any());
+        verifyNoInteractions(pasarela);
+    }
+
+    @Test
+    void rechazaUnaDevolucionQueNoExisteOQueNoFueAprobadaParaReembolso() {
+        ProcesarReembolsoRequest origenInexistente = new ProcesarReembolsoRequest(
+                OrigenReembolso.DEVOLUCION, "DEV-2026-00044", "PED-2026-00981",
+                new BigDecimal("10.00"), "PEN", "Origen falso", "GESTOR");
+        when(devoluciones.findById(44L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> servicio.procesar("clave-dev-001", origenInexistente))
+                .isInstanceOf(SolicitudInvalidaException.class)
+                .extracting("codigo").isEqualTo("ORIGEN_NO_ELEGIBLE");
+        verify(repositorio, never()).save(any());
+        verify(ventas).consultarPedido("PED-2026-00981");
+        verifyNoInteractions(pasarela);
+    }
+
+    @Test
+    void ca04_rechazaMontoConMasDeDosDecimales() {
+        ProcesarReembolsoRequest conTresDecimales = new ProcesarReembolsoRequest(
+                OrigenReembolso.ANULACION, "ANUL-00012", "PED-2026-00981",
+                new BigDecimal("10.005"), "PEN", "Monto inválido", "SISTEMA_M1");
+
+        assertThatThrownBy(() -> servicio.procesar("clave-001", conTresDecimales))
+                .isInstanceOf(SolicitudInvalidaException.class)
+                .extracting("codigo").isEqualTo("MONTO_INVALIDO");
+        verifyNoInteractions(repositorio, ventas, pasarela);
+    }
+
+    @Test
+    void reservaElSaldoDelPedidoAntesDeCalcularElAcumulado() {
+        servicio.procesar("clave-001", solicitud());
+
+        InOrder orden = org.mockito.Mockito.inOrder(repositorio);
+        orden.verify(repositorio).bloquearSaldoPedido(981L);
+        orden.verify(repositorio).bloquearReembolsosDelPedido(981L);
+    }
+
+    @Test
+    void reintentaUnaOperacionFallidaConLaMismaClaveYConservaElHistorial() {
+        Reembolso existente = reembolso(EstadoReembolso.FALLIDO);
+        existente.agregarIntento(EstadoReembolso.FALLIDO, null, "Tiempo de espera agotado");
         when(repositorio.findByIdempotencyKey("clave-001")).thenReturn(Optional.of(existente));
 
         ProcesarReembolsoResponse respuesta = servicio.procesar("clave-001", solicitud());
@@ -126,8 +246,78 @@ class ReembolsoServiceTest {
         assertThat(respuesta.estado()).isEqualTo(EstadoReembolso.EXITOSO);
         assertThat(existente.getIntentos()).hasSize(2);
         assertThat(existente.getIntentos().get(1).getNumeroIntento()).isEqualTo(2);
-        verify(pasarela).solicitarExtorno("clave-001", "REEM-00042", new BigDecimal("129.90"), "PEN");
-        verifyNoInteractions(ventas);
+        verify(pasarela).solicitarExtorno("clave-001-2", "REEM-00042", new BigDecimal("129.90"), "PEN");
+        verify(ventas).consultarPedido("PED-2026-00981");
+    }
+
+    @Test
+    void repeticionMientrasLaOperacionEstaPendienteNoLlamaDosVecesALaPasarela() {
+        Reembolso existente = reembolso(EstadoReembolso.PENDIENTE);
+        when(repositorio.findByIdempotencyKey("clave-001")).thenReturn(Optional.of(existente));
+
+        ProcesarReembolsoResponse respuesta = servicio.procesar("clave-001", solicitud());
+
+        assertThat(respuesta.estado()).isEqualTo(EstadoReembolso.PENDIENTE);
+        verifyNoInteractions(ventas, pasarela);
+        verify(repositorio, never()).save(any());
+    }
+
+    @Test
+    void concurrenciaNoComprometeMasDineroQueElPagoDelPedido() throws Exception {
+        var porClave = new ConcurrentHashMap<String, Reembolso>();
+        var secuencia = new AtomicLong(40);
+        var pasarelaIniciada = new CountDownLatch(1);
+        var continuarPasarela = new CountDownLatch(1);
+        when(repositorio.findByIdempotencyKey(any())).thenAnswer(i -> Optional.ofNullable(porClave.get(i.getArgument(0))));
+        when(repositorio.bloquearReembolsosDelPedido(981L)).thenAnswer(i -> porClave.values().stream()
+                .filter(r -> r.getIdPedido().equals(981L)).toList());
+        org.mockito.Mockito.doAnswer(i -> {
+            Reembolso r = i.getArgument(0);
+            if (r.getId() == null) r.setId(secuencia.incrementAndGet());
+            porClave.put(r.getIdempotencyKey(), r);
+            return r;
+        }).when(repositorio).save(any());
+        when(pasarela.solicitarExtorno(any(), any(), any(), any())).thenAnswer(i -> {
+            pasarelaIniciada.countDown();
+            assertThat(continuarPasarela.await(2, TimeUnit.SECONDS)).isTrue();
+            return new PasarelaClient.ResultadoExtorno(EstadoReembolso.EXITOSO, "TX-001", "Extorno confirmado");
+        });
+        TransactionOperations unaTransaccionALaVez = new TransactionOperations() {
+            @Override public synchronized <T> T execute(TransactionCallback<T> accion) { return accion.doInTransaction(null); }
+        };
+        ReembolsoService concurrente = new ReembolsoService(repositorio, ventas, pasarela, devoluciones, RELOJ,
+                unaTransaccionALaVez);
+        ExecutorService hilos = Executors.newFixedThreadPool(2);
+        try {
+            Future<ProcesarReembolsoResponse> primero = hilos.submit(() -> concurrente.procesar("clave-001", solicitud()));
+            assertThat(pasarelaIniciada.await(2, TimeUnit.SECONDS)).isTrue();
+            ProcesarReembolsoRequest segundoOrigen = new ProcesarReembolsoRequest(OrigenReembolso.ANULACION,
+                    "ANUL-00013", "PED-2026-00981", new BigDecimal("129.90"), "PEN", "Segundo", "SISTEMA_M1");
+            Future<ProcesarReembolsoResponse> segundo = hilos.submit(() -> concurrente.procesar("clave-002", segundoOrigen));
+
+            assertThatThrownBy(() -> segundo.get(2, TimeUnit.SECONDS))
+                    .isInstanceOf(ExecutionException.class).hasCauseInstanceOf(ConflictoException.class);
+            continuarPasarela.countDown();
+            assertThat(primero.get(2, TimeUnit.SECONDS).estado()).isEqualTo(EstadoReembolso.EXITOSO);
+            verify(pasarela).solicitarExtorno("clave-001", "REEM-00041", new BigDecimal("129.90"), "PEN");
+        } finally {
+            continuarPasarela.countDown();
+            hilos.shutdownNow();
+        }
+    }
+
+    @Test
+    void noReintentaSiElSaldoComprometidoAhoraSuperaElPago() {
+        Reembolso existente = reembolso(EstadoReembolso.FALLIDO);
+        when(repositorio.findByIdempotencyKey("clave-001")).thenReturn(Optional.of(existente));
+        Reembolso comprometido = reembolso(EstadoReembolso.EXITOSO);
+        comprometido.setMonto(new BigDecimal("130.00"));
+        when(repositorio.bloquearReembolsosDelPedido(981L)).thenReturn(java.util.List.of(comprometido));
+
+        assertThatThrownBy(() -> servicio.procesar("clave-001", solicitud()))
+                .isInstanceOf(ConflictoException.class)
+                .extracting("codigo").isEqualTo("SALDO_INSUFICIENTE");
+        verifyNoInteractions(pasarela);
     }
 
     @Test
@@ -144,7 +334,7 @@ class ReembolsoServiceTest {
     }
 
     private static PedidoResumen pedido() {
-        return new PedidoResumen("PED-2026-00981", PedidoResumen.ENTREGADO, null,
+        return new PedidoResumen("PED-2026-00981", "ANULADO", null,
                 new BigDecimal("129.90"), "PEN", java.util.List.of(), null);
     }
 
