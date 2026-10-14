@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 
 import postventa.compartido.CanalVenta;
 
@@ -16,6 +17,9 @@ import postventa.compartido.CanalVenta;
 public record RegistrarCsatRequest(
 
         @NotBlank
+        @Pattern(
+                regexp = "PED-[0-9]{4}-[0-9]{5,}",
+                message = "El pedidoId debe tener el formato PED-AAAA-NNNNN")
         String pedidoId,
 
         @NotNull
