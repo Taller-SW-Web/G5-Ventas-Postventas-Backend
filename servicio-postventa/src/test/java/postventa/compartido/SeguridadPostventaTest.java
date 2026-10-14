@@ -26,6 +26,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.MediaType;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
@@ -138,6 +139,28 @@ class SeguridadPostventaTest {
         pasa(mvc.perform(post("/api/v2/reembolsos").header("Authorization", "Bearer " + usuario("ADMIN_VENTAS"))));
         mvc.perform(post("/api/v2/reembolsos").header("Authorization", "Bearer " + usuario("CLIENTE")))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void unaAnulacionSoloPuedeSerSolicitadaPorM1() throws Exception {
+        mvc.perform(post("/api/v2/reembolsos")
+                        .header("Authorization", "Bearer " + usuario("ADMIN_VENTAS"))
+                        .header("X-Idempotency-Key", "clave-anulacion")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"origen\":\"ANULACION\",\"origenId\":\"ANUL-2026-12\",\"referenciaId\":\"PED-2026-981\",\"monto\":129.90,\"moneda\":\"PEN\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.codigo").value("ACCESO_DENEGADO"));
+    }
+
+    @Test
+    void origenDeReembolsoFueraDelCatalogoResponde403() throws Exception {
+        mvc.perform(post("/api/v2/reembolsos")
+                        .header("Authorization", "Bearer " + servicio("postventa:reembolsos:procesar"))
+                        .header("X-Idempotency-Key", "clave-origen")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"origen\":\"DESPACHO_FALLIDO\",\"origenId\":\"DESP-2026-1\",\"referenciaId\":\"PED-2026-981\",\"monto\":10.00,\"moneda\":\"PEN\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.codigo").value("ORIGEN_NO_PERMITIDO"));
     }
 
     @Test
