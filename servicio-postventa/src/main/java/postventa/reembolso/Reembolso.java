@@ -4,12 +4,14 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import lombok.AccessLevel;
 import org.hibernate.annotations.JdbcTypeCode;
 import postventa.compartido.CodigoPublico;
 
@@ -35,15 +37,16 @@ public class Reembolso {
     @Column(name = "id_autorizador") private UUID idAutorizador;
     @Column(nullable = false) private LocalDate fecha;
     @Column(name = "id_pedido", nullable = false) private Long idPedido;
-    @OneToMany(mappedBy = "reembolso", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Getter(AccessLevel.NONE) @Setter(AccessLevel.NONE)
+    @OneToMany(mappedBy = "reembolso", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     @OrderBy("numeroIntento") private List<ReembolsoIntento> intentos = new ArrayList<>();
+    /** El historial solo crece desde esta entidad; ningún consumidor puede editarlo o eliminarlo. */
+    public List<ReembolsoIntento> getIntentos() { return Collections.unmodifiableList(intentos); }
     public String codigo() { return CodigoPublico.reembolso(id); }
     public void agregarIntento(EstadoReembolso estado, String transaccion, String resultado) {
         agregarIntento(estado, transaccion, resultado, OffsetDateTime.now());
     }
     public void agregarIntento(EstadoReembolso estado, String transaccion, String resultado, OffsetDateTime fechaHora) {
-        ReembolsoIntento intento = new ReembolsoIntento();
-        intento.setReembolso(this); intento.setNumeroIntento(intentos.size() + 1); intento.setEstado(estado);
-        intento.setIdTransaccion(transaccion); intento.setResultado(resultado); intento.setFechaHora(fechaHora); intentos.add(intento);
+        intentos.add(new ReembolsoIntento(this, intentos.size() + 1, estado, transaccion, resultado, fechaHora));
     }
 }
