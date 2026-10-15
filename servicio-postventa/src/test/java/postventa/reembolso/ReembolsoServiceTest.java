@@ -187,16 +187,16 @@ class ReembolsoServiceTest {
     }
 
     @Test
-    void rechazaLaAnulacionSiElPedidoNoEstaAnulado() {
+    void aceptaLaAnulacionDeM1AunqueElEstadoActualDelPedidoNoSeaAnulado() {
         PedidoResumen pedidoNoAnulado = new PedidoResumen("PED-2026-00981", PedidoResumen.ENTREGADO, null,
                 new BigDecimal("129.90"), "PEN", java.util.List.of(), null, true);
         when(ventas.consultarPedido("PED-2026-00981")).thenReturn(Optional.of(pedidoNoAnulado));
 
-        assertThatThrownBy(() -> servicio.procesar("clave-001", solicitud()))
-                .isInstanceOf(SolicitudInvalidaException.class)
-                .extracting("codigo").isEqualTo("ORIGEN_NO_ELEGIBLE");
-        verify(repositorio, never()).save(any());
-        verifyNoInteractions(pasarela);
+        ProcesarReembolsoResponse respuesta = servicio.procesar("ANULACION-ANUL-00012", solicitud());
+
+        assertThat(respuesta.estado()).isEqualTo(EstadoReembolso.EXITOSO);
+        verify(pasarela).solicitarExtorno("ANULACION-ANUL-00012", "REEM-00042",
+                new BigDecimal("129.90"), "PEN");
     }
 
     @Test
