@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.spy;
@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 
 import java.sql.Date;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
@@ -54,6 +55,8 @@ import postventa.calificacion.dto.RegistrarCsatRequest;
 import postventa.compartido.CanalVenta;
 import postventa.compartido.CodigoPublico;
 import postventa.compartido.ConflictoException;
+import postventa.dashboard.AgregadoMetricasRepository;
+import postventa.dashboard.ProyeccionesService;
 import postventa.integracion.PedidoResumen;
 import postventa.integracion.VentasClient;
 
@@ -70,7 +73,7 @@ class CalificacionPostgresTest {
     private static AnnotationConfigApplicationContext contexto;
     private static CalificacionService servicio;
     private static CalificacionRepository repositorio;
-    private static MetricasCsatRepository metricas;
+    private static ProyeccionesService proyecciones;
     private static VentasClient ventas;
     private static JdbcTemplate jdbc;
 
@@ -79,15 +82,15 @@ class CalificacionPostgresTest {
         contexto = new AnnotationConfigApplicationContext(ConfiguracionLocal.class);
         servicio = contexto.getBean(CalificacionService.class);
         repositorio = contexto.getBean(CalificacionRepository.class);
-        metricas = AopTestUtils.getUltimateTargetObject(
-                contexto.getBean(MetricasCsatRepository.class));
+        proyecciones = AopTestUtils.getUltimateTargetObject(
+                contexto.getBean(ProyeccionesService.class));
         ventas = contexto.getBean(VentasClient.class);
         jdbc = contexto.getBean(JdbcTemplate.class);
     }
 
     @BeforeEach
     void prepararDependencias() {
-        reset(ventas, metricas);
+        reset(ventas, proyecciones);
 
         when(ventas.consultarPedido(anyString())).thenAnswer(invocacion ->
                 Optional.of(new PedidoResumen(
@@ -176,9 +179,12 @@ class CalificacionPostgresTest {
         RegistrarCsatRequest solicitud = solicitudNueva();
         Acumuladores antes = acumuladores();
 
-        doThrow(new IllegalStateException("Fallo de métricas de prueba"))
-                .when(metricas).incrementar(
-                        any(LocalDate.class), any(CanalVenta.class), anyInt());
+        // Ejecuta primero la suma real para comprobar el rollback de ambos SQL.
+        doAnswer(invocacion -> {
+            invocacion.callRealMethod();
+            throw new IllegalStateException("Fallo de métricas de prueba");
+        }).when(proyecciones).calificacionRegistrada(
+                any(OffsetDateTime.class), any(CanalVenta.class), anyInt());
 
         assertThatThrownBy(() -> servicio.registrar(solicitud, CLIENTE))
                 .isInstanceOf(IllegalStateException.class)
@@ -310,8 +316,13 @@ class CalificacionPostgresTest {
         }
 
         @Bean
-        MetricasCsatRepository metricasCsatRepository(JdbcTemplate jdbc) {
-            return spy(new MetricasCsatRepository(jdbc));
+        AgregadoMetricasRepository agregadoMetricasRepository(JdbcTemplate jdbc) {
+            return new AgregadoMetricasRepository(jdbc);
+        }
+
+        @Bean
+        ProyeccionesService proyeccionesService(AgregadoMetricasRepository agregados) {
+            return spy(new ProyeccionesService(agregados));
         }
 
         @Bean

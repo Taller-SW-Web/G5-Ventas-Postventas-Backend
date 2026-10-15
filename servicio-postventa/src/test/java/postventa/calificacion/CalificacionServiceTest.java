@@ -11,6 +11,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -31,6 +33,7 @@ import postventa.compartido.CanalVenta;
 import postventa.compartido.ConflictoException;
 import postventa.compartido.DependenciaNoDisponibleException;
 import postventa.compartido.SolicitudInvalidaException;
+import postventa.dashboard.ProyeccionesService;
 import postventa.integracion.PedidoResumen;
 import postventa.integracion.VentasClient;
 
@@ -53,7 +56,7 @@ class CalificacionServiceTest {
     private CalificacionRepository calificaciones;
 
     @Mock
-    private MetricasCsatRepository metricas;
+    private ProyeccionesService proyecciones;
 
     @Mock
     private VentasClient ventas;
@@ -66,7 +69,7 @@ class CalificacionServiceTest {
     @BeforeEach
     void preparar() {
         servicio = new CalificacionService(
-                calificaciones, metricas, ventas, gestor);
+                calificaciones, proyecciones, ventas, gestor);
     }
 
     @Test
@@ -88,8 +91,15 @@ class CalificacionServiceTest {
                 captor.capture());
 
         assertThat(captor.getValue()).isNotNull();
-        verify(metricas).incrementar(
-                captor.getValue(), CanalVenta.MARKETPLACE, 5);
+        ArgumentCaptor<OffsetDateTime> fechaProyeccion =
+                ArgumentCaptor.forClass(OffsetDateTime.class);
+
+        verify(proyecciones).calificacionRegistrada(
+                fechaProyeccion.capture(), eq(CanalVenta.MARKETPLACE), eq(5));
+
+        assertThat(fechaProyeccion.getValue().toLocalDate())
+                .isEqualTo(captor.getValue());
+        assertThat(fechaProyeccion.getValue().getOffset()).isEqualTo(ZoneOffset.UTC);
 
         verify(gestor).commit(any());
         verify(gestor, never()).rollback(any());
@@ -101,7 +111,7 @@ class CalificacionServiceTest {
                 servicio.registrar(solicitud(5), OTRO_CLIENTE))
                 .isInstanceOf(AccessDeniedException.class);
 
-        verifyNoInteractions(ventas, calificaciones, metricas, gestor);
+        verifyNoInteractions(ventas, calificaciones, proyecciones, gestor);
     }
 
     @Test
@@ -112,7 +122,7 @@ class CalificacionServiceTest {
                 servicio.registrar(solicitud(5), CLIENTE))
                 .isInstanceOf(AccessDeniedException.class);
 
-        verifyNoInteractions(calificaciones, metricas, gestor);
+        verifyNoInteractions(calificaciones, proyecciones, gestor);
     }
 
     @Test
@@ -123,7 +133,7 @@ class CalificacionServiceTest {
                 servicio.registrar(solicitud(5), CLIENTE))
                 .isInstanceOf(PedidoNoEntregadoException.class);
 
-        verifyNoInteractions(calificaciones, metricas, gestor);
+        verifyNoInteractions(calificaciones, proyecciones, gestor);
     }
 
     @Test
@@ -132,7 +142,7 @@ class CalificacionServiceTest {
                 servicio.registrar(solicitud(6), CLIENTE))
                 .isInstanceOf(SolicitudInvalidaException.class);
 
-        verifyNoInteractions(ventas, calificaciones, metricas, gestor);
+        verifyNoInteractions(ventas, calificaciones, proyecciones, gestor);
     }
 
     @Test
@@ -146,7 +156,7 @@ class CalificacionServiceTest {
                 .extracting("codigo")
                 .isEqualTo("CSAT_ALREADY_SUBMITTED");
 
-        verifyNoInteractions(metricas);
+        verifyNoInteractions(proyecciones);
         verify(gestor).rollback(any());
     }
 
@@ -166,7 +176,7 @@ class CalificacionServiceTest {
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessage("Fallo de integridad distinto al pedido duplicado");
 
-        verifyNoInteractions(metricas);
+        verifyNoInteractions(proyecciones);
         verify(gestor).rollback(any());
         verify(gestor, never()).commit(any());
     }
@@ -178,9 +188,9 @@ class CalificacionServiceTest {
         insercionDisponible();
 
         doThrow(new IllegalStateException("Fallo al actualizar métricas"))
-                .when(metricas)
-                .incrementar(
-                        any(LocalDate.class),
+                .when(proyecciones)
+                .calificacionRegistrada(
+                        any(OffsetDateTime.class),
                         eq(CanalVenta.MARKETPLACE),
                         eq(5));
 
@@ -204,7 +214,7 @@ class CalificacionServiceTest {
                 servicio.registrar(solicitud(5), CLIENTE))
                 .isInstanceOf(DependenciaNoDisponibleException.class);
 
-        verifyNoInteractions(calificaciones, metricas, gestor);
+        verifyNoInteractions(calificaciones, proyecciones, gestor);
     }
 
     private RegistrarCsatRequest solicitud(int puntuacion) {
