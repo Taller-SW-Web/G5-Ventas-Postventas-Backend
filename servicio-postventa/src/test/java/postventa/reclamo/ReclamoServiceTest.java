@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -23,10 +24,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.AccessDeniedException;
 
 import postventa.compartido.CanalVenta;
@@ -35,6 +40,7 @@ import postventa.compartido.RecursoNoEncontradoException;
 import postventa.compartido.SolicitudInvalidaException;
 import postventa.dashboard.ProyeccionesService;
 import postventa.devolucion.Solicitante;
+import postventa.reclamo.dto.ListadoReclamosResponse;
 import postventa.reclamo.dto.ReclamoDetalle;
 import postventa.reclamo.dto.RegistrarReclamoRequest;
 import postventa.reclamo.dto.RegistrarReclamoResponse;
@@ -269,12 +275,44 @@ class ReclamoServiceTest {
 
     @Test
     void paginacionFueraDeRango() {
-        assertThatThrownBy(() -> servicio.listar(null, null, null, 0, 101))
+        assertThatThrownBy(() -> servicio.listar(FiltroReclamos.de(null, null, null), 0, 101))
                 .isInstanceOf(SolicitudInvalidaException.class)
                 .extracting("codigo").isEqualTo("PAGINACION_INVALIDA");
-        assertThatThrownBy(() -> servicio.listar(null, null, null, -1, 10))
+        assertThatThrownBy(() -> servicio.listar(FiltroReclamos.de(null, null, null), -1, 10))
                 .isInstanceOf(SolicitudInvalidaException.class);
         verifyNoInteractions(reclamos);
+    }
+
+    @Test
+    void fechaDeCreacionInvertidaResponde400() {
+        FiltroReclamos filtro = new FiltroReclamos(null, null, null, null, null,
+                LocalDate.parse("2026-09-30"), LocalDate.parse("2026-09-01"), null);
+
+        assertThatThrownBy(() -> servicio.listar(filtro, 0, 10))
+                .isInstanceOf(SolicitudInvalidaException.class)
+                .extracting("codigo").isEqualTo("RANGO_FECHAS_INVALIDO");
+        verifyNoInteractions(reclamos);
+    }
+
+    @Test
+    void listadoArmaElResumenConSemaforoYOrden() {
+        when(reclamos.findAll(ArgumentMatchers.<Specification<Reclamo>>any(), any(Pageable.class)))
+                .thenAnswer(inv -> new PageImpl<>(List.of(reclamo(EstadoReclamo.EN_PROCESO, null)),
+                        inv.getArgument(1), 1));
+        FiltroReclamos filtro = new FiltroReclamos(null, null, null, "juan", EstadoSla.EN_PLAZO, null, null,
+                FiltroReclamos.Orden.ANTIGUOS);
+
+        ListadoReclamosResponse r = servicio.listar(filtro, 0, 5);
+
+        assertThat(r.totalElementos()).isEqualTo(1);
+        ListadoReclamosResponse.Resumen fila = r.contenido().get(0);
+        assertThat(fila.pedidoId()).isEqualTo("PED-2026-00981");
+        assertThat(fila.nombreConsumidor()).isEqualTo("Juan Pérez");
+        assertThat(fila.estadoSla()).isEqualTo(EstadoSla.EN_PLAZO);
+        assertThat(fila.diasHabilesRestantes()).isEqualTo(15);
+        ArgumentCaptor<Pageable> pagina = ArgumentCaptor.forClass(Pageable.class);
+        verify(reclamos).findAll(ArgumentMatchers.<Specification<Reclamo>>any(), pagina.capture());
+        assertThat(pagina.getValue().getSort().getOrderFor("fechaRegistro").isAscending()).isTrue();
     }
 
     // ================================================================ datos de prueba

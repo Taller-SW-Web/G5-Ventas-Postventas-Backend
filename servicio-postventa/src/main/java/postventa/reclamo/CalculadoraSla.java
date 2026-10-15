@@ -34,8 +34,29 @@ public final class CalculadoraSla {
         if (!hoy.isAfter(limite)) {
             return habilesEntre(hoy, limite);
         }
-        return -habilesEntre(limite, hoy);
+        // Límite el viernes y hoy sábado: no hay día hábil de por medio, pero ya venció
+        return -Math.max(1, habilesEntre(limite, hoy));
     }
+
+    /**
+     * Rango de fecha_limite_respuesta que corresponde a cada opción del filtro SLA de la bandeja, para filtrar en
+     * la base sin calcular días hábiles en SQL. Las fechas límite siempre caen en día hábil, así que
+     * "quedan k días hábiles" equivale a "límite = sumarDiasHabiles(hoy, k)". POR_VENCER incluye a CRITICO
+     * (el filtro del mockup no tiene una opción "Crítico"). Un extremo null significa sin límite.
+     * Aplica a reclamos no ATENDIDO; el filtro ATENDIDO se resuelve por estado, sin rango.
+     */
+    public static RangoLimite rangoLimite(EstadoSla sla, LocalDate hoy) {
+        return switch (sla) {
+            case VENCIDO -> new RangoLimite(null, hoy.minusDays(1));
+            case CRITICO -> new RangoLimite(hoy, sumarDiasHabiles(hoy, 2));
+            case POR_VENCER -> new RangoLimite(hoy, sumarDiasHabiles(hoy, 5));
+            case EN_PLAZO -> new RangoLimite(sumarDiasHabiles(hoy, 6), null);
+            case ATENDIDO -> new RangoLimite(null, null);
+        };
+    }
+
+    /** Extremos inclusivos; null = abierto. */
+    public record RangoLimite(LocalDate desde, LocalDate hasta) {}
 
     /** Semáforo del plazo. Un reclamo ATENDIDO ya no corre plazo. */
     public static EstadoSla estado(EstadoReclamo estado, LocalDate limite, LocalDate hoy) {

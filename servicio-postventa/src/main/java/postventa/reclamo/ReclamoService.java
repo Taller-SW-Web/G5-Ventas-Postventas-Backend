@@ -12,7 +12,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -122,17 +121,19 @@ public class ReclamoService {
 
     // ---------------------------------------------------------------- 2.10 y 2.10b Listar
 
-    /** 2.10 (Gestor, filtros opcionales) y 2.10b (idCliente = sub del token). Más recientes primero. */
+    /** 2.10 (Gestor, filtros opcionales) y 2.10b (clienteId = sub del token). Por defecto, más recientes primero. */
     @Transactional(readOnly = true)
-    public ListadoReclamosResponse listar(String documento, UUID idCliente, EstadoReclamo estado,
-                                          int pagina, int tamano) {
+    public ListadoReclamosResponse listar(FiltroReclamos filtro, int pagina, int tamano) {
         if (pagina < 0 || tamano < 1 || tamano > TAMANO_MAXIMO_PAGINA) {
             throw new SolicitudInvalidaException("PAGINACION_INVALIDA",
                     "pagina debe ser 0 o más y tamano entre 1 y " + TAMANO_MAXIMO_PAGINA);
         }
-        Page<Reclamo> resultado = reclamos.buscar(textoOpcional(documento), idCliente, estado,
-                PageRequest.of(pagina, tamano, Sort.by(Sort.Direction.DESC, "fechaRegistro", "id")));
+        if (filtro.desde() != null && filtro.hasta() != null && filtro.desde().isAfter(filtro.hasta())) {
+            throw new SolicitudInvalidaException("RANGO_FECHAS_INVALIDO", "desde no puede ser posterior a hasta");
+        }
         LocalDate hoy = hoy();
+        Page<Reclamo> resultado = reclamos.findAll(filtro.especificacion(hoy),
+                PageRequest.of(pagina, tamano, filtro.ordenamiento()));
         return new ListadoReclamosResponse(resultado.getContent().stream()
                 .map(r -> new ListadoReclamosResponse.Resumen(r.getCodigo(), r.getCodigo(), r.getTipo(),
                         r.getMotivo(), r.getEstado(), r.getFechaRegistro(), fechaLimiteSla(r), r.codigoPedido(),
