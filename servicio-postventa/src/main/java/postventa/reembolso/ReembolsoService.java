@@ -69,7 +69,7 @@ public class ReembolsoService {
         if (repositorio.findByTipoOrigenAndIdOrigen(s.origen(), origenId).isPresent())
             throw new ConflictoException("ORIGEN_YA_REEMBOLSADO", "El origen ya tiene un reembolso registrado");
         PedidoResumen pedido=consultarPagoConfirmado(s.referenciaId(), s.moneda());
-        validarOrigen(s, origenId, pedidoId, pedido);
+        validarOrigen(s, origenId, pedidoId);
         BigDecimal comprometido=saldoComprometido(reembolsosPedido);
         if (comprometido.add(s.monto()).compareTo(pedido.total())>0) throw new ConflictoException("SALDO_INSUFICIENTE", "El monto supera el saldo reembolsable");
         Reembolso r=new Reembolso(); r.setIdPedido(pedidoId); r.setIdOrigen(origenId); r.setTipoOrigen(s.origen()); r.setIdempotencyKey(clave); r.setMonto(s.monto()); r.setMoneda(s.moneda()); r.setEstado(EstadoReembolso.PENDIENTE); r.setIdAutorizador(autorizador(s.solicitadoPor())); r.setFecha(OffsetDateTime.now(reloj).toLocalDate());
@@ -87,11 +87,10 @@ public class ReembolsoService {
             throw new SolicitudInvalidaException("ORIGEN_NO_ELEGIBLE",
                     "El código del origen no corresponde al tipo de reembolso");
     }
-    private void validarOrigen(ProcesarReembolsoRequest solicitud, long origenId, long pedidoId, PedidoResumen pedido) {
+    private void validarOrigen(ProcesarReembolsoRequest solicitud, long origenId, long pedidoId) {
         if (solicitud.origen() == OrigenReembolso.ANULACION) {
-            if (!"ANULADO".equals(pedido.estado()))
-                throw new SolicitudInvalidaException("ORIGEN_NO_ELEGIBLE",
-                        "El pedido debe estar ANULADO para reembolsar una anulación");
+            // M1 invoca F4 después de concluir su propia transacción de anulación.
+            // El pago y la moneda ya se validan en consultarPagoConfirmado().
             return;
         }
         Devolucion devolucion = devoluciones.findById(origenId)
