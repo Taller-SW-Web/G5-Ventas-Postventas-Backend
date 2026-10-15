@@ -73,24 +73,24 @@ class CalificacionServiceTest {
     void esp11_registroValidoGuardaCalificacionYActualizaMetricas() {
         pedidoDisponible("ENTREGADO", CLIENTE);
         transaccionDisponible();
+        insercionDisponible();
 
         servicio.registrar(solicitud(5), CLIENTE);
 
-        ArgumentCaptor<Calificacion> captor =
-                ArgumentCaptor.forClass(Calificacion.class);
+        ArgumentCaptor<LocalDate> captor =
+                ArgumentCaptor.forClass(LocalDate.class);
 
-        verify(calificaciones).saveAndFlush(captor.capture());
+        verify(calificaciones).insertarSiNoExiste(
+                eq(981L),
+                eq(5),
+                eq("Buena experiencia"),
+                eq("MARKETPLACE"),
+                captor.capture());
 
-        Calificacion guardada = captor.getValue();
-
-        assertThat(guardada.getIdPedido()).isEqualTo(981L);
-        assertThat(guardada.getPuntaje()).isEqualTo(5);
-        assertThat(guardada.getCanal()).isEqualTo(CanalVenta.MARKETPLACE);
-        assertThat(guardada.getComentario()).isEqualTo("Buena experiencia");
-        assertThat(guardada.getFecha()).isNotNull();
-
+        assertThat(captor.getValue()).isNotNull();
         verify(metricas).incrementar(
-                guardada.getFecha(), CanalVenta.MARKETPLACE, 5);
+                captor.getValue(), CanalVenta.MARKETPLACE, 5);
+
         verify(gestor).commit(any());
         verify(gestor, never()).rollback(any());
     }
@@ -139,7 +139,6 @@ class CalificacionServiceTest {
     void esp11_duplicadoNoVuelveAIncrementarMetricas() {
         pedidoDisponible("ENTREGADO", CLIENTE);
         transaccionDisponible();
-        when(calificaciones.existsByIdPedido(981L)).thenReturn(true);
 
         assertThatThrownBy(() ->
                 servicio.registrar(solicitud(5), CLIENTE))
@@ -147,28 +146,25 @@ class CalificacionServiceTest {
                 .extracting("codigo")
                 .isEqualTo("CSAT_ALREADY_SUBMITTED");
 
-        verify(calificaciones, never()).saveAndFlush(any());
         verifyNoInteractions(metricas);
         verify(gestor).rollback(any());
     }
 
     @Test
-    void esp11_conflictoDeUnicidadSeTraduceADuplicado() {
+    void esp11_otrosErroresDeIntegridadNoSeOcultanComoDuplicados() {
         pedidoDisponible("ENTREGADO", CLIENTE);
         transaccionDisponible();
 
-        when(calificaciones.existsByIdPedido(981L))
-                .thenReturn(false, true);
-
-        when(calificaciones.saveAndFlush(any(Calificacion.class)))
+        when(calificaciones.insertarSiNoExiste(
+                eq(981L), eq(5), eq("Buena experiencia"),
+                eq("MARKETPLACE"), any(LocalDate.class)))
                 .thenThrow(new DataIntegrityViolationException(
-                        "El pedido ya tiene una calificación"));
+                        "Fallo de integridad distinto al pedido duplicado"));
 
         assertThatThrownBy(() ->
                 servicio.registrar(solicitud(5), CLIENTE))
-                .isInstanceOf(ConflictoException.class)
-                .extracting("codigo")
-                .isEqualTo("CSAT_ALREADY_SUBMITTED");
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessage("Fallo de integridad distinto al pedido duplicado");
 
         verifyNoInteractions(metricas);
         verify(gestor).rollback(any());
@@ -179,6 +175,7 @@ class CalificacionServiceTest {
     void esp12_falloDeMetricasSolicitaRevertirLaTransaccion() {
         pedidoDisponible("ENTREGADO", CLIENTE);
         transaccionDisponible();
+        insercionDisponible();
 
         doThrow(new IllegalStateException("Fallo al actualizar métricas"))
                 .when(metricas)
@@ -226,6 +223,13 @@ class CalificacionServiceTest {
 
         when(ventas.consultarPedido(PEDIDO))
                 .thenReturn(Optional.of(pedido));
+    }
+
+    private void insercionDisponible() {
+        when(calificaciones.insertarSiNoExiste(
+                eq(981L), eq(5), eq("Buena experiencia"),
+                eq("MARKETPLACE"), any(LocalDate.class)))
+                .thenReturn(1);
     }
 
     private void transaccionDisponible() {
