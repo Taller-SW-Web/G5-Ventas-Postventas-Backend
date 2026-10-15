@@ -5,7 +5,6 @@ import java.time.ZoneOffset;
 import java.util.Objects;
 import java.util.UUID;
 
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -83,35 +82,20 @@ public class CalificacionService {
         long idPedido = CodigoPublico.id(pedido.pedidoId());
         LocalDate fecha = LocalDate.now(ZoneOffset.UTC);
 
-        try {
-            transacciones.executeWithoutResult(estado -> {
-                if (calificaciones.existsByIdPedido(idPedido)) {
-                    throw duplicada();
-                }
+        transacciones.executeWithoutResult(estado -> {
+            int insertadas = calificaciones.insertarSiNoExiste(
+                    idPedido,
+                    puntuacion,
+                    solicitud.comentario(),
+                    solicitud.canal().name(),
+                    fecha);
 
-                Calificacion calificacion = new Calificacion();
-                calificacion.setIdPedido(idPedido);
-                calificacion.setPuntaje(puntuacion);
-                calificacion.setComentario(solicitud.comentario());
-                calificacion.setCanal(solicitud.canal());
-                calificacion.setFecha(fecha);
-
-                calificaciones.saveAndFlush(calificacion);
-
-                metricas.incrementar(
-                        fecha,
-                        solicitud.canal(),
-                        puntuacion);
-            });
-        } catch (DataIntegrityViolationException error) {
-            // La transacción ya terminó y revirtió antes de esta consulta.
-            // Reconoce una solicitud simultánea que registró primero el pedido.
-            if (calificaciones.existsByIdPedido(idPedido)) {
+            if (insertadas == 0) {
                 throw duplicada();
             }
 
-            throw error;
-        }
+            metricas.incrementar(fecha, solicitud.canal(), puntuacion);
+        });
     }
 
     private static ConflictoException duplicada() {
