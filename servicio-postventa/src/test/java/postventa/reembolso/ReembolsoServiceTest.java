@@ -298,7 +298,7 @@ class ReembolsoServiceTest {
     }
 
     @Test
-    void conservaLaClaveDelSegundoIntentoCuandoEseIntentoQuedaPendiente() {
+    void conservaLaClaveDelSegundoIntentoDuranteTimeoutsConsecutivos() {
         Reembolso existente = reembolso(EstadoReembolso.FALLIDO);
         existente.agregarIntento(EstadoReembolso.FALLIDO, null, "La pasarela rechazó el extorno");
         when(repositorio.findByIdempotencyKey("clave-001"))
@@ -306,15 +306,19 @@ class ReembolsoServiceTest {
         when(pasarela.solicitarExtorno(any(), any(), any(), any()))
                 .thenReturn(new PasarelaClient.ResultadoExtorno(EstadoReembolso.PENDIENTE, null,
                                 "Resultado incierto por timeout"),
+                        new PasarelaClient.ResultadoExtorno(EstadoReembolso.PENDIENTE, null,
+                                "Resultado incierto por timeout"),
                         new PasarelaClient.ResultadoExtorno(EstadoReembolso.EXITOSO, "TX-002",
                                 "Extorno confirmado"));
 
         ProcesarReembolsoResponse segundoIntento = servicio.procesar("clave-001", solicitud());
+        ProcesarReembolsoResponse segundoTimeout = servicio.procesar("clave-001", solicitud());
         ProcesarReembolsoResponse recuperado = servicio.procesar("clave-001", solicitud());
 
         assertThat(segundoIntento.estado()).isEqualTo(EstadoReembolso.PENDIENTE);
+        assertThat(segundoTimeout.estado()).isEqualTo(EstadoReembolso.PENDIENTE);
         assertThat(recuperado.estado()).isEqualTo(EstadoReembolso.EXITOSO);
-        verify(pasarela, times(2)).solicitarExtorno("clave-001-2", "REEM-00042",
+        verify(pasarela, times(3)).solicitarExtorno("clave-001-2", "REEM-00042",
                 new BigDecimal("129.90"), "PEN");
     }
 
