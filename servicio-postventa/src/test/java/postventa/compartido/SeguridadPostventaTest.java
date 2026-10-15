@@ -42,8 +42,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.ResultActions;
 
 import postventa.calificacion.CalificacionService;
+import postventa.dashboard.DashboardService;
 import postventa.devolucion.DevolucionService;
 import postventa.devolucion.EvidenciaService;
+import postventa.reclamo.ReclamoService;
 
 /**
  * Reglas de acceso de M2 (acuerdo A10) con tokens RS256 firmados de verdad.
@@ -67,6 +69,8 @@ class SeguridadPostventaTest {
     @MockitoBean EvidenciaService evidenciaService;
     @MockitoBean
     CalificacionService calificacionService;
+    @MockitoBean ReclamoService reclamoService;
+    @MockitoBean DashboardService dashboardService;
 
     @TestConfiguration
     static class Claves {
@@ -162,6 +166,29 @@ class SeguridadPostventaTest {
                         .header("Authorization", cliente))
                 .andExpect(status().isForbidden());
         mvc.perform(get("/api/v2/devoluciones/DEV-2026-0001").header("Authorization", canal))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void reclamosF6SoloConElRolOScopeQueCorresponde() throws Exception {
+        String cliente = "Bearer " + usuario("CLIENTE");
+        String gestor = "Bearer " + usuario("ADMIN_VENTAS");
+        String canal = "Bearer " + servicio("postventa:reclamos:escribir");
+        // El cliente registra y consulta lo suyo; el Gestor consulta, lista y responde
+        pasa(mvc.perform(post("/api/v2/reclamos").header("Authorization", cliente)));
+        pasa(mvc.perform(get("/api/v2/reclamos/REC-2026-0001").header("Authorization", cliente)));
+        pasa(mvc.perform(get("/api/v2/reclamos/REC-2026-0001").header("Authorization", gestor)));
+        pasa(mvc.perform(patch("/api/v2/reclamos/REC-2026-0001/respuesta").header("Authorization", gestor)));
+        // Nadie más responde ni lista
+        mvc.perform(patch("/api/v2/reclamos/REC-2026-0001/respuesta").header("Authorization", cliente))
+                .andExpect(status().isForbidden());
+        mvc.perform(patch("/api/v2/reclamos/REC-2026-0001/respuesta").header("Authorization", canal))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v2/reclamos").header("Authorization", cliente))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v2/reclamos/REC-2026-0001").header("Authorization", canal))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v2/dashboard/metricas").header("Authorization", canal))
                 .andExpect(status().isForbidden());
     }
 
