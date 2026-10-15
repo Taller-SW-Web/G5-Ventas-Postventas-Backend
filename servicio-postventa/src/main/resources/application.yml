@@ -46,6 +46,7 @@ integracion:
   ventas-url: ${VENTAS_URL:http://localhost:8081}
   pasarela-url: ${PASARELA_URL:http://localhost:8083}
   pasarela-simulada: ${PASARELA_SIMULADA:true}
+  pasarela-timeout-ms: ${PASARELA_TIMEOUT_MS:2000}
   productos-url: ${PRODUCTOS_URL:http://localhost:8090}
 
 # Evidencias de devolución (F3, 2.1). local: carpeta del disco y URL de prueba; supabase: Supabase Storage

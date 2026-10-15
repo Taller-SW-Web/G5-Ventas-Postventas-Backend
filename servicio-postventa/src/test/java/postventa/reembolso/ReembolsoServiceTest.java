@@ -284,6 +284,19 @@ class ReembolsoServiceTest {
     }
 
     @Test
+    void recuperaConLaMismaClaveElResultadoDeUnTimeout() {
+        Reembolso existente = reembolso(EstadoReembolso.PENDIENTE);
+        existente.agregarIntento(EstadoReembolso.PENDIENTE, null, "Resultado incierto por timeout");
+        when(repositorio.findByIdempotencyKey("clave-001")).thenReturn(Optional.of(existente));
+
+        ProcesarReembolsoResponse respuesta = servicio.procesar("clave-001", solicitud());
+
+        assertThat(respuesta.estado()).isEqualTo(EstadoReembolso.EXITOSO);
+        verify(pasarela).solicitarExtorno("clave-001", "REEM-00042", new BigDecimal("129.90"), "PEN");
+        assertThat(existente.getIntentos()).hasSize(2);
+    }
+
+    @Test
     void concurrenciaNoComprometeMasDineroQueElPagoDelPedido() throws Exception {
         var porClave = new ConcurrentHashMap<String, Reembolso>();
         var secuencia = new AtomicLong(40);

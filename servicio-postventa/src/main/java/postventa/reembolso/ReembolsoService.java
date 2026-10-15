@@ -61,8 +61,12 @@ public class ReembolsoService {
                     || existente.getMonto().compareTo(s.monto()) != 0
                     || !existente.getMoneda().equals(s.moneda()))
                 throw new ConflictoException("CLAVE_IDEMPOTENCIA_EN_CONFLICTO", "La clave ya fue usada con datos distintos");
-            if (existente.getEstado()==EstadoReembolso.EXITOSO || existente.getEstado()==EstadoReembolso.PENDIENTE)
+            if (existente.getEstado()==EstadoReembolso.EXITOSO)
                 return Preparacion.respondida(respuesta(existente));
+            if (existente.getEstado()==EstadoReembolso.PENDIENTE && existente.getIntentos().isEmpty())
+                return Preparacion.respondida(respuesta(existente));
+            // Un PENDIENTE con intento registrado corresponde a un timeout: se repite la misma clave
+            // de pasarela para recuperar el resultado idempotente que el simulador pudo haber guardado.
             validarSaldoParaReintento(s.referenciaId(), existente.getMoneda(), reembolsosPedido);
             return Preparacion.paraEjecutar(existente, clavePasarela(existente));
         }
@@ -126,7 +130,11 @@ public class ReembolsoService {
         }
     }
     private ProcesarReembolsoResponse registrarResultado(Reembolso r, PasarelaClient.ResultadoExtorno x) { r.setEstado(x.estado()); r.setIdTransaccion(x.transaccionId()); r.agregarIntento(x.estado(),x.transaccionId(),x.detalle(), ahora()); return respuesta(repositorio.save(r)); }
-    private static String clavePasarela(Reembolso r) { return r.getIntentos().isEmpty() ? r.getIdempotencyKey() : r.getIdempotencyKey()+"-"+(r.getIntentos().size()+1); }
+    private static String clavePasarela(Reembolso r) {
+        if (r.getIntentos().isEmpty() || r.getIntentos().get(r.getIntentos().size() - 1).getEstado() == EstadoReembolso.PENDIENTE)
+            return r.getIdempotencyKey();
+        return r.getIdempotencyKey()+"-"+(r.getIntentos().size()+1);
+    }
     private ProcesarReembolsoResponse respuesta(Reembolso r) { return new ProcesarReembolsoResponse(r.codigo(),r.getIdTransaccion(),r.getEstado(),r.getMonto(),r.getMoneda(),r.getIntentos().isEmpty() ? ahora() : r.getIntentos().get(r.getIntentos().size()-1).getFechaHora()); }
     private OffsetDateTime ahora() { return OffsetDateTime.now(reloj).withOffsetSameInstant(ZoneOffset.UTC); }
     private static TransactionOperations sinTransaccion() { return new TransactionOperations() { @Override public <T> T execute(TransactionCallback<T> accion) { return accion.doInTransaction(null); } }; }
