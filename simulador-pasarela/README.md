@@ -149,16 +149,16 @@ Pruebas adicionales del registro de eventos y de CSAT de M2, contra el PostgreSQ
 
 ```powershell
 $env:F5_POSTGRES_TEST = 'true'
-mvn -pl servicio-postventa -am "-Dtest=EventoRecibidoPostgresTest,CalificacionPostgresTest" "-Dsurefire.failIfNoSpecifiedTests=false" test
+mvn -pl servicio-postventa -am "-Dtest=EventoRecibidoPostgresTest,EventoPedidoPostgresTest,CalificacionPostgresTest" "-Dsurefire.failIfNoSpecifiedTests=false" test
 Remove-Item Env:F5_POSTGRES_TEST
 ```
 
-Estas ocho pruebas (cuatro de eventos y cuatro de CSAT) exigen el contenedor local en 127.0.0.1:55432. Sin F5_POSTGRES_TEST=true se omiten deliberadamente para que la suite habitual no dependa de Docker.
+Estas quince pruebas (cuatro del registro de eventos, siete del receptor con proyecciones y cuatro de CSAT) exigen el contenedor local en 127.0.0.1:55432. Sin F5_POSTGRES_TEST=true se omiten deliberadamente para que la suite habitual no dependa de Docker.
 
 ## Integraciones pendientes
 
 - Michael: comprobar el cobro y el callback contra M1 real con su token de servicio.
 - Luis Alejandro: comprobar el contrato de extornos, la clave y el timeout con su cliente de F4.
-- Fabrizio: conectar el receptor de eventos de M2 con sus proyecciones dentro de la misma transacción. El receptor completo todavía no está habilitado en Johan.
+- Fabrizio: el servicio receptor ya conecta el registro de eventos con los contadores diarios de sus proyecciones en una misma transacción, verificada con PostgreSQL local. El endpoint HTTP todavía no está habilitado. El agregado por producto y vendedor requiere la decisión de Joseph antes de confirmar eventos como procesados por HTTP.
 
 Las pruebas locales aprobadas no sustituyen estas verificaciones entre servicios.
