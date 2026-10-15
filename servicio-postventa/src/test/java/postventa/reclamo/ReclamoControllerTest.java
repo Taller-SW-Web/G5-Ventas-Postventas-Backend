@@ -2,7 +2,6 @@ package postventa.reclamo;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -13,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -124,7 +124,7 @@ class ReclamoControllerTest {
 
     @Test
     void misReclamosUsaElClienteDePruebaSinSeguridad() throws Exception {
-        when(reclamoService.listar(isNull(), eq(CLIENTE_PRUEBA), isNull(), eq(0), eq(10)))
+        when(reclamoService.listar(FiltroReclamos.de(null, CLIENTE_PRUEBA, null), 0, 10))
                 .thenReturn(new ListadoReclamosResponse(List.of(new ListadoReclamosResponse.Resumen("REC-2026-0015",
                         "REC-2026-0015", TipoReclamo.RECLAMO, MotivoReclamo.INCUMPLIMIENTO_PLAZO_ENTREGA,
                         EstadoReclamo.EN_PROCESO, OffsetDateTime.parse("2026-09-23T00:10:00Z"),
@@ -147,12 +147,33 @@ class ReclamoControllerTest {
 
     @Test
     void listadoAdministrativoPasaLosFiltros() throws Exception {
-        when(reclamoService.listar("72458912", null, EstadoReclamo.REGISTRADO, 0, 10))
+        when(reclamoService.listar(FiltroReclamos.de("72458912", null, EstadoReclamo.REGISTRADO), 0, 10))
                 .thenReturn(new ListadoReclamosResponse(List.of(), 0, 0, 0));
 
         mvc.perform(get("/api/v2/reclamos").param("documento", "72458912").param("estado", "REGISTRADO"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.contenido").isEmpty());
+    }
+
+    @Test
+    void filtrosDeLaBandejaDelMockup() throws Exception {
+        FiltroReclamos esperado = new FiltroReclamos(null, null, null, "PED-2026-00981", EstadoSla.VENCIDO,
+                LocalDate.parse("2026-09-01"), LocalDate.parse("2026-09-30"), FiltroReclamos.Orden.ANTIGUOS);
+        when(reclamoService.listar(esperado, 0, 5)).thenReturn(new ListadoReclamosResponse(List.of(), 0, 0, 0));
+
+        mvc.perform(get("/api/v2/reclamos").param("buscar", "PED-2026-00981").param("sla", "VENCIDO")
+                        .param("desde", "2026-09-01").param("hasta", "2026-09-30").param("orden", "ANTIGUOS")
+                        .param("tamano", "5"))
+                .andExpect(status().isOk());
+        verify(reclamoService).listar(esperado, 0, 5);
+    }
+
+    @Test
+    void slaFueraDelCatalogoResponde400() throws Exception {
+        mvc.perform(get("/api/v2/reclamos").param("sla", "PROXIMO"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.codigo").value("FORMATO_INVALIDO"));
+        verifyNoInteractions(reclamoService);
     }
 
     @Test

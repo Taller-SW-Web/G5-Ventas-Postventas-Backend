@@ -1,6 +1,7 @@
 package postventa.reclamo;
 
 import java.net.URI;
+import java.time.LocalDate;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -8,6 +9,7 @@ import java.util.stream.Collectors;
 import jakarta.validation.Valid;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -65,7 +67,7 @@ public class ReclamoController {
             @RequestParam(defaultValue = "0") int pagina,
             @RequestParam(defaultValue = "10") int tamano) {
         UUID cliente = seguridadHabilitada ? solicitante(auth).id() : clientePrueba;
-        return ResponseEntity.ok(reclamoService.listar(null, cliente, estado, pagina, tamano));
+        return ResponseEntity.ok(reclamoService.listar(FiltroReclamos.de(null, cliente, estado), pagina, tamano));
     }
 
     /** 2.9 Consultar por código de seguimiento. Su titular o el Gestor. */
@@ -74,15 +76,24 @@ public class ReclamoController {
         return ResponseEntity.ok(reclamoService.consultar(codigoSeguimiento, solicitante(auth)));
     }
 
-    /** 2.10 Listado administrativo (rol ADMIN_VENTAS). Sin filtros lista todos los reclamos. */
+    /**
+     * 2.10 Listado administrativo (rol ADMIN_VENTAS). Sin filtros lista todos los reclamos.
+     * buscar, sla, desde, hasta y orden van además del contrato (bandeja del mockup 07).
+     */
     @GetMapping
     public ResponseEntity<ListadoReclamosResponse> listar(
             @RequestParam(required = false) String documento,
             @RequestParam(required = false) UUID clienteId,
             @RequestParam(required = false) EstadoReclamo estado,
+            @RequestParam(required = false) String buscar,
+            @RequestParam(required = false) EstadoSla sla,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,
+            @RequestParam(required = false) FiltroReclamos.Orden orden,
             @RequestParam(defaultValue = "0") int pagina,
             @RequestParam(defaultValue = "10") int tamano) {
-        return ResponseEntity.ok(reclamoService.listar(documento, clienteId, estado, pagina, tamano));
+        return ResponseEntity.ok(reclamoService.listar(
+                new FiltroReclamos(documento, clienteId, estado, buscar, sla, desde, hasta, orden), pagina, tamano));
     }
 
     /** 2.11 Responder o iniciar la atención (rol ADMIN_VENTAS). */

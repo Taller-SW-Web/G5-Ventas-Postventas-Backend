@@ -49,4 +49,30 @@ class CalculadoraSlaTest {
         assertThat(CalculadoraSla.estado(EstadoReclamo.ATENDIDO, LIMITE, LocalDate.parse("2026-10-30")))
                 .isEqualTo(EstadoSla.ATENDIDO);
     }
+
+    @Test
+    void sabadoDespuesDeUnLimiteDeViernesYaEstaVencido() {
+        LocalDate viernes = LocalDate.parse("2026-10-16");
+        assertThat(CalculadoraSla.diasHabilesRestantes(viernes, LocalDate.parse("2026-10-17"))).isEqualTo(-1);
+        assertThat(CalculadoraSla.estado(EstadoReclamo.EN_PROCESO, viernes, LocalDate.parse("2026-10-17")))
+                .isEqualTo(EstadoSla.VENCIDO);
+    }
+
+    @Test
+    void rangosDelFiltroSlaCoincidenConElSemaforo() {
+        LocalDate hoy = LocalDate.parse("2026-10-14"); // miércoles
+        assertThat(CalculadoraSla.rangoLimite(EstadoSla.VENCIDO, hoy))
+                .isEqualTo(new CalculadoraSla.RangoLimite(null, LocalDate.parse("2026-10-13")));
+        assertThat(CalculadoraSla.rangoLimite(EstadoSla.POR_VENCER, hoy))
+                .isEqualTo(new CalculadoraSla.RangoLimite(hoy, LocalDate.parse("2026-10-21")));
+        assertThat(CalculadoraSla.rangoLimite(EstadoSla.EN_PLAZO, hoy))
+                .isEqualTo(new CalculadoraSla.RangoLimite(LocalDate.parse("2026-10-22"), null));
+        // Cada extremo del rango da el semáforo esperado
+        assertThat(CalculadoraSla.estado(EstadoReclamo.REGISTRADO, LocalDate.parse("2026-10-21"), hoy))
+                .isEqualTo(EstadoSla.POR_VENCER);
+        assertThat(CalculadoraSla.estado(EstadoReclamo.REGISTRADO, LocalDate.parse("2026-10-22"), hoy))
+                .isEqualTo(EstadoSla.EN_PLAZO);
+        assertThat(CalculadoraSla.estado(EstadoReclamo.REGISTRADO, LocalDate.parse("2026-10-16"), hoy))
+                .isEqualTo(EstadoSla.CRITICO);
+    }
 }

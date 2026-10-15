@@ -3,31 +3,19 @@ package postventa.reclamo;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.Optional;
-import java.util.UUID;
 
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import postventa.compartido.CanalVenta;
 
-public interface ReclamoRepository extends JpaRepository<Reclamo, Long> {
+/** La bandeja (2.10) arma su consulta con FiltroReclamos (Specification): todos sus filtros son opcionales. */
+public interface ReclamoRepository extends JpaRepository<Reclamo, Long>, JpaSpecificationExecutor<Reclamo> {
 
     Optional<Reclamo> findByCodigo(String codigo);
-
-    @Query("""
-            select r from Reclamo r
-            where (:documento is null or r.documento = :documento)
-              and (:idCliente is null or r.idCliente = :idCliente)
-              and (:estado is null or r.estado = :estado)
-            """)
-    Page<Reclamo> buscar(@Param("documento") String documento,
-                         @Param("idCliente") UUID idCliente,
-                         @Param("estado") EstadoReclamo estado,
-                         Pageable pagina);
 
     /*
      * Los cambios de estado son un UPDATE condicionado al estado que se leyó: si dos Gestores responden a la vez,
