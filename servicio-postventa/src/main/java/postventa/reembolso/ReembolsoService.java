@@ -131,9 +131,13 @@ public class ReembolsoService {
     }
     private ProcesarReembolsoResponse registrarResultado(Reembolso r, PasarelaClient.ResultadoExtorno x) { r.setEstado(x.estado()); r.setIdTransaccion(x.transaccionId()); r.agregarIntento(x.estado(),x.transaccionId(),x.detalle(), ahora()); return respuesta(repositorio.save(r)); }
     private static String clavePasarela(Reembolso r) {
-        if (r.getIntentos().isEmpty() || r.getIntentos().get(r.getIntentos().size() - 1).getEstado() == EstadoReembolso.PENDIENTE)
+        if (r.getIntentos().isEmpty())
             return r.getIdempotencyKey();
-        return r.getIdempotencyKey()+"-"+(r.getIntentos().size()+1);
+        ReembolsoIntento ultimoIntento = r.getIntentos().get(r.getIntentos().size() - 1);
+        int numeroIntento = ultimoIntento.getNumeroIntento();
+        if (ultimoIntento.getEstado() == EstadoReembolso.PENDIENTE)
+            return numeroIntento == 1 ? r.getIdempotencyKey() : r.getIdempotencyKey()+"-"+numeroIntento;
+        return r.getIdempotencyKey()+"-"+(numeroIntento+1);
     }
     private ProcesarReembolsoResponse respuesta(Reembolso r) { return new ProcesarReembolsoResponse(r.codigo(),r.getIdTransaccion(),r.getEstado(),r.getMonto(),r.getMoneda(),r.getIntentos().isEmpty() ? ahora() : r.getIntentos().get(r.getIntentos().size()-1).getFechaHora()); }
     private OffsetDateTime ahora() { return OffsetDateTime.now(reloj).withOffsetSameInstant(ZoneOffset.UTC); }
