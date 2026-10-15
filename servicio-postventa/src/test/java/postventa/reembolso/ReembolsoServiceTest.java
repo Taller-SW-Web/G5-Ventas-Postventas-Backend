@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -294,6 +295,27 @@ class ReembolsoServiceTest {
         assertThat(respuesta.estado()).isEqualTo(EstadoReembolso.EXITOSO);
         verify(pasarela).solicitarExtorno("clave-001", "REEM-00042", new BigDecimal("129.90"), "PEN");
         assertThat(existente.getIntentos()).hasSize(2);
+    }
+
+    @Test
+    void conservaLaClaveDelSegundoIntentoCuandoEseIntentoQuedaPendiente() {
+        Reembolso existente = reembolso(EstadoReembolso.FALLIDO);
+        existente.agregarIntento(EstadoReembolso.FALLIDO, null, "La pasarela rechazó el extorno");
+        when(repositorio.findByIdempotencyKey("clave-001"))
+                .thenReturn(Optional.of(existente));
+        when(pasarela.solicitarExtorno(any(), any(), any(), any()))
+                .thenReturn(new PasarelaClient.ResultadoExtorno(EstadoReembolso.PENDIENTE, null,
+                                "Resultado incierto por timeout"),
+                        new PasarelaClient.ResultadoExtorno(EstadoReembolso.EXITOSO, "TX-002",
+                                "Extorno confirmado"));
+
+        ProcesarReembolsoResponse segundoIntento = servicio.procesar("clave-001", solicitud());
+        ProcesarReembolsoResponse recuperado = servicio.procesar("clave-001", solicitud());
+
+        assertThat(segundoIntento.estado()).isEqualTo(EstadoReembolso.PENDIENTE);
+        assertThat(recuperado.estado()).isEqualTo(EstadoReembolso.EXITOSO);
+        verify(pasarela, times(2)).solicitarExtorno("clave-001-2", "REEM-00042",
+                new BigDecimal("129.90"), "PEN");
     }
 
     @Test
