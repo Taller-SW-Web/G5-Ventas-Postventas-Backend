@@ -1,6 +1,7 @@
 package postventa.calificacion;
 
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Objects;
 import java.util.UUID;
@@ -15,6 +16,7 @@ import postventa.compartido.CodigoPublico;
 import postventa.compartido.ConflictoException;
 import postventa.compartido.RecursoNoEncontradoException;
 import postventa.compartido.SolicitudInvalidaException;
+import postventa.dashboard.ProyeccionesService;
 import postventa.integracion.PedidoResumen;
 import postventa.integracion.VentasClient;
 
@@ -25,18 +27,18 @@ import postventa.integracion.VentasClient;
 public class CalificacionService {
 
     private final CalificacionRepository calificaciones;
-    private final MetricasCsatRepository metricas;
+    private final ProyeccionesService proyecciones;
     private final VentasClient ventas;
     private final TransactionTemplate transacciones;
 
     public CalificacionService(
             CalificacionRepository calificaciones,
-            MetricasCsatRepository metricas,
+            ProyeccionesService proyecciones,
             VentasClient ventas,
             PlatformTransactionManager gestorTransacciones) {
 
         this.calificaciones = calificaciones;
-        this.metricas = metricas;
+        this.proyecciones = proyecciones;
         this.ventas = ventas;
         this.transacciones = new TransactionTemplate(
                 Objects.requireNonNull(
@@ -80,7 +82,8 @@ public class CalificacionService {
         }
 
         long idPedido = CodigoPublico.id(pedido.pedidoId());
-        LocalDate fecha = LocalDate.now(ZoneOffset.UTC);
+        OffsetDateTime fechaRegistro = OffsetDateTime.now(ZoneOffset.UTC);
+        LocalDate fecha = fechaRegistro.toLocalDate();
 
         transacciones.executeWithoutResult(estado -> {
             int insertadas = calificaciones.insertarSiNoExiste(
@@ -94,7 +97,8 @@ public class CalificacionService {
                 throw duplicada();
             }
 
-            metricas.incrementar(fecha, solicitud.canal(), puntuacion);
+            proyecciones.calificacionRegistrada(
+                    fechaRegistro, solicitud.canal(), puntuacion);
         });
     }
 
