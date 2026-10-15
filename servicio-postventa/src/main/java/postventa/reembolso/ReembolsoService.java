@@ -133,11 +133,14 @@ public class ReembolsoService {
     private static String clavePasarela(Reembolso r) {
         if (r.getIntentos().isEmpty())
             return r.getIdempotencyKey();
-        ReembolsoIntento ultimoIntento = r.getIntentos().get(r.getIntentos().size() - 1);
-        int numeroIntento = ultimoIntento.getNumeroIntento();
-        if (ultimoIntento.getEstado() == EstadoReembolso.PENDIENTE)
-            return numeroIntento == 1 ? r.getIdempotencyKey() : r.getIdempotencyKey()+"-"+numeroIntento;
-        return r.getIdempotencyKey()+"-"+(numeroIntento+1);
+        int ultimoResultadoDefinitivo = r.getIntentos().stream()
+                .filter(intento -> intento.getEstado() != EstadoReembolso.PENDIENTE)
+                .mapToInt(ReembolsoIntento::getNumeroIntento)
+                .max()
+                .orElse(0);
+        int numeroIntentoPasarela = ultimoResultadoDefinitivo + 1;
+        return numeroIntentoPasarela == 1 ? r.getIdempotencyKey()
+                : r.getIdempotencyKey()+"-"+numeroIntentoPasarela;
     }
     private ProcesarReembolsoResponse respuesta(Reembolso r) { return new ProcesarReembolsoResponse(r.codigo(),r.getIdTransaccion(),r.getEstado(),r.getMonto(),r.getMoneda(),r.getIntentos().isEmpty() ? ahora() : r.getIntentos().get(r.getIntentos().size()-1).getFechaHora()); }
     private OffsetDateTime ahora() { return OffsetDateTime.now(reloj).withOffsetSameInstant(ZoneOffset.UTC); }
