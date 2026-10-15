@@ -145,15 +145,15 @@ mvn -pl simulador-pasarela -am test
 
 Las pruebas actuales del simulador no requieren M1, token real ni base de datos. Las pruebas de integración arrancan el simulador en un puerto aleatorio y sustituyen únicamente el cliente de notificaciones.
 
-Pruebas adicionales del receptor de eventos de M2, contra el PostgreSQL local f5-eventos-test:
+Pruebas adicionales del registro de eventos y de CSAT de M2, contra el PostgreSQL local f5-eventos-test:
 
 ```powershell
 $env:F5_POSTGRES_TEST = 'true'
-mvn -pl servicio-postventa -am "-Dtest=EventoRecibidoPostgresTest" "-Dsurefire.failIfNoSpecifiedTests=false" test
+mvn -pl servicio-postventa -am "-Dtest=EventoRecibidoPostgresTest,CalificacionPostgresTest" "-Dsurefire.failIfNoSpecifiedTests=false" test
 Remove-Item Env:F5_POSTGRES_TEST
 ```
 
-Estas cuatro pruebas exigen el contenedor local en 127.0.0.1:55432. Sin F5_POSTGRES_TEST=true se omiten deliberadamente para que la suite habitual no dependa de Docker.
+Estas ocho pruebas (cuatro de eventos y cuatro de CSAT) exigen el contenedor local en 127.0.0.1:55432. Sin F5_POSTGRES_TEST=true se omiten deliberadamente para que la suite habitual no dependa de Docker.
 
 ## Integraciones pendientes
 
