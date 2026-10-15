@@ -1,0 +1,113 @@
+### Peticiones de prueba de F6 (IntelliJ: botón ▶ al lado de cada una; VS Code: extensión REST Client)
+### Directo a M2 en 8082. Para pasar por el gateway, cambiar a 8080.
+### Con SEGURIDAD_HABILITADA=false no hace falta token (se actúa como Gestor; /me usa CLIENTE_PRUEBA).
+### Casos de specs/funcionalidades/F6-casos-prueba-api.md. Los datos llevan "prueba fabrizio": borrarlos al terminar.
+
+### 2.8 Registrar reclamo -> 201, REC-AAAA-NNNN, REGISTRADO, fechaLimiteSLA a 15 días hábiles
+POST http://localhost:8082/api/v2/reclamos
+Content-Type: application/json
+
+{
+  "pedidoId": "PED-2026-00981",
+  "tipo": "RECLAMO",
+  "canal": "MARKETPLACE",
+  "motivo": "INCUMPLIMIENTO_PLAZO_ENTREGA",
+  "detalle": "prueba fabrizio: pedido no entregado en la fecha acordada.",
+  "consumidor": {
+    "nombreCompleto": "Consumidor de Prueba",
+    "documento": "00000000",
+    "email": "pruebas@example.test",
+    "telefono": "999999999"
+  }
+}
+
+### 2.8 Queja general sin pedido (CA-02) -> 201
+POST http://localhost:8082/api/v2/reclamos
+Content-Type: application/json
+
+{
+  "tipo": "QUEJA",
+  "canal": "CHATBOT",
+  "motivo": "ATENCION_INADECUADA",
+  "detalle": "prueba fabrizio: trato deficiente en el chat.",
+  "consumidor": {
+    "nombreCompleto": "Consumidor de Prueba",
+    "documento": "00000000",
+    "email": "pruebas@example.test",
+    "telefono": "999999999"
+  }
+}
+
+### 2.8 Motivo no tipificado (CA-03) -> 400 FORMATO_INVALIDO, no se crea el reclamo
+POST http://localhost:8082/api/v2/reclamos
+Content-Type: application/json
+
+{
+  "tipo": "RECLAMO",
+  "canal": "MARKETPLACE",
+  "motivo": "MOTIVO_NO_VALIDO",
+  "detalle": "prueba fabrizio: caso de validación.",
+  "consumidor": {
+    "nombreCompleto": "Consumidor de Prueba",
+    "documento": "00000000",
+    "email": "pruebas@example.test",
+    "telefono": "999999999"
+  }
+}
+
+### 2.8 Consumidor incompleto -> 400 DATOS_INVALIDOS (consumidor.telefono)
+POST http://localhost:8082/api/v2/reclamos
+Content-Type: application/json
+
+{
+  "tipo": "RECLAMO",
+  "canal": "RETAIL",
+  "motivo": "COBRO_INDEBIDO_O_NO_RECONOCIDO",
+  "detalle": "prueba fabrizio",
+  "consumidor": { "nombreCompleto": "Consumidor de Prueba", "documento": "00000000", "email": "pruebas@example.test" }
+}
+
+### 2.9 Consultar (reemplazar el código por el que devolvió 2.8) -> estadoSla y diasHabilesRestantes
+GET http://localhost:8082/api/v2/reclamos/REC-2026-0001
+
+### 2.9 Inexistente -> 404 RECLAMO_NO_ENCONTRADO
+GET http://localhost:8082/api/v2/reclamos/REC-2026-9999
+
+### 2.10 Listado administrativo (todos los filtros son opcionales)
+GET http://localhost:8082/api/v2/reclamos?documento=00000000&estado=REGISTRADO&pagina=0&tamano=10
+
+### 2.10b Mis reclamos (CLIENTE_PRUEBA con la seguridad apagada)
+GET http://localhost:8082/api/v2/reclamos/me
+
+### 2.11 Iniciar atención -> 200 EN_PROCESO, fechaRespuesta null
+PATCH http://localhost:8082/api/v2/reclamos/REC-2026-0001/respuesta
+Content-Type: application/json
+
+{ "nuevoEstado": "EN_PROCESO", "atendidoPor": "GESTOR-PRUEBA" }
+
+### 2.11 Respuesta vacía (CA-05) -> 400 RESPUESTA_VACIA, el reclamo no cambia
+PATCH http://localhost:8082/api/v2/reclamos/REC-2026-0001/respuesta
+Content-Type: application/json
+
+{ "nuevoEstado": "ATENDIDO", "respuestaVisibleCliente": "", "atendidoPor": "GESTOR-PRUEBA" }
+
+### 2.11 Atender (CA-04) -> 200 ATENDIDO con fechaRespuesta UTC
+PATCH http://localhost:8082/api/v2/reclamos/REC-2026-0001/respuesta
+Content-Type: application/json
+
+{ "nuevoEstado": "ATENDIDO", "respuestaVisibleCliente": "Se registró la atención de su solicitud de prueba.", "atendidoPor": "GESTOR-PRUEBA" }
+
+### 2.11 Repetir sobre un ATENDIDO -> 409 RECLAMO_YA_ATENDIDO
+PATCH http://localhost:8082/api/v2/reclamos/REC-2026-0001/respuesta
+Content-Type: application/json
+
+{ "nuevoEstado": "ATENDIDO", "respuestaVisibleCliente": "Otra respuesta", "atendidoPor": "GESTOR-PRUEBA" }
+
+### 2.12 Métricas del dashboard por periodo y canal
+GET http://localhost:8082/api/v2/dashboard/metricas?desde=2026-09-01&hasta=2026-12-31&canal=MARKETPLACE
+
+### 2.12 Sin canal (todos los canales)
+GET http://localhost:8082/api/v2/dashboard/metricas?desde=2026-09-01&hasta=2026-12-31
+
+### 2.12 desde posterior a hasta -> 400 RANGO_FECHAS_INVALIDO
+GET http://localhost:8082/api/v2/dashboard/metricas?desde=2026-09-30&hasta=2026-09-01
