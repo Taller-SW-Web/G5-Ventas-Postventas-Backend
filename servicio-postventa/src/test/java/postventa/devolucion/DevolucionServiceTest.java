@@ -564,7 +564,7 @@ class DevolucionServiceTest {
     void unPedidoSinCanalSeApruebaIgualPeroNoSumaAlDashboard() {
         conItems(devolucion(EstadoDevolucion.EN_EVALUACION, TipoDevolucion.DEVOLUCION_DINERO));
         when(ventas.consultarPedido("PED-2026-00981")).thenReturn(Optional.of(new PedidoResumen("PED-2026-00981",
-                "ENTREGADO", CLIENTE, new BigDecimal("129.90"), "PEN", items(), AHORA_UTC.minusDays(2))));
+                "ENTREGADO", CLIENTE, new BigDecimal("129.90"), "PEN", items(), AHORA_UTC.minusDays(2), true, null)));
         when(devoluciones.aprobar(eq(42L), eq(TipoResolucion.REEMBOLSO), eq(GESTOR), eq(AHORA_UTC), anyBoolean())).thenReturn(1);
         when(reembolsos.solicitar(any())).thenReturn(reembolso("EXITOSO"));
 

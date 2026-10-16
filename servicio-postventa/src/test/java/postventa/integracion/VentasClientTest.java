@@ -19,6 +19,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import postventa.compartido.CanalVenta;
 
 import postventa.compartido.CanalVenta;
 
@@ -97,6 +98,7 @@ class VentasClientTest {
                         {"pedidoId":"PED-2026-00008","estado":"ENTREGADO",
                          "contacto":{"clienteId":"3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a"},
                          "pago":{"total":100.00,"moneda":"PEN"},
+                         "canal":"MARKETPLACE",
                          "items":[{"productoId":"PROD-101","cantidad":2,"precioUnitario":50.00}],
                          "historialEstados":[{"estado":"ENTREGADO","fecha":"2026-10-13T05:28:45Z"}]}
                         """, MediaType.APPLICATION_JSON));
@@ -105,6 +107,7 @@ class VentasClientTest {
         assertThat(cliente.consultarPedido("PED-2026-00008")).get().satisfies(p -> {
             assertThat(p.entregado()).isTrue();
             assertThat(p.items()).containsExactly(new PedidoResumen.Item("PROD-101", 2, new BigDecimal("50.00")));
+            assertThat(p.canal()).isEqualTo(CanalVenta.MARKETPLACE);
         });
         m1.verify();
     }
