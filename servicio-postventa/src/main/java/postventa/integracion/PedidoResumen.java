@@ -10,22 +10,25 @@ import postventa.compartido.CanalVenta;
 /**
  * Lo que M2 necesita de un pedido de M1 (1.3). M2 nunca lee las tablas de M1 (RNF-07).
  * fechaEntrega es la fecha del historial ENTREGADO (null si el pedido no se entregó).
+ * canal es null si M1 no lo manda o trae un valor desconocido (VentasClient); los constructores cortos, que usan
+ * pruebas y adaptadores anteriores al campo, asumen MARKETPLACE.
  */
 public record PedidoResumen(String pedidoId, String estado, UUID clienteId, BigDecimal total, String moneda,
                             List<Item> items, OffsetDateTime fechaEntrega, boolean pagoConfirmado, CanalVenta canal) {
-
-    /** Sin canal (lo usan las pruebas que no lo necesitan). */
-    public PedidoResumen(String pedidoId, String estado, UUID clienteId, BigDecimal total, String moneda,
-                         List<Item> items, OffsetDateTime fechaEntrega, boolean pagoConfirmado) {
-        this(pedidoId, estado, clienteId, total, moneda, items, fechaEntrega, pagoConfirmado, null);
-    }
 
     public static final String ENTREGADO = "ENTREGADO";
 
     /** Constructor conservado para pruebas y adaptadores que ya entregan un pedido pagado. */
     public PedidoResumen(String pedidoId, String estado, UUID clienteId, BigDecimal total, String moneda,
                          List<Item> items, OffsetDateTime fechaEntrega) {
-        this(pedidoId, estado, clienteId, total, moneda, items, fechaEntrega, true);
+        this(pedidoId, estado, clienteId, total, moneda, items, fechaEntrega, true, CanalVenta.MARKETPLACE);
+    }
+
+    /** Compatibilidad para adaptadores anteriores al campo canal de la API 1.3. */
+    public PedidoResumen(String pedidoId, String estado, UUID clienteId, BigDecimal total, String moneda,
+                         List<Item> items, OffsetDateTime fechaEntrega, boolean pagoConfirmado) {
+        this(pedidoId, estado, clienteId, total, moneda, items, fechaEntrega, pagoConfirmado,
+                CanalVenta.MARKETPLACE);
     }
 
     /**
