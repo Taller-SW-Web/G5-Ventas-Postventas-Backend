@@ -205,8 +205,10 @@ public class RecepcionService {
 
     /** Con la recepción al día, se completa si F4 o Despacho ya confirmaron (DevolucionService). */
     private ConfirmarRecepcionResponse respuesta(Devolucion d, List<RecepcionDevolucion> operacion) {
+        // F4 lee los intentos del reembolso de forma perezosa: la consulta tiene que ir dentro de una transacción
         boolean confirmada = d.getResolucion() == TipoResolucion.REEMBOLSO
-                ? reembolsos.consultar(d.codigo()).map(SolicitadorReembolso.Resultado::exitoso).orElse(false)
+                ? Boolean.TRUE.equals(tx.execute(t -> reembolsos.consultar(d.codigo())
+                        .map(SolicitadorReembolso.Resultado::exitoso).orElse(false)))
                 : d.getReferenciaOperacion() != null;
         boolean completada = devoluciones.completarSiCorresponde(d, d.getResolucion(), confirmada, d.getReferenciaOperacion());
         RecepcionDevolucion primera = operacion.get(0);
