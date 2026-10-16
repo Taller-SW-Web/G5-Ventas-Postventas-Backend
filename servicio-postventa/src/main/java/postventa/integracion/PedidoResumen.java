@@ -28,8 +28,17 @@ public record PedidoResumen(String pedidoId, String estado, UUID clienteId, BigD
         this(pedidoId, estado, clienteId, total, moneda, items, fechaEntrega, true);
     }
 
-    /** productoId es texto, tal cual lo da Productos (UUID o código como prd-013-01) y lo devuelve M1 en la 1.3. */
-    public record Item(String productoId, int cantidad, BigDecimal precioUnitario) {}
+    /**
+     * productoId es texto, tal cual lo da Productos (UUID o código como prd-013-01) y lo devuelve M1 en la 1.3.
+     * sku es el de la línea del pedido: la recepción física (2.5b) y el reintegro a Productos van por sku.
+     */
+    public record Item(String productoId, int cantidad, BigDecimal precioUnitario, String sku) {
+
+        /** Sin sku (lo usan las pruebas que no lo necesitan). */
+        public Item(String productoId, int cantidad, BigDecimal precioUnitario) {
+            this(productoId, cantidad, precioUnitario, null);
+        }
+    }
 
     public boolean entregado() {
         return ENTREGADO.equals(estado);
