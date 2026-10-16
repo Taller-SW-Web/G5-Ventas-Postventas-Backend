@@ -29,6 +29,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import postventa.compartido.ConflictoException;
 import postventa.compartido.SecurityConfig;
+import postventa.devolucion.dto.ConfirmarRecepcionResponse;
 import postventa.devolucion.dto.EvidenciaSubidaResponse;
 import postventa.devolucion.dto.ListadoDevolucionesResponse;
 import postventa.devolucion.dto.RegistrarDevolucionResponse;
@@ -47,6 +48,7 @@ class DevolucionControllerTest {
 
     @MockitoBean DevolucionService devolucionService;
     @MockitoBean EvidenciaService evidenciaService;
+    @MockitoBean RecepcionService recepcionService;
 
     @Test
     void registrarResponde201ConLocation() throws Exception {
@@ -165,6 +167,33 @@ class DevolucionControllerTest {
                         .content("{\"decision\":\"APROBADA\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.codigo").value("SIN_STOCK"));
+    }
+
+    @Test
+    void confirmarRecepcionResponde200() throws Exception {
+        when(recepcionService.confirmar(eq("DEV-2026-0042"), any(), any())).thenReturn(new ConfirmarRecepcionResponse(
+                "DEV-2026-0042", true, OffsetDateTime.parse("2026-09-24T10:00:00Z"), null,
+                List.of(new ConfirmarRecepcionResponse.Linea("SKU-AUR-01", 1)), true, EstadoDevolucion.APROBADA));
+
+        mvc.perform(patch("/api/v2/devoluciones/DEV-2026-0042/recepcion").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lineas\":[{\"sku\":\"SKU-AUR-01\",\"cantidadRecibida\":1,\"cantidadApta\":1}]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recepcionConfirmada").value(true))
+                .andExpect(jsonPath("$.lineas[0].cantidadApta").value(1))
+                .andExpect(jsonPath("$.reintegroSolicitado").value(true));
+    }
+
+    @Test
+    void confirmarRecepcionSinLineasOConCantidadNegativaResponde400() throws Exception {
+        mvc.perform(patch("/api/v2/devoluciones/DEV-2026-0042/recepcion").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lineas\":[]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.codigo").value("DATOS_INVALIDOS"));
+        mvc.perform(patch("/api/v2/devoluciones/DEV-2026-0042/recepcion").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lineas\":[{\"sku\":\"SKU-1\",\"cantidadRecibida\":1,\"cantidadApta\":-1}]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.codigo").value("DATOS_INVALIDOS"));
+        verifyNoInteractions(recepcionService);
     }
 
     @Test

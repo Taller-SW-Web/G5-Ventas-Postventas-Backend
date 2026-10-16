@@ -90,6 +90,7 @@ public class SecurityConfig {
                 // Gestor
                 .requestMatchers(HttpMethod.GET, "/api/v2/devoluciones").hasRole("ADMIN_VENTAS")
                 .requestMatchers(HttpMethod.PATCH, "/api/v2/devoluciones/*/resolucion").hasRole("ADMIN_VENTAS")
+                .requestMatchers(HttpMethod.PATCH, "/api/v2/devoluciones/*/recepcion").hasRole("ADMIN_VENTAS")
                 .requestMatchers(HttpMethod.GET, "/api/v2/reclamos").hasRole("ADMIN_VENTAS")
                 .requestMatchers(HttpMethod.PATCH, "/api/v2/reclamos/*/respuesta").hasRole("ADMIN_VENTAS")
                 .requestMatchers(HttpMethod.GET, "/api/v2/dashboard/**").hasRole("ADMIN_VENTAS")
