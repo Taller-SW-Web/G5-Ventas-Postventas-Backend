@@ -12,13 +12,14 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import ventas.anulacion.dto.*;
 import ventas.compartido.CodigoPublico;
 import ventas.compartido.ConflictoException;
 import ventas.compartido.RecursoNoEncontradoException;
 import ventas.compartido.SolicitudInvalidaException;
-import ventas.integracion.PostventaClient.RespuestaReembolso;
 import ventas.integracion.ProductosClient;
 import ventas.integracion.ProductosClient.MotivoLiberacion;
 import ventas.pedido.*;
@@ -97,12 +98,12 @@ public class AnulacionService {
                 productos.liberar(pedido.getCodigo(), pedido.getReservaId(), motivoProd);
             }
 
-            // 2. Si estaba PAGADO, registrar y enviar reembolso hacia M2 (F4)
+            // 2. Si estaba PAGADO, registrar reembolso y enviarlo a M2 (F4) después del commit
             boolean reembolsoGenerado = false;
             if (estadoActual == EstadoPedido.PAGADO) {
                 reembolsos.registrar(anulacionCodigo, pedido.getId(), pedido.getTotal(), pedido.getMoneda(), motivoEnum.name());
-                RespuestaReembolso respReembolso = reembolsos.enviar(anulacionCodigo);
-                reembolsoGenerado = respReembolso != null && respReembolso.envio() != null;
+                reembolsoGenerado = true;
+                ejecutarDespuesDeCommit(() -> reembolsos.enviar(anulacionCodigo));
             }
 
             return SolicitarAnulacionResponse.directa(pedido.getCodigo(), EstadoPedido.ANULADO.name(), reembolsoGenerado);
@@ -212,7 +213,7 @@ public class AnulacionService {
             }
 
             reembolsos.registrar(anulacionCodigo, pedido.getId(), pedido.getTotal(), pedido.getMoneda(), a.getMotivo());
-            reembolsos.enviar(anulacionCodigo);
+            ejecutarDespuesDeCommit(() -> reembolsos.enviar(anulacionCodigo));
 
             return new ResolverAnulacionResponse(pedido.getCodigo(), EstadoPedido.ANULADO.name(), EstadoAnulacion.EJECUTADA.name());
 
@@ -225,5 +226,18 @@ public class AnulacionService {
         }
 
         throw new SolicitudInvalidaException("DECISION_INVALIDA", "La decisión debe ser APROBADA o RECHAZADA");
+    }
+
+    private void ejecutarDespuesDeCommit(Runnable accion) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    accion.run();
+                }
+            });
+        } else {
+            accion.run();
+        }
     }
 }
