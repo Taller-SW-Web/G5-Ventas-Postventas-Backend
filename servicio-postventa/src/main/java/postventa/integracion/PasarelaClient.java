@@ -2,6 +2,7 @@ package postventa.integracion;
 
 import java.math.BigDecimal;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -17,6 +18,7 @@ public class PasarelaClient {
     private final boolean simulada;
     private final RestClient http;
 
+    @Autowired
     public PasarelaClient(@Value("${integracion.pasarela-simulada:true}") boolean simulada,
                           @Value("${integracion.pasarela-url:http://localhost:8083}") String url,
                           @Value("${integracion.pasarela-timeout-ms:2000}") int timeoutMs) {
