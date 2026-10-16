@@ -31,18 +31,18 @@ class VentasClientTest {
     void elProductoIdDeM1PasaTalCualSinConvertirloANumero() {
         VentasClient.PedidoM1 m1 = new VentasClient.PedidoM1("PED-2026-00981", "ENTREGADO",
                 new VentasClient.ContactoM1(CLIENTE), new VentasClient.PagoM1(new BigDecimal("129.90"), "PEN"),
-                List.of(new VentasClient.ItemM1("prd-013-01", 1, new BigDecimal("129.90"))),
+                List.of(new VentasClient.ItemM1("prd-013-01", 1, new BigDecimal("129.90"), "SKU-013-01")),
                 OffsetDateTime.parse("2026-10-11T09:00:00Z"), List.of(), null);
 
         assertThat(VentasClient.convertir(m1).items())
-                .containsExactly(new PedidoResumen.Item("prd-013-01", 1, new BigDecimal("129.90")));
+                .containsExactly(new PedidoResumen.Item("prd-013-01", 1, new BigDecimal("129.90"), "SKU-013-01"));
     }
 
     @Test
     void laFechaDeEntregaEsLaDelHistorialEntregado() {
         VentasClient.PedidoM1 m1 = new VentasClient.PedidoM1("PED-2026-00981", "ENTREGADO",
                 new VentasClient.ContactoM1(CLIENTE), new VentasClient.PagoM1(new BigDecimal("129.90"), "PEN"),
-                List.of(new VentasClient.ItemM1("PROD-101", 2, new BigDecimal("64.95"))),
+                List.of(new VentasClient.ItemM1("PROD-101", 2, new BigDecimal("64.95"), "SKU-101")),
                 OffsetDateTime.parse("2026-10-11T09:00:00Z"),
                 List.of(new VentasClient.HistorialM1("`CREADO`", OffsetDateTime.parse("2026-10-01T10:00:00Z")),
                         new VentasClient.HistorialM1("ENTREGADO", OffsetDateTime.parse("2026-10-05T18:30:00Z"))), "RETAIL");
@@ -53,7 +53,7 @@ class VentasClientTest {
         assertThat(p.fechaEntrega()).isEqualTo(OffsetDateTime.parse("2026-10-05T18:30:00Z"));
         assertThat(p.clienteId()).isEqualTo(CLIENTE);
         assertThat(p.canal()).isEqualTo(CanalVenta.RETAIL);
-        assertThat(p.items()).containsExactly(new PedidoResumen.Item("PROD-101", 2, new BigDecimal("64.95")));
+        assertThat(p.items()).containsExactly(new PedidoResumen.Item("PROD-101", 2, new BigDecimal("64.95"), "SKU-101"));
     }
 
     @Test
