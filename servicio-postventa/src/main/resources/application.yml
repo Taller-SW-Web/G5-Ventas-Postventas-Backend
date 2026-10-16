@@ -11,6 +11,10 @@ spring:
     url: ${DB_URL}
     username: ${DB_USER}
     password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX:3}   # Supabase: máximo 15 conexiones para todo el equipo
+      minimum-idle: 1                       # en reposo ocupa solo 1
+      idle-timeout: 60000                   # suelta las que no usa al minuto
   jpa:
     open-in-view: false
     hibernate:
@@ -48,6 +52,8 @@ integracion:
   pasarela-simulada: ${PASARELA_SIMULADA:true}
   pasarela-timeout-ms: ${PASARELA_TIMEOUT_MS:2000}
   productos-url: ${PRODUCTOS_URL:http://localhost:8090}
+  # location_id del almacén de devoluciones para el reintegro (G6, P-04). Vacío hasta que G6 lo defina: 503 en modo real
+  productos-ubicacion-devoluciones: ${PRODUCTOS_UBICACION_DEVOLUCIONES:}
 
 # Evidencias de devolución (F3, 2.1). local: carpeta del disco y URL de prueba; supabase: Supabase Storage
 evidencias:

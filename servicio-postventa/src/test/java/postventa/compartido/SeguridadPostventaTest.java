@@ -46,6 +46,7 @@ import postventa.calificacion.CalificacionService;
 import postventa.dashboard.DashboardService;
 import postventa.devolucion.DevolucionService;
 import postventa.devolucion.EvidenciaService;
+import postventa.devolucion.RecepcionService;
 import postventa.reembolso.ReembolsoService;
 import postventa.reclamo.ReclamoService;
 
@@ -69,6 +70,7 @@ class SeguridadPostventaTest {
 
     @MockitoBean DevolucionService devolucionService;
     @MockitoBean EvidenciaService evidenciaService;
+    @MockitoBean RecepcionService recepcionService;
     @MockitoBean ReembolsoService reembolsoService;
     @MockitoBean
     CalificacionService calificacionService;
@@ -191,6 +193,12 @@ class SeguridadPostventaTest {
                         .header("Authorization", cliente))
                 .andExpect(status().isForbidden());
         mvc.perform(get("/api/v2/devoluciones/DEV-2026-0001").header("Authorization", canal))
+                .andExpect(status().isForbidden());
+        // 2.5b: la recepción física la confirma solo el Gestor o el almacén (ADMIN_VENTAS)
+        pasa(mvc.perform(patch("/api/v2/devoluciones/DEV-2026-0001/recepcion").header("Authorization", gestor)));
+        mvc.perform(patch("/api/v2/devoluciones/DEV-2026-0001/recepcion").header("Authorization", cliente))
+                .andExpect(status().isForbidden());
+        mvc.perform(patch("/api/v2/devoluciones/DEV-2026-0001/recepcion").header("Authorization", canal))
                 .andExpect(status().isForbidden());
     }
 

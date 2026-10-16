@@ -89,3 +89,16 @@ PATCH http://localhost:8082/api/v2/devoluciones/DEV-2026-0002/resolucion
 Content-Type: application/json
 
 { "decision": "RECHAZADA", "fundamento": "La evidencia presentada no permite validar el defecto." }
+
+### 2.5 Aprobar un reembolso en el que el cliente se queda con el producto (sin recepción ni reintegro)
+PATCH http://localhost:8082/api/v2/devoluciones/DEV-2026-0001/resolucion
+Content-Type: application/json
+
+{ "decision": "APROBADA", "requiereDevolucionFisica": false }
+
+### 2.5b Confirmar la recepción física (solo así se reintegra stock, y solo las unidades aptas)
+### En modo simulado el SKU de PROD-101 es SKU-101. Se puede confirmar por partes (cada vez es otra operación)
+PATCH http://localhost:8082/api/v2/devoluciones/DEV-2026-0001/recepcion
+Content-Type: application/json
+
+{ "lineas": [ { "sku": "SKU-101", "cantidadRecibida": 1, "cantidadApta": 1 } ] }

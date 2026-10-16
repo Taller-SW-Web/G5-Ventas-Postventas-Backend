@@ -57,13 +57,15 @@ public interface DevolucionRepository extends JpaRepository<Devolucion, Long> {
     @Query("""
             update Devolucion d
             set d.estado = postventa.devolucion.EstadoDevolucion.APROBADA,
-                d.resolucion = :resolucion, d.idAutorizador = :autorizador, d.fechaResolucion = :fecha
+                d.resolucion = :resolucion, d.idAutorizador = :autorizador, d.fechaResolucion = :fecha,
+                d.requiereDevolucionFisica = :requiereDevolucionFisica
             where d.id = :id
               and d.estado in (postventa.devolucion.EstadoDevolucion.SOLICITADA,
                                postventa.devolucion.EstadoDevolucion.EN_EVALUACION)
             """)
     int aprobar(@Param("id") long id, @Param("resolucion") TipoResolucion resolucion,
-                @Param("autorizador") UUID autorizador, @Param("fecha") OffsetDateTime fecha);
+                @Param("autorizador") UUID autorizador, @Param("fecha") OffsetDateTime fecha,
+                @Param("requiereDevolucionFisica") boolean requiereDevolucionFisica);
 
     @Transactional
     @Modifying

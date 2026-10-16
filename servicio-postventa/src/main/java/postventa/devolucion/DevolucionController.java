@@ -27,6 +27,8 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.multipart.MultipartFile;
 
 import postventa.compartido.ErrorResponse;
+import postventa.devolucion.dto.ConfirmarRecepcionRequest;
+import postventa.devolucion.dto.ConfirmarRecepcionResponse;
 import postventa.devolucion.dto.DevolucionDetalle;
 import postventa.devolucion.dto.EvidenciaSubidaResponse;
 import postventa.devolucion.dto.ListadoDevolucionesResponse;
@@ -35,22 +37,25 @@ import postventa.devolucion.dto.RegistrarDevolucionResponse;
 import postventa.devolucion.dto.ResolucionResponse;
 import postventa.devolucion.dto.ResolverDevolucionRequest;
 
-/** F3: endpoints 2.1 a 2.5 de api-postventas.md. Quién puede llamar cada uno lo decide SecurityConfig. */
+/** F3: endpoints 2.1 a 2.5b de api-postventas.md. Quién puede llamar cada uno lo decide SecurityConfig. */
 @RestController
 @RequestMapping("/api/v2/devoluciones")
 public class DevolucionController {
 
     private final DevolucionService devolucionService;
     private final EvidenciaService evidenciaService;
+    private final RecepcionService recepcionService;
     private final boolean seguridadHabilitada;
     private final UUID clientePrueba;
 
     public DevolucionController(DevolucionService devolucionService,
                                 EvidenciaService evidenciaService,
+                                RecepcionService recepcionService,
                                 @Value("${seguridad.habilitada:true}") boolean seguridadHabilitada,
                                 @Value("${seguridad.cliente-prueba:11111111-1111-1111-1111-111111111111}") UUID clientePrueba) {
         this.devolucionService = devolucionService;
         this.evidenciaService = evidenciaService;
+        this.recepcionService = recepcionService;
         this.seguridadHabilitada = seguridadHabilitada;
         this.clientePrueba = clientePrueba;
     }
@@ -106,6 +111,14 @@ public class DevolucionController {
         return ResponseEntity.ok(devolucionService.resolver(devolucionId, solicitud, solicitante(auth)));
     }
 
+    /** 2.5b Confirmar recepción física: recién aquí se reintegra stock. Rol ADMIN_VENTAS (Gestor o almacén). */
+    @PatchMapping("/{devolucionId}/recepcion")
+    public ResponseEntity<ConfirmarRecepcionResponse> confirmarRecepcion(@PathVariable String devolucionId,
+                                                                         @Valid @RequestBody ConfirmarRecepcionRequest solicitud,
+                                                                         Authentication auth) {
+        return ResponseEntity.ok(recepcionService.confirmar(devolucionId, solicitud, solicitante(auth)));
+    }
+
     /**
      * 2.4 y 2.4b: pagina o tamano que no son números responden PAGINACION_INVALIDA (contrato v1.5.0),
      * igual que si están fuera de rango. Cualquier otro parámetro mal formado sigue siendo FORMATO_INVALIDO.
@@ -135,7 +148,7 @@ public class DevolucionController {
             if (autoridades.contains("ROLE_CLIENTE")) {
                 return Solicitante.cliente(UUID.fromString(token.getToken().getSubject()));
             }
-            return Solicitante.servicio();
+            return Solicitante.servicio(token.getToken().getSubject());
         }
         if (!seguridadHabilitada) {
             return Solicitante.gestor(null);

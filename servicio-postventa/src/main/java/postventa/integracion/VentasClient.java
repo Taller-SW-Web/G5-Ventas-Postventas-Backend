@@ -21,6 +21,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import postventa.compartido.CanalVenta;
 import postventa.compartido.CodigoPublico;
 import postventa.compartido.CanalVenta;
 import postventa.compartido.DependenciaNoDisponibleException;
@@ -33,7 +34,7 @@ import postventa.compartido.DependenciaNoDisponibleException;
  * M1 responde 403 con la seguridad prendida; con SEGURIDAD_HABILITADA=false no se manda token.
  *
  * Con integracion.simulado=true no llama a M1 y responde un pedido ENTREGADO hace 2 días, del cliente
- * de prueba, por 129.90 PEN (PROD-101 x1 a 99.90 y PROD-999 x1 a 30.00). Para probar errores:
+ * de prueba, por 129.90 PEN (PROD-101/SKU-101 x1 a 99.90 y PROD-999/SKU-999 x1 a 30.00). Para probar errores:
  * PED-AAAA-00404 no existe, PED-AAAA-00409 está DESPACHADO y PED-AAAA-00030 se entregó hace 30 días.
  */
 @Slf4j
@@ -42,7 +43,7 @@ public class VentasClient {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record PedidoM1(String pedidoId, String estado, ContactoM1 contacto, PagoM1 pago, List<ItemM1> items,
-                    OffsetDateTime ultimaActualizacion, List<HistorialM1> historialEstados, CanalVenta canal) {}
+                    OffsetDateTime ultimaActualizacion, List<HistorialM1> historialEstados, String canal) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record ContactoM1(UUID clienteId) {}
@@ -51,7 +52,7 @@ public class VentasClient {
     record PagoM1(BigDecimal total, String moneda) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record ItemM1(String productoId, int cantidad, BigDecimal precioUnitario) {}
+    record ItemM1(String productoId, int cantidad, BigDecimal precioUnitario, String sku) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record HistorialM1(String estado, OffsetDateTime fecha) {}
@@ -109,7 +110,7 @@ public class VentasClient {
 
     static PedidoResumen convertir(PedidoM1 p) {
         List<PedidoResumen.Item> items = p.items() == null ? List.of() : p.items().stream()
-                .map(i -> new PedidoResumen.Item(i.productoId(), i.cantidad(), i.precioUnitario()))
+                .map(i -> new PedidoResumen.Item(i.productoId(), i.cantidad(), i.precioUnitario(), i.sku()))
                 .toList();
         String estado = limpiar(p.estado());
         OffsetDateTime fechaEntrega = null;
@@ -131,7 +132,16 @@ public class VentasClient {
                 p.contacto() == null ? null : p.contacto().clienteId(),
                 p.pago() == null ? null : p.pago().total(),
                 p.pago() == null ? null : p.pago().moneda(),
-                items, fechaEntrega, pagoConfirmado, p.canal());
+                items, fechaEntrega, pagoConfirmado, canal(p.canal()));
+    }
+
+    /** Canal del pedido (MARKETPLACE, CHATBOT, RETAIL); null si M1 no lo manda o trae otro valor. */
+    private static CanalVenta canal(String canal) {
+        try {
+            return canal == null ? null : CanalVenta.valueOf(canal.trim());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     /** El ejemplo del contrato trae algunos estados entre comillas invertidas (`EN_PREPARACION`). */
@@ -150,8 +160,8 @@ public class VentasClient {
         log.info("[simulado] consulta del pedido {}", pedidoId);
         return Optional.of(new PedidoResumen(pedidoId, despachado ? "DESPACHADO" : PedidoResumen.ENTREGADO,
                 clientePrueba, new BigDecimal("129.90"), "PEN",
-                List.of(new PedidoResumen.Item("PROD-101", 1, new BigDecimal("99.90")),
-                        new PedidoResumen.Item("PROD-999", 1, new BigDecimal("30.00"))),
+                List.of(new PedidoResumen.Item("PROD-101", 1, new BigDecimal("99.90"), "SKU-101"),
+                        new PedidoResumen.Item("PROD-999", 1, new BigDecimal("30.00"), "SKU-999")),
                 entrega, true, CanalVenta.MARKETPLACE));
     }
 }
