@@ -135,7 +135,7 @@ public class DevolucionController {
             if (autoridades.contains("ROLE_CLIENTE")) {
                 return Solicitante.cliente(UUID.fromString(token.getToken().getSubject()));
             }
-            return Solicitante.servicio();
+            return Solicitante.servicio(token.getToken().getSubject());
         }
         if (!seguridadHabilitada) {
             return Solicitante.gestor(null);
