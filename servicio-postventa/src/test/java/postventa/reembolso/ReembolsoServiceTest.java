@@ -385,6 +385,22 @@ class ReembolsoServiceTest {
     }
 
     @Test
+    void reintentarUnFallidoSumaSuPropioMontoAlSaldo() {
+        Reembolso existente = reembolso(EstadoReembolso.FALLIDO);
+        when(repositorio.findByIdempotencyKey("clave-001")).thenReturn(Optional.of(existente));
+        Reembolso yaDevuelto = reembolso(EstadoReembolso.EXITOSO);
+        yaDevuelto.setId(43L);
+        yaDevuelto.setMonto(new BigDecimal("100.00"));
+        when(repositorio.bloquearReembolsosDelPedido(981L)).thenReturn(java.util.List.of(existente, yaDevuelto));
+
+        // 100.00 ya devuelto + 129.90 del reintento supera el pago de 129.90.
+        assertThatThrownBy(() -> servicio.procesar("clave-001", solicitud()))
+                .isInstanceOf(ConflictoException.class)
+                .extracting("codigo").isEqualTo("SALDO_INSUFICIENTE");
+        verifyNoInteractions(pasarela);
+    }
+
+    @Test
     void noReintentaSiElSaldoComprometidoAhoraSuperaElPago() {
         Reembolso existente = reembolso(EstadoReembolso.FALLIDO);
         when(repositorio.findByIdempotencyKey("clave-001")).thenReturn(Optional.of(existente));

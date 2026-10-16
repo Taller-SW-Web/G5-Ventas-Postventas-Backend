@@ -72,7 +72,7 @@ public class ReembolsoService {
                 return Preparacion.respondida(respuesta(existente));
             // Un PENDIENTE con intento registrado corresponde a un timeout: se repite la misma clave
             // de pasarela para recuperar el resultado idempotente que el simulador pudo haber guardado.
-            PedidoResumen pedido = validarSaldoParaReintento(s.referenciaId(), existente.getMoneda(), reembolsosPedido);
+            PedidoResumen pedido = validarSaldoParaReintento(s.referenciaId(), existente, reembolsosPedido);
             return Preparacion.paraEjecutar(existente, clavePasarela(existente), pedido.canal());
         }
         if (repositorio.findByTipoOrigenAndIdOrigen(s.origen(), origenId).isPresent())
@@ -110,9 +110,12 @@ public class ReembolsoService {
                 .orElseThrow(() -> new SolicitudInvalidaException("ORIGEN_NO_ELEGIBLE",
                         "La devolución no está aprobada para reembolso o no pertenece al pedido indicado"));
     }
-    private PedidoResumen validarSaldoParaReintento(String referenciaId, String moneda, List<Reembolso> reembolsosPedido) {
-        PedidoResumen pedido = consultarPagoConfirmado(referenciaId, moneda);
-        if (saldoComprometido(reembolsosPedido).compareTo(pedido.total()) > 0)
+    private PedidoResumen validarSaldoParaReintento(String referenciaId, Reembolso existente, List<Reembolso> reembolsosPedido) {
+        PedidoResumen pedido = consultarPagoConfirmado(referenciaId, existente.getMoneda());
+        BigDecimal comprometido = saldoComprometido(reembolsosPedido);
+        // Un FALLIDO no cuenta como comprometido: al reintentarlo vuelve a comprometer su monto.
+        if (existente.getEstado() == EstadoReembolso.FALLIDO) comprometido = comprometido.add(existente.getMonto());
+        if (comprometido.compareTo(pedido.total()) > 0)
             throw new ConflictoException("SALDO_INSUFICIENTE", "El monto comprometido supera el saldo reembolsable");
         return pedido;
     }

@@ -44,6 +44,7 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import postventa.calificacion.CalificacionService;
 import postventa.dashboard.DashboardService;
+import postventa.integracion.eventos.EventoPedidoService;
 import postventa.devolucion.DevolucionService;
 import postventa.devolucion.EvidenciaService;
 import postventa.devolucion.RecepcionService;
@@ -76,6 +77,7 @@ class SeguridadPostventaTest {
     CalificacionService calificacionService;
     @MockitoBean ReclamoService reclamoService;
     @MockitoBean DashboardService dashboardService;
+    @MockitoBean EventoPedidoService eventoPedidoService;
 
     @TestConfiguration
     static class Claves {
@@ -239,6 +241,18 @@ class SeguridadPostventaTest {
     }
 
     /** La seguridad dejó pasar: lo que responda el controller (o 404 si aún no existe) ya no es 401 ni 403. */
+    // ---------- 2.13 eventos de M1 ----------
+
+    @Test
+    void eventosSoloConLaCredencialDeServicioDeM1() throws Exception {
+        pasa(mvc.perform(post("/api/v2/eventos").header("Authorization", "Bearer " + servicio("postventa:reembolsos:procesar"))));
+        mvc.perform(post("/api/v2/eventos")).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v2/eventos").header("Authorization", "Bearer " + usuario("ADMIN_VENTAS")))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v2/eventos").header("Authorization", "Bearer " + servicio("postventa:reclamos:escribir")))
+                .andExpect(status().isForbidden());
+    }
+
     private static void pasa(ResultActions r) throws Exception {
         r.andExpect(res -> assertThat(res.getResponse().getStatus()).isNotIn(401, 403));
     }
