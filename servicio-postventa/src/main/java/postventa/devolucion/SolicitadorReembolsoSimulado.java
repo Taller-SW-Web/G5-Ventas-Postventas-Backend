@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import postventa.compartido.CodigoPublico;
@@ -19,6 +20,7 @@ import postventa.compartido.CodigoPublico;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(name = "reembolsos.simulado", havingValue = "true")
 public class SolicitadorReembolsoSimulado implements SolicitadorReembolso {
 
     private final Map<String, Resultado> porDevolucion = new ConcurrentHashMap<>();

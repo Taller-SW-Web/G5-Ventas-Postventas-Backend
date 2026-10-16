@@ -10,9 +10,15 @@ import java.util.UUID;
  * fechaEntrega es la fecha del historial ENTREGADO (null si el pedido no se entregó).
  */
 public record PedidoResumen(String pedidoId, String estado, UUID clienteId, BigDecimal total, String moneda,
-                            List<Item> items, OffsetDateTime fechaEntrega) {
+                            List<Item> items, OffsetDateTime fechaEntrega, boolean pagoConfirmado) {
 
     public static final String ENTREGADO = "ENTREGADO";
+
+    /** Constructor conservado para pruebas y adaptadores que ya entregan un pedido pagado. */
+    public PedidoResumen(String pedidoId, String estado, UUID clienteId, BigDecimal total, String moneda,
+                         List<Item> items, OffsetDateTime fechaEntrega) {
+        this(pedidoId, estado, clienteId, total, moneda, items, fechaEntrega, true);
+    }
 
     /** productoId es texto, tal cual lo da Productos (UUID o código como prd-013-01) y lo devuelve M1 en la 1.3. */
     public record Item(String productoId, int cantidad, BigDecimal precioUnitario) {}
