@@ -168,7 +168,7 @@ public class AnulacionService {
     /**
      * Endpoint 1.9: PATCH /api/v1/pedidos/{pedidoId}/anulaciones/{anulacionId}
      */
-    @Transactional
+    @Transactional(noRollbackFor = ConflictoException.class)
     public ResolverAnulacionResponse resolverAnulacion(String pedidoCodigo, String anulacionCodigo, ResolverAnulacionRequest req) {
         Long idAnulacion = CodigoPublico.id(anulacionCodigo);
         Anulacion a = anulaciones.findById(idAnulacion)
@@ -196,7 +196,8 @@ public class AnulacionService {
         if ("APROBADA".equals(decision)) {
             if (pedido.getEstado() != EstadoPedido.EN_PREPARACION) {
                 a.setEstado(EstadoAnulacion.RECHAZADA);
-                anulaciones.save(a);
+                a.setIdAutorizador(autorizadorUuid);
+                anulaciones.saveAndFlush(a);
                 throw new ConflictoException("PEDIDO_YA_NO_EN_PREPARACION", "El pedido ya no está en EN_PREPARACION; anulación rechazada");
             }
 
