@@ -21,6 +21,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import postventa.compartido.CanalVenta;
 import postventa.compartido.CodigoPublico;
 import postventa.compartido.DependenciaNoDisponibleException;
 
@@ -41,7 +42,7 @@ public class VentasClient {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record PedidoM1(String pedidoId, String estado, ContactoM1 contacto, PagoM1 pago, List<ItemM1> items,
-                    OffsetDateTime ultimaActualizacion, List<HistorialM1> historialEstados) {}
+                    OffsetDateTime ultimaActualizacion, List<HistorialM1> historialEstados, String canal) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record ContactoM1(UUID clienteId) {}
@@ -130,7 +131,16 @@ public class VentasClient {
                 p.contacto() == null ? null : p.contacto().clienteId(),
                 p.pago() == null ? null : p.pago().total(),
                 p.pago() == null ? null : p.pago().moneda(),
-                items, fechaEntrega, pagoConfirmado);
+                items, fechaEntrega, pagoConfirmado, canal(p.canal()));
+    }
+
+    /** Canal del pedido (MARKETPLACE, CHATBOT, RETAIL); null si M1 no lo manda o trae otro valor. */
+    private static CanalVenta canal(String canal) {
+        try {
+            return canal == null ? null : CanalVenta.valueOf(canal.trim());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     /** El ejemplo del contrato trae algunos estados entre comillas invertidas (`EN_PREPARACION`). */
@@ -151,6 +161,6 @@ public class VentasClient {
                 clientePrueba, new BigDecimal("129.90"), "PEN",
                 List.of(new PedidoResumen.Item("PROD-101", 1, new BigDecimal("99.90")),
                         new PedidoResumen.Item("PROD-999", 1, new BigDecimal("30.00"))),
-                entrega, true));
+                entrega, true, CanalVenta.MARKETPLACE));
     }
 }
