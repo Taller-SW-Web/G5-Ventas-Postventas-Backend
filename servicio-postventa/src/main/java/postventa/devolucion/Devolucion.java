@@ -85,6 +85,13 @@ public class Devolucion {
     @Column(name = "referencia_operacion", length = 100)
     private String referenciaOperacion;
 
+    /**
+     * Si el cliente tiene que entregar el producto (ESP-08 8.2, regla 16). En CAMBIO siempre es true; en REEMBOLSO
+     * puede ser false (el cliente se queda con un producto que no vale la pena devolver): no hay recepción ni reintegro.
+     */
+    @Column(name = "requiere_devolucion_fisica", nullable = false)
+    private boolean requiereDevolucionFisica = true;
+
     @OneToMany(mappedBy = "devolucion", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("id")
     private List<DevolucionItem> items = new ArrayList<>();
