@@ -118,15 +118,10 @@ public class DespachoClient {
         }
     }
 
-    /** El campo exacto del 201 está por confirmar con G2: se acepta idDespacho o id. */
+    /** G2 devuelve el código del despacho en idDespacho (confirmado 16/10). */
     private static String idDespacho(String cuerpo) {
         JsonNode n = leer(cuerpo);
-        for (String campo : List.of("idDespacho", "id")) {
-            if (n != null && n.hasNonNull(campo)) {
-                return n.get(campo).asText();
-            }
-        }
-        return null;
+        return n != null && n.hasNonNull("idDespacho") ? n.get("idDespacho").asText() : null;
     }
 
     private static String code(String cuerpo) {
