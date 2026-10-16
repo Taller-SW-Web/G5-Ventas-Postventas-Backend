@@ -9,6 +9,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionOperations;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -31,6 +32,7 @@ public class ReembolsoService {
                      ProyeccionesService proyecciones, Clock c) { this(r, v, p, d, proyecciones, c, sinTransaccion()); }
     ReembolsoService(ReembolsoRepository r, VentasClient v, PasarelaClient p, DevolucionRepository d,
                      ProyeccionesService proyecciones, Clock c, TransactionOperations t) { repositorio=r; ventas=v; pasarela=p; devoluciones=d; this.proyecciones=proyecciones; reloj=c; transacciones=t; }
+    @Transactional(readOnly = true)
     public java.util.Optional<ProcesarReembolsoResponse> consultarPorOrigen(OrigenReembolso origen, long origenId) {
         return repositorio.findByTipoOrigenAndIdOrigen(origen, origenId).map(this::respuesta);
     }
