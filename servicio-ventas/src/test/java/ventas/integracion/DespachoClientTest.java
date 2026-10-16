@@ -62,9 +62,29 @@ class DespachoClientTest {
     }
 
     @Test
+    void losOpcionalesNulosNoViajanEnElJson() {
+        servidor.expect(requestTo(BASE + "/api/v1/despachos"))
+                .andExpect(jsonPath("$.destino.direccion").value("Av. La Marina 1234"))
+                .andExpect(jsonPath("$.destino.distrito").value("San Miguel"))
+                .andExpect(jsonPath("$.destino.referencia").doesNotExist())
+                .andExpect(jsonPath("$.destino.departamento").doesNotExist())
+                .andExpect(jsonPath("$.destino.provincia").doesNotExist())
+                .andRespond(withStatus(HttpStatus.CREATED).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"idDespacho\": \"DESP-00413\"}"));
+
+        DespachoClient.Respuesta r = cliente.crear(new DespachoClient.Solicitud("PED-2026-00982",
+                new DespachoClient.Destinatario("Juan Pérez", "+51999888777"),
+                new DespachoClient.Destino("Av. La Marina 1234", null, null, null, "San Miguel"),
+                List.of(new DespachoClient.Linea("SKU-AUR-01", 1))));
+
+        servidor.verify();
+        assertThat(r.idDespacho()).isEqualTo("DESP-00413");
+    }
+
+    @Test
     void la200EsQueYaTeniaDespacho() {
         servidor.expect(requestTo(BASE + "/api/v1/despachos"))
-                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body("{\"id\": \"DESP-00412\"}"));
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body("{\"idDespacho\": \"DESP-00412\"}"));
         DespachoClient.Respuesta r = cliente.crear(solicitud());
         assertThat(r.resultado()).isEqualTo(Resultado.YA_EXISTIA);
         assertThat(r.idDespacho()).isEqualTo("DESP-00412");

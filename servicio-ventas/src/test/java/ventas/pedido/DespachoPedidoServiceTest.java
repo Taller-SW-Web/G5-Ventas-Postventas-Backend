@@ -180,4 +180,32 @@ class DespachoPedidoServiceTest {
                 .isInstanceOf(ConflictoException.class).hasFieldOrPropertyWithValue("codigo", "DATOS_ENVIO_INCOMPLETOS");
         verifyNoInteractions(despacho);
     }
+
+    @Test
+    void sinDistritoNoSePideElDespacho() {
+        pedido.setEstado(EstadoPedido.EN_PREPARACION);
+        pedido.setDistrito(" ");
+        when(pedidos.findById(981L)).thenReturn(Optional.of(pedido));
+
+        assertThatThrownBy(() -> servicio.paqueteSellado(CODIGO))
+                .isInstanceOf(ConflictoException.class).hasFieldOrPropertyWithValue("codigo", "DATOS_ENVIO_INCOMPLETOS");
+        verifyNoInteractions(despacho);
+    }
+
+    @Test
+    void losOpcionalesVaciosDelDestinoSeOmiten() {
+        pedido.setEstado(EstadoPedido.EN_PREPARACION);
+        pedido.setReferenciaEnvio("");
+        pedido.setDepartamento(null);
+        pedido.setProvincia("  ");
+        when(pedidos.findById(981L)).thenReturn(Optional.of(pedido));
+        when(despacho.crear(any())).thenReturn(new Respuesta(Resultado.CREADO, "DESP-00412", null, null));
+
+        servicio.paqueteSellado(CODIGO);
+
+        ArgumentCaptor<DespachoClient.Solicitud> captor = ArgumentCaptor.forClass(DespachoClient.Solicitud.class);
+        verify(despacho).crear(captor.capture());
+        assertThat(captor.getValue().destino())
+                .isEqualTo(new DespachoClient.Destino("Av. La Marina 1234", null, null, null, "San Miguel"));
+    }
 }

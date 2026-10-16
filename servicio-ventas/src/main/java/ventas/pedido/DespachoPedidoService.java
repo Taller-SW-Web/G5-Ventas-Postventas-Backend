@@ -74,19 +74,26 @@ public class DespachoPedidoService {
             throw new ConflictoException("ESTADO_NO_PERMITE_DESPACHO",
                     "Solo se despacha un pedido EN_PREPARACION; %s está en %s".formatted(p.getCodigo(), p.getEstado()));
         }
-        if (p.getDireccion() == null || p.getDireccion().isBlank()) {
-            throw new ConflictoException("DATOS_ENVIO_INCOMPLETOS", "El pedido " + p.getCodigo() + " no tiene dirección de entrega");
+        // G2 exige direccion y distrito; el resto del destino es opcional (acuerdo G2, 16/10)
+        if (opcional(p.getDireccion()) == null || opcional(p.getDistrito()) == null) {
+            throw new ConflictoException("DATOS_ENVIO_INCOMPLETOS",
+                    "El pedido " + p.getCodigo() + " no tiene dirección o distrito de entrega");
         }
         String nombre = p.getDestinatario() != null && !p.getDestinatario().isBlank() ? p.getDestinatario() : p.getNombreContacto();
         return new DespachoClient.Solicitud(
                 p.getCodigo(),
                 new DespachoClient.Destinatario(nombre, p.getTelefono()),
-                new DespachoClient.Destino(p.getDireccion(), p.getReferenciaEnvio(), p.getDepartamento(),
-                        p.getProvincia(), p.getDistrito()),
+                new DespachoClient.Destino(p.getDireccion(), opcional(p.getReferenciaEnvio()),
+                        opcional(p.getDepartamento()), opcional(p.getProvincia()), p.getDistrito()),
                 p.getDetalles().stream()
                         .sorted(Comparator.comparing(DetallePedido::getId, Comparator.nullsLast(Comparator.naturalOrder())))
                         .map(d -> new DespachoClient.Linea(d.getSku(), d.getCantidad()))
                         .toList());
+    }
+
+    /** G2 prefiere que los campos opcionales vacíos se omitan, no que lleguen como "". */
+    private static String opcional(String valor) {
+        return valor == null || valor.isBlank() ? null : valor;
     }
 
     private DespachoPedidoResponse listo(String pedidoId, Respuesta r, String mensaje) {
