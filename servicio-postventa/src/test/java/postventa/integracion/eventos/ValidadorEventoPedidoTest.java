@@ -154,7 +154,8 @@ class ValidadorEventoPedidoTest {
                 new BigDecimal("129.90"),
                 "PEN",
                 motivo,
-                items);
+                items,
+                null);
 
         return new EventoPedidoPayload(
                 UUID.fromString("3f2c9a10-6b7d-4e21-9c55-1a2b3c4d5e6f"),

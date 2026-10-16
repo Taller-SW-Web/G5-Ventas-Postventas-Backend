@@ -96,4 +96,22 @@ public interface DevolucionRepository extends JpaRepository<Devolucion, Long> {
             where d.id = :id and d.estado = postventa.devolucion.EstadoDevolucion.APROBADA
             """)
     int completar(@Param("id") long id);
+
+    /**
+     * M1 anuló la orden de reemplazo (reserva vencida o sin stock, entrega fallida, Gestor): el cambio aprobado vuelve
+     * a evaluación para que el Gestor lo apruebe otra vez (otro reemplazo con reserva nueva) o lo derive a reembolso.
+     * Solo si la referencia sigue siendo ese reemplazo (un aviso viejo no reabre un cambio ya rehecho).
+     */
+    @Transactional
+    @Modifying
+    @Query("""
+            update Devolucion d
+            set d.estado = postventa.devolucion.EstadoDevolucion.EN_EVALUACION,
+                d.resolucion = null, d.referenciaOperacion = null
+            where d.id = :id
+              and d.estado = postventa.devolucion.EstadoDevolucion.APROBADA
+              and d.resolucion = postventa.devolucion.TipoResolucion.CAMBIO
+              and d.referenciaOperacion = :referencia
+            """)
+    int reabrirCambio(@Param("id") long id, @Param("referencia") String referencia);
 }

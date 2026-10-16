@@ -217,7 +217,8 @@ class EventoPedidoPostgresTest {
                         tipo.equals("pedido.pagado")
                                 ? List.of(new EventoPedidoPayload.Item(
                                         "prd-013-01", 1, new BigDecimal("129.90")))
-                                : null));
+                                : null,
+                        null));
     }
 
     private static LocalDate diaUtc(EventoPedidoPayload evento) {
@@ -256,6 +257,12 @@ class EventoPedidoPostgresTest {
             AgregadoMetricasRepository.class
     })
     static class ConfiguracionLocal {
+
+        /** Los avisos de reemplazo (F3) no se prueban aquí. */
+        @Bean
+        postventa.devolucion.DevolucionService devolucionService() {
+            return org.mockito.Mockito.mock(postventa.devolucion.DevolucionService.class);
+        }
 
         @Bean
         DataSource dataSource() {

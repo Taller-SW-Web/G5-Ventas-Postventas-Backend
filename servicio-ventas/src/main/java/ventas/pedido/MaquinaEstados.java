@@ -46,10 +46,11 @@ public class MaquinaEstados {
             new Transicion(CREADO, PAGADO),             Set.of(PASARELA_PAGOS),
             new Transicion(CREADO, ANULADO),            Set.of(PASARELA_PAGOS, CANAL_CHATBOT, CLIENTE, GESTOR, SISTEMA_PRODUCTOS),
             new Transicion(PAGADO, EN_PREPARACION),     Set.of(SISTEMA_LOGISTICA),
+            new Transicion(CREADO, EN_PREPARACION),     Set.of(SISTEMA_PRODUCTOS),   // solo REEMPLAZO: no se cobra (F3)
             new Transicion(PAGADO, ENTREGADO),          Set.of(CLIENTE),   // solo RETAIL (acuerdo G4)
             new Transicion(PAGADO, ANULADO),            Set.of(CLIENTE, GESTOR, SISTEMA_PRODUCTOS),   // Productos: Chatbot ya cobró sin stock
             new Transicion(EN_PREPARACION, DESPACHADO), Set.of(SISTEMA_LOGISTICA),
-            new Transicion(EN_PREPARACION, ANULADO),    Set.of(GESTOR),
+            new Transicion(EN_PREPARACION, ANULADO),    Set.of(GESTOR, SISTEMA_PRODUCTOS),   // Productos: solo REEMPLAZO
             new Transicion(DESPACHADO, ENTREGADO),      Set.of(SISTEMA_LOGISTICA),
             new Transicion(DESPACHADO, ANULADO),        Set.of(SISTEMA_LOGISTICA));
 
@@ -76,6 +77,14 @@ public class MaquinaEstados {
         if (pedido.getEstado() == PAGADO && destino == ENTREGADO && pedido.getCanal() != CanalVenta.RETAIL) {
             throw new ConflictoException("TRANSICION_NO_PERMITIDA",
                     "Solo los pedidos RETAIL pasan de PAGADO a ENTREGADO directamente");
+        }
+        // Orden de reemplazo de un CAMBIO (F3, acuerdo G6 #100): no pasa por PAGADO; si su reserva se rechaza o vence
+        // ya en preparación, la anula Productos. Una venta normal nunca usa estas dos transiciones
+        boolean soloReemplazo = (pedido.getEstado() == CREADO && destino == EN_PREPARACION)
+                || (pedido.getEstado() == EN_PREPARACION && destino == ANULADO && actor == SISTEMA_PRODUCTOS);
+        if (soloReemplazo && !pedido.esReemplazo()) {
+            throw new ConflictoException("TRANSICION_NO_PERMITIDA",
+                    "Solo una orden de reemplazo pasa de %s a %s con actor %s".formatted(pedido.getEstado(), destino, actor));
         }
         if (destino == ANULADO && (motivo == null || motivo.isBlank())) {
             throw new SolicitudInvalidaException("MOTIVO_REQUERIDO", "Toda anulación exige un motivo tipificado");
@@ -162,7 +171,7 @@ public class MaquinaEstados {
         EventoPedidoPayload.Datos datos = new EventoPedidoPayload.Datos(
                 pedido.getCanal().name(), clienteId, pedido.getIdVendedor(),
                 pedido.getTotal(), pedido.getMoneda(),
-                tipo == TipoEvento.PEDIDO_ANULADO ? motivo : null, items);
+                tipo == TipoEvento.PEDIDO_ANULADO ? motivo : null, items, pedido.getDevolucionId());
         return new EventoPedidoPayload(UUID.randomUUID(), tipo.getValor(), pedido.getCodigo(), fecha, datos);
     }
 }

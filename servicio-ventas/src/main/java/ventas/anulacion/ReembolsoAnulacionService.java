@@ -40,6 +40,9 @@ public class ReembolsoAnulacionService {
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void registrar(String anulacionId, Long idPedido, BigDecimal monto, String moneda, String motivo) {
+        if (monto == null || monto.signum() <= 0) {
+            return;   // orden de reemplazo (F3): no se cobró, no hay nada que devolver
+        }
         Long idAnulacion = CodigoPublico.id(anulacionId);
         if (solicitudes.findByIdAnulacion(idAnulacion).isPresent()) {
             return;   // la misma anulación ya la tiene

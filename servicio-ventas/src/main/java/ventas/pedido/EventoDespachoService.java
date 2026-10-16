@@ -35,6 +35,8 @@ import ventas.pedido.dto.EventoDespachoResponse;
  * | DESPACHO_REPROGRAMADO      | pedido.fecha_estimada_entrega = datos.nuevaFechaProgramada              |
  * | ASIGNADO, FALLIDO, CANCELADO | solo se registra (auditoría / acuse de una cancelación nuestra)       |
  * EN_CAMINO, ENTREGADO y REPROGRAMADO además avisan a Marketplace (1.10, acuerdo H-05) si el pedido es de ese canal.
+ * Las órdenes de reemplazo (F3) no se avisan a Marketplace: M2 sigue el cambio con pedido.entregado / pedido.anulado,
+ * y si vuelven a origen no hay reembolso (total 0).
  * Si el pedido ya está en el estado al que llevaría el evento (llegó repetido con otro idEvento o en desorden),
  * no se hace nada. Idempotencia por idEvento en evento_recibido (origen SISTEMA_LOGISTICA).
  * Actor siempre SISTEMA_LOGISTICA (ESP-03).
@@ -93,12 +95,15 @@ public class EventoDespachoService {
                 anulacionId = anulaciones.registrarEjecutada(p.getId(), ENTREGA_FALLIDA);
                 reembolsos.registrar(anulacionId, p.getId(), p.getTotal(), p.getMoneda().trim(), motivoReembolso(ev));
                 maquina.cambiar(p, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_LOGISTICA, ENTREGA_FALLIDA, cuando);
-                yield "Pedido anulado e instrucción de reembolso generada hacia M2 con origen ANULACION";
+                yield p.esReemplazo() ? "Reemplazo anulado; M2 reabre la devolución (sin reembolso, no se cobró)"
+                        : "Pedido anulado e instrucción de reembolso generada hacia M2 con origen ANULACION";
             }
             case DESPACHO_REPROGRAMADO -> {
                 p.setFechaEstimadaEntrega(nuevaFecha(ev.datos()));
                 pedidos.save(p);
-                envios.registrar(p, ev.idDespacho());   // 1.10: Marketplace muestra la nueva fecha
+                if (!p.esReemplazo()) {
+                    envios.registrar(p, ev.idDespacho());   // 1.10: Marketplace muestra la nueva fecha
+                }
                 yield "Fecha estimada de entrega actualizada";
             }
             case DESPACHO_ASIGNADO, DESPACHO_FALLIDO, DESPACHO_CANCELADO -> "Evento registrado; no cambia el estado del pedido";
@@ -115,7 +120,9 @@ public class EventoDespachoService {
         }
         exigir(p, origen, null);
         maquina.cambiar(p, destino, ActorHistorial.SISTEMA_LOGISTICA, null, cuando);
-        envios.registrar(p, ev.idDespacho());   // 1.10: aviso público a Marketplace (DESPACHADO / ENTREGADO)
+        if (!p.esReemplazo()) {
+            envios.registrar(p, ev.idDespacho());   // 1.10: aviso público a Marketplace (DESPACHADO / ENTREGADO)
+        }
         return "Pedido " + destino;
     }
 

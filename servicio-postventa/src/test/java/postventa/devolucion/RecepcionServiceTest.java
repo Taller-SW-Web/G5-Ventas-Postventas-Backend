@@ -233,14 +233,15 @@ class RecepcionServiceTest {
     }
 
     @Test
-    void enUnCambioCuentaComoConfirmadoSiDespachoYaDioSuReferencia() {
+    void enUnCambioCuentaComoConfirmadoSiM1YaEntregoElReemplazo() {
         devolucion = aprobada(TipoResolucion.CAMBIO);
-        devolucion.setReferenciaOperacion("DESP-1");
+        devolucion.setReferenciaOperacion("PED-2026-01002");
         when(devoluciones.buscar("DEV-2026-0042", true)).thenReturn(devolucion);
+        when(devoluciones.cambioEntregado(devolucion)).thenReturn(true);
 
         servicio.confirmar("DEV-2026-0042", recepcion("SKU-101", 3, 3), Solicitante.gestor(GESTOR));
 
-        verify(devoluciones).completarSiCorresponde(eq(devolucion), eq(TipoResolucion.CAMBIO), eq(true), eq("DESP-1"));
+        verify(devoluciones).completarSiCorresponde(eq(devolucion), eq(TipoResolucion.CAMBIO), eq(true), eq("PED-2026-01002"));
         verifyNoInteractions(reembolsos);
     }
 

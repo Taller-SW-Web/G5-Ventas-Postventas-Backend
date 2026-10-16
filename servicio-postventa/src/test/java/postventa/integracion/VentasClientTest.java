@@ -111,4 +111,60 @@ class VentasClientTest {
         });
         m1.verify();
     }
+
+    // ---------- 1.11 orden de reemplazo (CAMBIO)
+
+    @Test
+    void elReemplazoSimuladoLlegaEntregadoConElNumeroDeLaDevolucion() {
+        VentasClient cliente = new VentasClient(true, CLIENTE, null, Clock.fixed(AHORA, ZoneOffset.UTC), RestClient.builder());
+
+        VentasClient.Reemplazo r = cliente.solicitarReemplazo("DEV-2026-0042", "PED-2026-00981",
+                List.of(new VentasClient.LineaReemplazo("SKU-101", 1)));
+
+        assertThat(r.pedidoId()).isEqualTo("PED-2026-90042");
+        assertThat(r.entregado()).isTrue();
+    }
+
+    @Test
+    void enModoRealPideElReemplazoA111ConElTokenDeM2() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://m1");
+        MockRestServiceServer m1 = MockRestServiceServer.bindTo(builder).build();
+        TokenServicio token = org.mockito.Mockito.mock(TokenServicio.class);
+        org.mockito.Mockito.when(token.authorization()).thenReturn(java.util.Optional.of("Bearer token-m2"));
+        m1.expect(requestTo("http://m1/api/v1/pedidos/reemplazos"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("Authorization", "Bearer token-m2"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.content().json("""
+                        {"devolucionId":"DEV-2026-0042","pedidoOrigenId":"PED-2026-00981",
+                         "items":[{"sku":"SKU-101","cantidad":1}]}
+                        """))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withStatus(org.springframework.http.HttpStatus.CREATED).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"pedidoId\":\"PED-2026-01002\",\"estado\":\"EN_PREPARACION\",\"devolucionId\":\"DEV-2026-0042\"}"));
+        VentasClient cliente = new VentasClient(false, CLIENTE, token, Clock.fixed(AHORA, ZoneOffset.UTC), builder);
+
+        VentasClient.Reemplazo r = cliente.solicitarReemplazo("DEV-2026-0042", "PED-2026-00981",
+                List.of(new VentasClient.LineaReemplazo("SKU-101", 1)));
+
+        assertThat(r).isEqualTo(new VentasClient.Reemplazo("PED-2026-01002", "EN_PREPARACION"));
+        assertThat(r.entregado()).isFalse();
+        m1.verify();
+    }
+
+    @Test
+    void siM1RechazaElReemplazoResponde409() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://m1");
+        MockRestServiceServer m1 = MockRestServiceServer.bindTo(builder).build();
+        m1.expect(requestTo("http://m1/api/v1/pedidos/reemplazos"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withStatus(org.springframework.http.HttpStatus.CONFLICT).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"codigo\":\"PEDIDO_NO_ENTREGADO\"}"));
+        TokenServicio token = org.mockito.Mockito.mock(TokenServicio.class);
+        VentasClient cliente = new VentasClient(false, CLIENTE, token, Clock.fixed(AHORA, ZoneOffset.UTC), builder);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> cliente.solicitarReemplazo("DEV-2026-0042",
+                        "PED-2026-00981", List.of(new VentasClient.LineaReemplazo("SKU-101", 1))))
+                .isInstanceOf(postventa.compartido.ConflictoException.class)
+                .extracting("codigo").isEqualTo("REEMPLAZO_RECHAZADO");
+    }
 }

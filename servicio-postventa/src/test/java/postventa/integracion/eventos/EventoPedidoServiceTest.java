@@ -42,11 +42,14 @@ class EventoPedidoServiceTest {
     @Mock
     private ProyeccionesService proyecciones;
 
+    @Mock
+    private postventa.devolucion.DevolucionService devoluciones;
+
     private EventoPedidoService servicio;
 
     @BeforeEach
     void preparar() {
-        servicio = new EventoPedidoService(validador, eventos, proyecciones);
+        servicio = new EventoPedidoService(validador, eventos, proyecciones, devoluciones);
     }
 
     @ParameterizedTest
@@ -121,6 +124,45 @@ class EventoPedidoServiceTest {
                 .hasMessage("Fallo de proyecciones");
     }
 
+    @Test
+    void laEntregaDeUnReemplazoVaALaDevolucionYNoAlDashboard() {
+        EventoPedidoPayload evento = reemplazo("pedido.entregado", null);
+        when(eventos.registrarSiNuevo(evento.idEvento(), "pedido.entregado")).thenReturn(true);
+
+        org.assertj.core.api.Assertions.assertThat(servicio.recibir(evento)).isTrue();
+
+        org.mockito.Mockito.verify(devoluciones).reemplazoEntregado("DEV-2026-0042", "PED-2026-01002");
+        org.mockito.Mockito.verifyNoInteractions(proyecciones);
+    }
+
+    @Test
+    void laAnulacionDeUnReemplazoReabreLaDevolucion() {
+        EventoPedidoPayload evento = reemplazo("pedido.anulado", "RESERVA_EXPIRADA");
+        when(eventos.registrarSiNuevo(evento.idEvento(), "pedido.anulado")).thenReturn(true);
+
+        servicio.recibir(evento);
+
+        org.mockito.Mockito.verify(devoluciones).reemplazoAnulado("DEV-2026-0042", "PED-2026-01002", "RESERVA_EXPIRADA");
+        org.mockito.Mockito.verifyNoInteractions(proyecciones);
+    }
+
+    @Test
+    void unAvisoRepetidoDeReemplazoNoSeAplicaDosVeces() {
+        EventoPedidoPayload evento = reemplazo("pedido.entregado", null);
+        when(eventos.registrarSiNuevo(evento.idEvento(), "pedido.entregado")).thenReturn(false);
+
+        servicio.recibir(evento);
+
+        org.mockito.Mockito.verifyNoInteractions(devoluciones, proyecciones);
+    }
+
+    private static EventoPedidoPayload reemplazo(String tipo, String motivo) {
+        return new EventoPedidoPayload(UUID.randomUUID(), tipo, "PED-2026-01002",
+                OffsetDateTime.parse("2026-10-16T12:00:00Z"),
+                new EventoPedidoPayload.Datos(CanalVenta.MARKETPLACE, "11111111-1111-1111-1111-111111111111", null,
+                        BigDecimal.ZERO, "PEN", motivo, null, "DEV-2026-0042"));
+    }
+
     private static EventoPedidoPayload evento(String tipo) {
         return new EventoPedidoPayload(
                 UUID.randomUUID(),
@@ -137,6 +179,7 @@ class EventoPedidoServiceTest {
                         tipo.equals("pedido.pagado")
                                 ? List.of(new EventoPedidoPayload.Item(
                                         "prd-013-01", 1, new BigDecimal("129.90")))
-                                : null));
+                                : null,
+                        null));
     }
 }

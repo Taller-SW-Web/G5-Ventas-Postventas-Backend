@@ -218,4 +218,11 @@ class ReembolsoAnulacionServiceTest {
         p.setCodigo("PED-2026-00981");
         return p;
     }
+
+    @Test
+    void unReemplazoSinCobroNoGeneraReembolso() {
+        servicio.registrar("ANUL-0012", 981L, BigDecimal.ZERO, "PEN", "ENTREGA_FALLIDA_DEFINITIVA");
+        verify(solicitudes, never()).save(any());
+        verify(solicitudes, never()).findByIdAnulacion(any());
+    }
 }

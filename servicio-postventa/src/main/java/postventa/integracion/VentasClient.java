@@ -23,7 +23,7 @@ import org.springframework.web.client.RestClientException;
 
 import postventa.compartido.CanalVenta;
 import postventa.compartido.CodigoPublico;
-import postventa.compartido.CanalVenta;
+import postventa.compartido.ConflictoException;
 import postventa.compartido.DependenciaNoDisponibleException;
 
 /**
@@ -36,6 +36,10 @@ import postventa.compartido.DependenciaNoDisponibleException;
  * Con integracion.simulado=true no llama a M1 y responde un pedido ENTREGADO hace 2 días, del cliente
  * de prueba, por 129.90 PEN (PROD-101/SKU-101 x1 a 99.90 y PROD-999/SKU-999 x1 a 30.00). Para probar errores:
  * PED-AAAA-00404 no existe, PED-AAAA-00409 está DESPACHADO y PED-AAAA-00030 se entregó hace 30 días.
+ *
+ * También pide a M1 la orden de reemplazo de un CAMBIO (POST /api/v1/pedidos/reemplazos, api-ventas 1.11) con el
+ * scope ventas:pedidos:reemplazar. En modo simulado responde un reemplazo ya ENTREGADO (PED-AAAA-9NNNN, con el
+ * número de la devolución), para que el cambio se pueda completar de punta a punta sin M1.
  */
 @Slf4j
 @Component
@@ -56,6 +60,19 @@ public class VentasClient {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record HistorialM1(String estado, OffsetDateTime fecha) {}
+
+    /** Una línea del reemplazo: el SKU comprado y cuántas unidades se reponen. */
+    public record LineaReemplazo(String sku, int cantidad) {}
+
+    /** Orden de reemplazo en M1: su código (PED-...) y su estado actual. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Reemplazo(String pedidoId, String estado) {
+        public boolean entregado() {
+            return PedidoResumen.ENTREGADO.equals(estado);
+        }
+    }
+
+    record SolicitudReemplazoM1(String devolucionId, String pedidoOrigenId, List<LineaReemplazo> items) {}
 
     private final boolean simulado;
     private final UUID clientePrueba;
@@ -105,6 +122,46 @@ public class VentasClient {
         } catch (RestClientException e) {
             throw new DependenciaNoDisponibleException("VENTAS_NO_DISPONIBLE",
                     "No se pudo consultar el pedido en Ventas", e);
+        }
+    }
+
+    /**
+     * Idempotente en M1 por devolución: repetirlo devuelve el mismo reemplazo mientras no esté ANULADO.
+     * 400/404/409/422 de M1: 409 REEMPLAZO_RECHAZADO. 403: AccessDeniedException. Sin respuesta: 503.
+     */
+    public Reemplazo solicitarReemplazo(String devolucionId, String pedidoOrigenId, List<LineaReemplazo> lineas) {
+        if (simulado) {
+            String pedidoId = CodigoPublico.pedido(90000 + CodigoPublico.id(devolucionId),
+                    OffsetDateTime.now(reloj).getYear());
+            log.info("[simulado] reemplazo {} de {} por la devolución {}: {}", pedidoId, pedidoOrigenId, devolucionId, lineas);
+            return new Reemplazo(pedidoId, PedidoResumen.ENTREGADO);
+        }
+        try {
+            Reemplazo r = http.post().uri("/api/v1/pedidos/reemplazos")
+                    .headers(h -> tokenServicio.authorization().ifPresent(t -> h.set(HttpHeaders.AUTHORIZATION, t)))
+                    .body(new SolicitudReemplazoM1(devolucionId, pedidoOrigenId, lineas))
+                    .retrieve()
+                    .body(Reemplazo.class);
+            if (r == null || r.pedidoId() == null) {
+                throw new DependenciaNoDisponibleException("VENTAS_NO_DISPONIBLE",
+                        "Ventas no devolvió la orden de reemplazo");
+            }
+            log.info("Reemplazo {} ({}) pedido a Ventas para la devolución {}", r.pedidoId(), r.estado(), devolucionId);
+            return new Reemplazo(r.pedidoId(), limpiar(r.estado()));
+        } catch (HttpClientErrorException e) {
+            if (e.getStatusCode() == HttpStatus.FORBIDDEN) {
+                throw new AccessDeniedException("Ventas rechazó el pedido de reemplazo con el token de servicio de M2");
+            }
+            if (e.getStatusCode().is4xxClientError() && e.getStatusCode() != HttpStatus.UNAUTHORIZED
+                    && e.getStatusCode() != HttpStatus.TOO_MANY_REQUESTS) {
+                throw new ConflictoException("REEMPLAZO_RECHAZADO",
+                        "Ventas rechazó la orden de reemplazo: " + e.getResponseBodyAsString());
+            }
+            throw new DependenciaNoDisponibleException("VENTAS_NO_DISPONIBLE",
+                    "No se pudo pedir la orden de reemplazo a Ventas", e);
+        } catch (RestClientException e) {
+            throw new DependenciaNoDisponibleException("VENTAS_NO_DISPONIBLE",
+                    "No se pudo pedir la orden de reemplazo a Ventas", e);
         }
     }
 

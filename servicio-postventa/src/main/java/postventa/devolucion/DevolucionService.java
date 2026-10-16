@@ -34,7 +34,6 @@ import postventa.devolucion.dto.RegistrarDevolucionRequest;
 import postventa.devolucion.dto.RegistrarDevolucionResponse;
 import postventa.devolucion.dto.ResolucionResponse;
 import postventa.devolucion.dto.ResolverDevolucionRequest;
-import postventa.integracion.DespachoClient;
 import postventa.integracion.PedidoResumen;
 import postventa.integracion.ProductosClient;
 import postventa.integracion.ProductosClient.ItemProducto;
@@ -57,7 +56,6 @@ public class DevolucionService {
     private final DevolucionRepository devoluciones;
     private final VentasClient ventas;
     private final ProductosClient productos;
-    private final DespachoClient despacho;
     private final SolicitadorReembolso reembolsos;
     private final AlmacenEvidencias almacen;
     private final HistorialDevolucionRepository historial;
@@ -68,21 +66,20 @@ public class DevolucionService {
 
     @Autowired
     public DevolucionService(DevolucionRepository devoluciones, VentasClient ventas, ProductosClient productos,
-                             DespachoClient despacho, SolicitadorReembolso reembolsos, AlmacenEvidencias almacen,
+                             SolicitadorReembolso reembolsos, AlmacenEvidencias almacen,
                              HistorialDevolucionRepository historial, RecepcionDevolucionRepository recepciones,
                              ProyeccionesService proyecciones, PlatformTransactionManager transacciones) {
-        this(devoluciones, ventas, productos, despacho, reembolsos, almacen, historial, recepciones, proyecciones,
+        this(devoluciones, ventas, productos, reembolsos, almacen, historial, recepciones, proyecciones,
                 new TransactionTemplate(transacciones), Clock.systemUTC());
     }
 
     DevolucionService(DevolucionRepository devoluciones, VentasClient ventas, ProductosClient productos,
-                      DespachoClient despacho, SolicitadorReembolso reembolsos, AlmacenEvidencias almacen,
+                      SolicitadorReembolso reembolsos, AlmacenEvidencias almacen,
                       HistorialDevolucionRepository historial, RecepcionDevolucionRepository recepciones,
                       ProyeccionesService proyecciones, TransactionTemplate tx, Clock reloj) {
         this.devoluciones = devoluciones;
         this.ventas = ventas;
         this.productos = productos;
-        this.despacho = despacho;
         this.reembolsos = reembolsos;
         this.almacen = almacen;
         this.historial = historial;
@@ -266,8 +263,10 @@ public class DevolucionService {
     // ---------------------------------------------------------------- 2.5 Resolver (ESP-08)
 
     /**
-     * RECHAZADA: exige fundamento. APROBADA: según el camino, reembolso (F4) o cambio (Productos + Despacho).
-     * El expediente queda APROBADA y pasa a COMPLETADA solo cuando F4 o Despacho confirman (ESP-08 regla 11).
+     * RECHAZADA: exige fundamento. APROBADA: según el camino, reembolso (F4) o cambio. El cambio lo hace M1 con una
+     * orden de reemplazo sin cobro (api-ventas 1.11, acuerdo G6 #100): M1 reserva el stock y lo despacha por G2.
+     * El expediente queda APROBADA y pasa a COMPLETADA solo cuando F4 confirma el reembolso o M1 avisa que el
+     * reemplazo se entregó (pedido.entregado con devolucionId), y la recepción física está completa (ESP-08 regla 11).
      * Si quedó APROBADA sin confirmar, repetir la misma aprobación reintenta la coordinación sin duplicar nada.
      */
     public ResolucionResponse resolver(String devolucionId, ResolverDevolucionRequest solicitud, Solicitante quien) {
@@ -306,7 +305,9 @@ public class DevolucionService {
                 }
                 historial.save(HistorialDevolucion.de(d, anterior, EstadoDevolucion.APROBADA, quien.actor(),
                         quien.idActor(), "Aprobada como " + camino, ahora));
-                if (pedido.canal() != null) {
+                if (d.getFechaResolucion() != null) {
+                    log.info("Devolución {} reaprobada tras anularse su reemplazo: ya contaba en el dashboard", d.codigo());
+                } else if (pedido.canal() != null) {
                     proyecciones.devolucionAprobada(ahora, pedido.canal());
                 } else {
                     log.warn("Pedido {} sin canal: la devolución {} no suma al dashboard", pedidoId, d.codigo());
@@ -320,7 +321,7 @@ public class DevolucionService {
             // Sin reintegro aquí: la aprobación comercial no autoriza mover inventario (ESP-08 regla 14, CA-07)
         }
 
-        // La referencia se guarda apenas se conoce; COMPLETADA cuando F4 o Despacho confirman y, si hace falta,
+        // La referencia se guarda apenas se conoce; COMPLETADA cuando F4 o M1 confirman y, si hace falta,
         // la recepción física ya está completa (ESP-08 regla 11, guía 7.5b paso 6)
         String referencia;
         boolean confirmada;
@@ -329,9 +330,9 @@ public class DevolucionService {
             referencia = r.reembolsoId();
             confirmada = r.exitoso();
         } else {
-            Optional<String> despachado = despacho.programarCambio(d.codigo(), codigoPedido(d), d.getIdCliente(), items);
-            referencia = despachado.orElse(null);
-            confirmada = despachado.isPresent();
+            VentasClient.Reemplazo r = ventas.solicitarReemplazo(d.codigo(), pedidoId, lineasReemplazo(d, pedido));
+            referencia = r.pedidoId();
+            confirmada = r.entregado();   // recién creado nunca lo está; en modo simulado sí
         }
         if (referencia != null && !referencia.equals(d.getReferenciaOperacion())) {
             devoluciones.guardarReferencia(d.getId(), referencia);
@@ -362,6 +363,71 @@ public class DevolucionService {
                 TipoResolucion.RECHAZO, fundamento.trim(), autorizador, ahora, null);
     }
 
+    /** M2 guarda el productoId; M1 repone por SKU, que se toma del pedido original. */
+    private static List<VentasClient.LineaReemplazo> lineasReemplazo(Devolucion d, PedidoResumen pedido) {
+        Map<String, String> skus = new LinkedHashMap<>();
+        pedido.items().stream()
+                .filter(i -> i.productoId() != null && i.sku() != null)
+                .forEach(i -> skus.putIfAbsent(i.productoId(), i.sku()));
+        return d.getItems().stream()
+                .map(i -> new VentasClient.LineaReemplazo(skus.getOrDefault(i.getIdProducto(), i.getIdProducto()), i.getCantidad()))
+                .toList();
+    }
+
+    // ---------------------------------------------------------------- Avisos de M1 sobre el reemplazo
+
+    /**
+     * pedido.entregado de una orden de reemplazo: el cambio queda confirmado. Si falta la recepción física sigue
+     * APROBADA y se completa al confirmarla (2.5b). Corre dentro de la transacción del receptor de eventos.
+     */
+    public void reemplazoEntregado(String devolucionId, String pedidoId) {
+        cambioDelReemplazo(devolucionId, pedidoId, "pedido.entregado")
+                .ifPresent(d -> completarSiCorresponde(d, TipoResolucion.CAMBIO, true, pedidoId));
+    }
+
+    /** pedido.anulado de una orden de reemplazo: el cambio vuelve a EN_EVALUACION (ver reabrirCambio). */
+    public void reemplazoAnulado(String devolucionId, String pedidoId, String motivo) {
+        cambioDelReemplazo(devolucionId, pedidoId, "pedido.anulado").ifPresent(d -> {
+            if (devoluciones.reabrirCambio(d.getId(), pedidoId) == 1) {
+                historial.save(HistorialDevolucion.de(d, EstadoDevolucion.APROBADA, EstadoDevolucion.EN_EVALUACION,
+                        ActorDevolucion.SISTEMA, null, "Ventas anuló el reemplazo %s (%s); el cambio vuelve a evaluación"
+                                .formatted(pedidoId, motivo == null ? "sin motivo" : motivo), ahora()));
+                log.info("Devolución {} vuelve a EN_EVALUACION: se anuló su reemplazo {}", d.codigo(), pedidoId);
+            }
+        });
+    }
+
+    /** Un aviso de otra devolución, repetido o de un reemplazo viejo se ignora (M1 no tiene que reintentarlo). */
+    private Optional<Devolucion> cambioDelReemplazo(String devolucionId, String pedidoId, String evento) {
+        Optional<Devolucion> d = devoluciones.findWithItemsById(CodigoPublico.id(devolucionId))
+                .filter(x -> x.codigo().equals(devolucionId.trim()));
+        if (d.isEmpty()) {
+            log.warn("{} del reemplazo {}: no existe la devolución {}", evento, pedidoId, devolucionId);
+            return Optional.empty();
+        }
+        Devolucion x = d.get();
+        if (x.getEstado() != EstadoDevolucion.APROBADA || x.getResolucion() != TipoResolucion.CAMBIO
+                || !pedidoId.equals(x.getReferenciaOperacion())) {
+            log.info("{} del reemplazo {} ignorado: la devolución {} está {} con referencia {}", evento, pedidoId,
+                    devolucionId, x.getEstado(), x.getReferenciaOperacion());
+            return Optional.empty();
+        }
+        return d;
+    }
+
+    /** Para 2.5b: si el reemplazo de un cambio ya se entregó (se pregunta a M1; si no responde, todavía no). */
+    boolean cambioEntregado(Devolucion d) {
+        if (d.getReferenciaOperacion() == null) {
+            return false;
+        }
+        try {
+            return ventas.consultarPedido(d.getReferenciaOperacion()).map(PedidoResumen::entregado).orElse(false);
+        } catch (RuntimeException e) {
+            log.warn("No se pudo consultar el reemplazo {} de {}: {}", d.getReferenciaOperacion(), d.codigo(), e.getMessage());
+            return false;
+        }
+    }
+
     /** En CAMBIO siempre hay que devolver el producto; en REEMBOLSO es opcional y por defecto true (regla 16). */
     private static boolean requiereDevolucionFisica(TipoResolucion camino, Boolean solicitado) {
         if (camino == TipoResolucion.CAMBIO && Boolean.FALSE.equals(solicitado)) {
@@ -372,7 +438,7 @@ public class DevolucionService {
     }
 
     /**
-     * Pasa a COMPLETADA si F4 o Despacho confirmaron (operacionConfirmada) y, cuando hace falta devolver el producto,
+     * Pasa a COMPLETADA si F4 o M1 confirmaron (operacionConfirmada: reembolso exitoso o reemplazo entregado) y, cuando hace falta devolver el producto,
      * ya llegaron todas las unidades y su reintegro está hecho. Lo llaman 2.5 y 2.5b (RecepcionService).
      * El UPDATE condicionado evita registrar dos veces la misma completación.
      */
@@ -386,7 +452,7 @@ public class DevolucionService {
         }
         OffsetDateTime fin = ahora();
         String detalle = (camino == TipoResolucion.REEMBOLSO ? "Reembolso confirmado por F4: "
-                : "Cambio confirmado por Despacho: ") + referencia
+                : "Reemplazo entregado por Ventas: ") + referencia
                 + (d.isRequiereDevolucionFisica() ? "; recepción física completa" : "");
         tx.executeWithoutResult(t -> {
             if (devoluciones.completar(d.getId()) == 1) {

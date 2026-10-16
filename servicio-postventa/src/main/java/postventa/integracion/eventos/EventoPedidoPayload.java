@@ -64,7 +64,11 @@ public record EventoPedidoPayload(
             String motivo,
 
             @Valid
-            List<@NotNull Item> items) {
+            List<@NotNull Item> items,
+
+            // Solo en órdenes de reemplazo de un CAMBIO (F3, api-ventas 1.11)
+            @Pattern(regexp = "DEV-\\d{4}-\\d{4,}")
+            String devolucionId) {
     }
 
     public record Item(

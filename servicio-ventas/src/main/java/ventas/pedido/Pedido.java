@@ -108,6 +108,19 @@ public class Pedido {
     @Column(name = "codigo_cupon")
     private String codigoCupon;
 
+    /** VENTA salvo las órdenes de reemplazo de un CAMBIO (F3), que no se cobran. */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private TipoPedido tipo = TipoPedido.VENTA;
+
+    /** Solo REEMPLAZO: id del pedido original que se está cambiando. */
+    @Column(name = "id_pedido_origen")
+    private Long idPedidoOrigen;
+
+    /** Solo REEMPLAZO: código de la devolución de M2 (DEV-AAAA-NNNN) que originó el cambio. */
+    @Column(name = "devolucion_id", length = 30)
+    private String devolucionId;
+
     private BigDecimal descuento;
 
     @JdbcTypeCode(SqlTypes.CHAR)
@@ -126,6 +139,10 @@ public class Pedido {
 
     @OneToMany(mappedBy = "pedido", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<DetallePedido> detalles = new ArrayList<>();
+
+    public boolean esReemplazo() {
+        return tipo == TipoPedido.REEMPLAZO;
+    }
 
     public void agregarDetalle(DetallePedido detalle) {
         detalle.setPedido(this);

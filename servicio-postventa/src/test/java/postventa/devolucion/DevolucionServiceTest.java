@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -45,7 +46,6 @@ import postventa.devolucion.dto.RegistrarDevolucionResponse;
 import postventa.devolucion.dto.ResolucionResponse;
 import postventa.dashboard.ProyeccionesService;
 import postventa.devolucion.dto.ResolverDevolucionRequest;
-import postventa.integracion.DespachoClient;
 import postventa.integracion.PedidoResumen;
 import postventa.integracion.ProductosClient;
 import postventa.integracion.VentasClient;
@@ -65,7 +65,6 @@ class DevolucionServiceTest {
     @Mock DevolucionRepository devoluciones;
     @Mock VentasClient ventas;
     @Mock ProductosClient productos;
-    @Mock DespachoClient despacho;
     @Mock SolicitadorReembolso reembolsos;
     @Mock AlmacenEvidencias almacen;
     @Mock HistorialDevolucionRepository historial;
@@ -76,7 +75,7 @@ class DevolucionServiceTest {
 
     @BeforeEach
     void preparar() {
-        servicio = new DevolucionService(devoluciones, ventas, productos, despacho, reembolsos, almacen,
+        servicio = new DevolucionService(devoluciones, ventas, productos, reembolsos, almacen,
                 historial, recepciones, proyecciones, new TransactionTemplate(mock(PlatformTransactionManager.class)),
                 Clock.fixed(AHORA, ZoneOffset.UTC));
         when(almacen.esPropia(EVIDENCIA)).thenReturn(true);
@@ -301,21 +300,25 @@ class DevolucionServiceTest {
     // ================================================================ ESP-08 (resolución)
 
     @Test
-    void esp08_ca02_cambioConStockCoordinaDespachoYEsperaLaRecepcionFisica() {
+    void esp08_ca02_cambioConStockPideElReemplazoAM1YEsperaSuEntregaYLaRecepcionFisica() {
         conItems(devolucion(EstadoDevolucion.EN_EVALUACION, TipoDevolucion.CAMBIO));
         when(productos.hayDisponibilidad(any())).thenReturn(true);
         when(devoluciones.aprobar(eq(42L), eq(TipoResolucion.CAMBIO), eq(GESTOR), eq(AHORA_UTC), anyBoolean())).thenReturn(1);
-        when(despacho.programarCambio(eq("DEV-2026-0042"), eq("PED-2026-00981"), eq(CLIENTE), any()))
-                .thenReturn(Optional.of("DESP-1"));
+        when(ventas.consultarPedido("PED-2026-00981")).thenReturn(Optional.of(conSku()));
+        when(ventas.solicitarReemplazo(eq("DEV-2026-0042"), eq("PED-2026-00981"), any()))
+                .thenReturn(new VentasClient.Reemplazo("PED-2026-01002", "EN_PREPARACION"));
 
         ResolucionResponse r = servicio.resolver("DEV-2026-0042", aprobar(null), Solicitante.gestor(GESTOR));
 
         assertThat(r.estado()).isEqualTo(EstadoDevolucion.APROBADA);
         assertThat(r.tipoResolucion()).isEqualTo(TipoResolucion.CAMBIO);
-        assertThat(r.referenciaOperacion()).isEqualTo("DESP-1");
+        assertThat(r.referenciaOperacion()).isEqualTo("PED-2026-01002");
         assertThat(r.autorizadorId()).isEqualTo(GESTOR);
         assertThat(r.fechaResolucion()).isEqualTo(AHORA_UTC);
-        verify(devoluciones).guardarReferencia(42L, "DESP-1");
+        // M1 repone por SKU: se toma del pedido original
+        verify(ventas).solicitarReemplazo("DEV-2026-0042", "PED-2026-00981",
+                List.of(new VentasClient.LineaReemplazo("SKU-101", 1)));
+        verify(devoluciones).guardarReferencia(42L, "PED-2026-01002");
         verify(productos, never()).reintegrar(any(), any(), any(), any());
         verify(devoluciones, never()).completar(anyLong());
         verifyNoInteractions(reembolsos);
@@ -340,7 +343,7 @@ class DevolucionServiceTest {
         assertThat(r.estado()).isEqualTo(EstadoDevolucion.APROBADA);
         assertThat(r.referenciaOperacion()).isEqualTo("REEM-00001");
         verify(productos, never()).reintegrar(any(), any(), any(), any());
-        verifyNoInteractions(despacho);
+        verify(ventas, never()).solicitarReemplazo(any(), any(), any());
     }
 
     @Test
@@ -405,7 +408,8 @@ class DevolucionServiceTest {
         assertThat(r.tipoResolucion()).isEqualTo(TipoResolucion.RECHAZO);
         assertThat(r.fundamento()).isEqualTo("Signos de manipulación");
         assertThat(r.fechaResolucion()).isEqualTo(AHORA_UTC);
-        verifyNoInteractions(productos, despacho, reembolsos);
+        verifyNoInteractions(productos, reembolsos);
+        verify(ventas, never()).solicitarReemplazo(any(), any(), any());
     }
 
     @Test
@@ -445,7 +449,7 @@ class DevolucionServiceTest {
         assertThat(r.tipoResolucion()).isEqualTo(TipoResolucion.REEMBOLSO);
         assertThat(r.estado()).isEqualTo(EstadoDevolucion.COMPLETADA);
         verify(productos, never()).hayDisponibilidad(any());
-        verifyNoInteractions(despacho);
+        verify(ventas, never()).solicitarReemplazo(any(), any(), any());
     }
 
     @Test
@@ -628,7 +632,7 @@ class DevolucionServiceTest {
         conItems(devolucion(EstadoDevolucion.EN_EVALUACION, TipoDevolucion.CAMBIO));
         when(productos.hayDisponibilidad(any())).thenReturn(true);
         when(devoluciones.aprobar(eq(42L), eq(TipoResolucion.CAMBIO), eq(GESTOR), eq(AHORA_UTC), eq(true))).thenReturn(1);
-        when(despacho.programarCambio(any(), any(), any(), any())).thenReturn(Optional.of("DESP-1"));
+        when(ventas.solicitarReemplazo(any(), any(), any())).thenReturn(new VentasClient.Reemplazo("PED-2026-01002", "CREADO"));
 
         ResolucionResponse r = servicio.resolver("DEV-2026-0042", aprobar(null), Solicitante.gestor(GESTOR));
 
@@ -717,6 +721,14 @@ class DevolucionServiceTest {
                 OffsetDateTime.ofInstant(AHORA, ZoneOffset.UTC).minusDays(diasDesdeLaEntrega), true, CanalVenta.MARKETPLACE);
     }
 
+    /** Pedido de 1.3 con SKU en las líneas, como lo manda M1. */
+    private static PedidoResumen conSku() {
+        return new PedidoResumen("PED-2026-00981", "ENTREGADO", CLIENTE, new BigDecimal("129.90"), "PEN",
+                List.of(new PedidoResumen.Item("PROD-101", 1, new BigDecimal("99.90"), "SKU-101"),
+                        new PedidoResumen.Item("PROD-999", 1, new BigDecimal("30.00"), "SKU-999")),
+                OffsetDateTime.ofInstant(AHORA, ZoneOffset.UTC).minusDays(2), true, CanalVenta.MARKETPLACE);
+    }
+
     private static List<PedidoResumen.Item> items() {
         return List.of(new PedidoResumen.Item("PROD-101", 1, new BigDecimal("99.90")),
                 new PedidoResumen.Item("PROD-999", 1, new BigDecimal("30.00")));
@@ -772,5 +784,89 @@ class DevolucionServiceTest {
             @Override public String getIdProducto() { return idProducto; }
             @Override public Long getCantidad() { return cantidad; }
         };
+    }
+
+    // ================================================================ orden de reemplazo de M1 (CAMBIO)
+
+    private Devolucion cambioAprobado(String referencia) {
+        Devolucion d = devolucion(EstadoDevolucion.APROBADA, TipoDevolucion.CAMBIO);
+        d.setResolucion(TipoResolucion.CAMBIO);
+        d.setReferenciaOperacion(referencia);
+        d.setFechaResolucion(AHORA_UTC.minusDays(1));
+        conItems(d);
+        return d;
+    }
+
+    @Test
+    void laEntregaDelReemplazoCompletaElCambioSiYaLlegoElProducto() {
+        Devolucion d = cambioAprobado("PED-2026-01002");
+        when(recepciones.findByDevolucionIdOrderByIdAsc(42L)).thenReturn(List.of(recepcion(d, "PROD-101", 1, EstadoReintegro.COMPLETADO)));
+        when(devoluciones.completar(42L)).thenReturn(1);
+
+        servicio.reemplazoEntregado("DEV-2026-0042", "PED-2026-01002");
+
+        verify(devoluciones).completar(42L);
+        verify(historial).save(argThat(h -> h.getEstadoNuevo() == EstadoDevolucion.COMPLETADA
+                && h.getDetalle().contains("PED-2026-01002")));
+    }
+
+    @Test
+    void laEntregaDelReemplazoSinRecepcionDejaElCambioAprobado() {
+        cambioAprobado("PED-2026-01002");
+
+        servicio.reemplazoEntregado("DEV-2026-0042", "PED-2026-01002");
+
+        verify(devoluciones, never()).completar(anyLong());
+    }
+
+    @Test
+    void unAvisoDeOtroReemplazoODeUnaDevolucionInexistenteSeIgnora() {
+        cambioAprobado("PED-2026-01005");
+        servicio.reemplazoEntregado("DEV-2026-0042", "PED-2026-01002");
+        servicio.reemplazoAnulado("DEV-2026-0042", "PED-2026-01002", "RESERVA_EXPIRADA");
+        servicio.reemplazoEntregado("DEV-2026-0077", "PED-2026-01002");
+
+        verify(devoluciones, never()).completar(anyLong());
+        verify(devoluciones, never()).reabrirCambio(anyLong(), any());
+        verifyNoInteractions(historial);
+    }
+
+    @Test
+    void siM1AnulaElReemplazoElCambioVuelveAEvaluacion() {
+        cambioAprobado("PED-2026-01002");
+        when(devoluciones.reabrirCambio(42L, "PED-2026-01002")).thenReturn(1);
+
+        servicio.reemplazoAnulado("DEV-2026-0042", "PED-2026-01002", "RESERVA_EXPIRADA");
+
+        verify(historial).save(argThat(h -> h.getEstadoAnterior() == EstadoDevolucion.APROBADA
+                && h.getEstadoNuevo() == EstadoDevolucion.EN_EVALUACION && h.getDetalle().contains("RESERVA_EXPIRADA")));
+    }
+
+    @Test
+    void reaprobarTrasAnularseElReemplazoNoSumaOtraVezAlDashboard() {
+        Devolucion d = devolucion(EstadoDevolucion.EN_EVALUACION, TipoDevolucion.CAMBIO);
+        d.setFechaResolucion(AHORA_UTC.minusDays(1));   // ya se aprobó una vez
+        conItems(d);
+        when(productos.hayDisponibilidad(any())).thenReturn(true);
+        when(devoluciones.aprobar(eq(42L), eq(TipoResolucion.CAMBIO), eq(GESTOR), eq(AHORA_UTC), anyBoolean())).thenReturn(1);
+        when(ventas.solicitarReemplazo(any(), any(), any())).thenReturn(new VentasClient.Reemplazo("PED-2026-01007", "CREADO"));
+
+        ResolucionResponse r = servicio.resolver("DEV-2026-0042", aprobar(null), Solicitante.gestor(GESTOR));
+
+        assertThat(r.referenciaOperacion()).isEqualTo("PED-2026-01007");
+        verifyNoInteractions(proyecciones);
+    }
+
+    @Test
+    void cambioEntregadoPreguntaAM1PorElReemplazo() {
+        Devolucion d = cambioAprobado("PED-2026-01002");
+        when(ventas.consultarPedido("PED-2026-01002")).thenReturn(Optional.of(entregado(0)));
+        assertThat(servicio.cambioEntregado(d)).isTrue();
+
+        when(ventas.consultarPedido("PED-2026-01002")).thenThrow(new org.springframework.security.access.AccessDeniedException("403"));
+        assertThat(servicio.cambioEntregado(d)).isFalse();
+
+        d.setReferenciaOperacion(null);
+        assertThat(servicio.cambioEntregado(d)).isFalse();
     }
 }

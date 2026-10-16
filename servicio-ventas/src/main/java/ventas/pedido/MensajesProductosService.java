@@ -35,6 +35,8 @@ import ventas.integracion.eventos.OrigenEvento;
  * | inventory.consumption.rejected (CONFIRMAR)| PAGADO -> ANULADO (RESERVA_EXPIRADA) + reembolso                     |
  * | inventory.reservation.expired            | CREADO -> ANULADO (RESERVA_EXPIRADA); en otro estado solo se registra |
  * | consumed / completed / released / restoration.* | Solo se registran                                            |
+ * Orden de reemplazo (F3): la reserva creada la pasa CREADO -> EN_PREPARACION (no hay cobro); si la reserva se
+ * rechaza o vence (también ya en preparación) se anula sin reembolso y M2 reabre la devolución.
  */
 @Slf4j
 @Service
@@ -44,6 +46,7 @@ public class MensajesProductosService {
     static final String MOTIVO_SIN_STOCK = "STOCK_NO_DISPONIBLE";
     static final String MOTIVO_RESERVA_EXPIRADA = "RESERVA_EXPIRADA";
     static final String MOTIVO_CUPON_RECHAZADO = "CUPON_RECHAZADO";
+    static final String MOTIVO_REEMPLAZO_RESERVADO = "Reserva del reemplazo confirmada por Productos";
 
     /** PEDIDO_NO_ENCONTRADO: el consumidor reintenta (el pedido puede no haber terminado de guardarse). */
     public enum Desenlace { APLICADO, REPETIDO, IGNORADO, PEDIDO_NO_ENCONTRADO }
@@ -91,6 +94,16 @@ public class MensajesProductosService {
                 .orElse(Paso.solo(Desenlace.IGNORADO))));
     }
 
+    /**
+     * Productos respondió 409 RESERVA_EXPIRADA al consumir la reserva de un reemplazo (al sellar el paquete):
+     * se anula sin reembolso y M2 devuelve la devolución a evaluación para pedir otro con una reserva nueva.
+     */
+    public void reservaExpiradaReemplazo(String pedidoId) {
+        transaccion.executeWithoutResult(estado -> pedidos.findByCodigo(pedidoId)
+                .filter(p -> p.esReemplazo() && p.getEstado() == EstadoPedido.EN_PREPARACION)
+                .ifPresent(p -> anular(p, MOTIVO_RESERVA_EXPIRADA)));
+    }
+
     private Paso aplicar(MensajeInventario m) {
         if (recibidos.existsByIdEventoAndOrigen(m.messageId(), OrigenEvento.SISTEMA_PRODUCTOS)) {
             return Paso.solo(Desenlace.REPETIDO);
@@ -121,7 +134,7 @@ public class MensajesProductosService {
         return switch (pedido.getEstado()) {
             // Con cupón, primero se consume (kit G6 §18); sin cupón, Marketplace cobra con la reserva confirmada
             // (AGENTS.md punto 8). Chatbot cobra por su cuenta
-            case CREADO -> tieneCupon(pedido)
+            case CREADO -> pedido.esReemplazo() ? reemplazoReservado(pedido) : tieneCupon(pedido)
                     ? new Paso(Desenlace.APLICADO, Accion.CONSUMIR_CUPON, pedido, null, null)
                     : cobrarSiEsMarketplace(pedido);
             // El chatbot pagó antes de que llegara la reserva: se consume ahora
@@ -130,6 +143,12 @@ public class MensajesProductosService {
             case ANULADO -> new Paso(Desenlace.APLICADO, Accion.LIBERAR, pedido, reservaId, null);
             default -> new Paso(Desenlace.APLICADO, Accion.NINGUNA, pedido, null, null);
         };
+    }
+
+    /** El reemplazo no se cobra: con el stock apartado ya se puede preparar (el consumo se confirma al sellar). */
+    private Paso reemplazoReservado(Pedido pedido) {
+        maquina.cambiar(pedido, EstadoPedido.EN_PREPARACION, ActorHistorial.SISTEMA_PRODUCTOS, MOTIVO_REEMPLAZO_RESERVADO);
+        return new Paso(Desenlace.APLICADO, Accion.NINGUNA, pedido, null, null);
     }
 
     private Paso cobrarSiEsMarketplace(Pedido pedido) {
@@ -183,20 +202,29 @@ public class MensajesProductosService {
                 default -> new Paso(Desenlace.APLICADO, Accion.NINGUNA, pedido, null, null);
             };
         }
-        if (ProductosClient.operacionId(Operacion.CONFIRMAR, codigo).equals(m.operationId())
-                && pedido.getEstado() == EstadoPedido.PAGADO) {
-            log.info("Productos rechazó consumir la reserva de {}: {}", codigo, m.codigo());
-            return anularPagado(pedido, MOTIVO_RESERVA_EXPIRADA);
+        if (ProductosClient.operacionId(Operacion.CONFIRMAR, codigo).equals(m.operationId())) {
+            if (pedido.getEstado() == EstadoPedido.PAGADO) {
+                log.info("Productos rechazó consumir la reserva de {}: {}", codigo, m.codigo());
+                return anularPagado(pedido, MOTIVO_RESERVA_EXPIRADA);
+            }
+            if (reemplazoEnPreparacion(pedido)) {
+                log.info("Productos rechazó consumir la reserva del reemplazo {}: {}", codigo, m.codigo());
+                return anular(pedido, MOTIVO_RESERVA_EXPIRADA);
+            }
         }
         log.warn("Rechazo {} de {} sin operación conocida (operation_id {})", m.codigo(), codigo, m.operationId());
         return new Paso(Desenlace.APLICADO, Accion.NINGUNA, pedido, null, null);
     }
 
     private Paso expirada(Pedido pedido) {
-        if (pedido.getEstado() == EstadoPedido.CREADO) {
+        if (pedido.getEstado() == EstadoPedido.CREADO || reemplazoEnPreparacion(pedido)) {
             return anular(pedido, MOTIVO_RESERVA_EXPIRADA);
         }
         return new Paso(Desenlace.APLICADO, Accion.NINGUNA, pedido, null, null);
+    }
+
+    private static boolean reemplazoEnPreparacion(Pedido pedido) {
+        return pedido.esReemplazo() && pedido.getEstado() == EstadoPedido.EN_PREPARACION;
     }
 
     private Paso anular(Pedido pedido, String motivo) {
