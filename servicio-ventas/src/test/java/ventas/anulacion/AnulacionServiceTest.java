@@ -15,6 +15,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import ventas.anulacion.dto.ResolverAnulacionRequest;
 import ventas.anulacion.dto.SolicitarAnulacionRequest;
 import ventas.anulacion.dto.SolicitarAnulacionResponse;
 import ventas.compartido.ConflictoException;
