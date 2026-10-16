@@ -135,4 +135,51 @@ class AnulacionServiceTest {
         assertThrows(ConflictoException.class, () ->
                 anulacionService.solicitarAnulacion("PED-2026-00104", req, ActorHistorial.CLIENTE));
     }
+
+    @Test
+    @DisplayName("Anulación directa en PAGADO registra reembolso hacia M2 (F4)")
+    void testAnulacionDirectaPagadoRegistraReembolso() {
+        when(pedidos.findByCodigo("PED-2026-00102")).thenReturn(Optional.of(pedidoPagado));
+        when(anulaciones.findByIdPedido(102L)).thenReturn(Optional.empty());
+        when(anulaciones.saveAndFlush(any(Anulacion.class))).thenAnswer(i -> {
+            Anulacion a = i.getArgument(0);
+            a.setId(2L);
+            return a;
+        });
+
+        SolicitarAnulacionRequest req = new SolicitarAnulacionRequest("SOLICITUD_CLIENTE", "Arrepentimiento");
+        SolicitarAnulacionResponse resp = anulacionService.solicitarAnulacion("PED-2026-00102", req, ActorHistorial.CLIENTE);
+
+        assertNotNull(resp);
+        assertEquals("PED-2026-00102", resp.pedidoId());
+        assertEquals("ANULADO", resp.estadoPedido());
+        assertTrue(resp.solicitudReembolsoGenerada());
+        verify(reembolsos, times(1)).registrar(eq("ANUL-0002"), eq(102L), eq(new BigDecimal("220.00")), eq("PEN"), eq("SOLICITUD_CLIENTE"));
+        verify(reembolsos, times(1)).enviar("ANUL-0002");
+    }
+
+    @Test
+    @DisplayName("Aprobación tardía cuando pedido ya no está en EN_PREPARACION marca anulación como RECHAZADA y lanza 409")
+    void testResolverAnulacionAprobadaTardiaRechazaYPersiste() {
+        Anulacion pendiente = new Anulacion();
+        pendiente.setId(12L);
+        pendiente.setIdPedido(103L);
+        pendiente.setEstado(EstadoAnulacion.PENDIENTE_AUTORIZACION);
+        pendiente.setMotivo("SOLICITUD_CLIENTE");
+
+        pedidoEnPrep.setEstado(EstadoPedido.DESPACHADO);
+
+        when(anulaciones.findById(12L)).thenReturn(Optional.of(pendiente));
+        when(pedidos.findById(103L)).thenReturn(Optional.of(pedidoEnPrep));
+
+        ResolverAnulacionRequest req = new ResolverAnulacionRequest("APROBADA", "ADMIN_VENTAS", "Aprobando tarde");
+
+        ConflictoException ex = assertThrows(ConflictoException.class, () ->
+                anulacionService.resolverAnulacion("PED-2026-00103", "ANUL-0012", req));
+
+        assertEquals("PEDIDO_YA_NO_EN_PREPARACION", ex.getCodigo());
+        assertEquals(EstadoAnulacion.RECHAZADA, pendiente.getEstado());
+        verify(anulaciones, times(1)).saveAndFlush(pendiente);
+        verify(maquinaEstados, never()).cambiar(any(), any(), any(), any());
+    }
 }
