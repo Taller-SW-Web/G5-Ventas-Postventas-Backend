@@ -122,11 +122,15 @@ public class VentasClient {
                 fechaEntrega = p.ultimaActualizacion();
             }
         }
+        boolean pagoConfirmado = PedidoResumen.ENTREGADO.equals(estado)
+                || "PAGADO".equals(estado)
+                || (p.historialEstados() != null && p.historialEstados().stream()
+                .anyMatch(h -> "PAGADO".equals(limpiar(h.estado()))));
         return new PedidoResumen(p.pedidoId(), estado,
                 p.contacto() == null ? null : p.contacto().clienteId(),
                 p.pago() == null ? null : p.pago().total(),
                 p.pago() == null ? null : p.pago().moneda(),
-                items, fechaEntrega);
+                items, fechaEntrega, pagoConfirmado);
     }
 
     /** El ejemplo del contrato trae algunos estados entre comillas invertidas (`EN_PREPARACION`). */
@@ -147,6 +151,6 @@ public class VentasClient {
                 clientePrueba, new BigDecimal("129.90"), "PEN",
                 List.of(new PedidoResumen.Item("PROD-101", 1, new BigDecimal("99.90")),
                         new PedidoResumen.Item("PROD-999", 1, new BigDecimal("30.00"))),
-                entrega));
+                entrega, true));
     }
 }
