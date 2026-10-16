@@ -93,6 +93,11 @@ public class Devolucion {
     @OrderBy("id")
     private List<EvidenciaDevolucion> evidencias = new ArrayList<>();
 
+    /** Cambios de estado en orden (RNF-03). Se agregan, nunca se editan. */
+    @OneToMany(mappedBy = "devolucion", cascade = CascadeType.ALL)
+    @OrderBy("fechaHora, id")
+    private List<HistorialDevolucion> historial = new ArrayList<>();
+
     public void agregarItem(String idProducto, int cantidad) {
         DevolucionItem item = new DevolucionItem();
         item.setDevolucion(this);
@@ -108,6 +113,13 @@ public class Devolucion {
         evidencia.setTipo(tipo);
         evidencia.setFecha(fecha);
         evidencias.add(evidencia);
+    }
+
+    /** Cambia el estado y deja el registro en el historial (se guarda en cascada con la devolución). */
+    public void cambiarEstado(EstadoDevolucion nuevo, ActorDevolucion actor, String idActor, String detalle,
+                              OffsetDateTime fechaHora) {
+        historial.add(HistorialDevolucion.de(this, estado, nuevo, actor, idActor, detalle, fechaHora));
+        estado = nuevo;
     }
 
     public String codigo() {
