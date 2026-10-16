@@ -13,6 +13,7 @@ import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionOperations;
 import org.springframework.transaction.support.TransactionTemplate;
 import postventa.compartido.*;
+import postventa.dashboard.ProyeccionesService;
 import postventa.devolucion.Devolucion;
 import postventa.devolucion.DevolucionRepository;
 import postventa.devolucion.EstadoDevolucion;
@@ -22,12 +23,14 @@ import postventa.reembolso.dto.*;
 
 @Service
 public class ReembolsoService {
-    private final ReembolsoRepository repositorio; private final VentasClient ventas; private final PasarelaClient pasarela; private final DevolucionRepository devoluciones; private final Clock reloj; private final TransactionOperations transacciones;
+    private final ReembolsoRepository repositorio; private final VentasClient ventas; private final PasarelaClient pasarela; private final DevolucionRepository devoluciones; private final ProyeccionesService proyecciones; private final Clock reloj; private final TransactionOperations transacciones;
     @Autowired
     public ReembolsoService(ReembolsoRepository r, VentasClient v, PasarelaClient p, DevolucionRepository d,
-                            PlatformTransactionManager gestorTransacciones) { this(r, v, p, d, Clock.systemUTC(), new TransactionTemplate(gestorTransacciones)); }
-    ReembolsoService(ReembolsoRepository r, VentasClient v, PasarelaClient p, DevolucionRepository d, Clock c) { this(r, v, p, d, c, sinTransaccion()); }
-    ReembolsoService(ReembolsoRepository r, VentasClient v, PasarelaClient p, DevolucionRepository d, Clock c, TransactionOperations t) { repositorio=r; ventas=v; pasarela=p; devoluciones=d; reloj=c; transacciones=t; }
+                            ProyeccionesService proyecciones, PlatformTransactionManager gestorTransacciones) { this(r, v, p, d, proyecciones, Clock.systemUTC(), new TransactionTemplate(gestorTransacciones)); }
+    ReembolsoService(ReembolsoRepository r, VentasClient v, PasarelaClient p, DevolucionRepository d,
+                     ProyeccionesService proyecciones, Clock c) { this(r, v, p, d, proyecciones, c, sinTransaccion()); }
+    ReembolsoService(ReembolsoRepository r, VentasClient v, PasarelaClient p, DevolucionRepository d,
+                     ProyeccionesService proyecciones, Clock c, TransactionOperations t) { repositorio=r; ventas=v; pasarela=p; devoluciones=d; this.proyecciones=proyecciones; reloj=c; transacciones=t; }
     public java.util.Optional<ProcesarReembolsoResponse> consultarPorOrigen(OrigenReembolso origen, long origenId) {
         return repositorio.findByTipoOrigenAndIdOrigen(origen, origenId).map(this::respuesta);
     }
@@ -43,7 +46,7 @@ public class ReembolsoService {
                     "No se pudo comunicar con la pasarela: " + e.getClass().getSimpleName());
         }
         PasarelaClient.ResultadoExtorno finalResultado = resultado;
-        return transacciones.execute(estado -> registrarResultado(preparacion.reembolso(), finalResultado));
+        return transacciones.execute(estado -> registrarResultado(preparacion.reembolso(), preparacion.canal(), finalResultado));
     }
     private Preparacion preparar(String clave, ProcesarReembolsoRequest s) {
         if (clave == null || clave.isBlank()) throw new SolicitudInvalidaException("CLAVE_IDEMPOTENCIA_REQUERIDA", "X-Idempotency-Key es obligatoria");
@@ -67,8 +70,8 @@ public class ReembolsoService {
                 return Preparacion.respondida(respuesta(existente));
             // Un PENDIENTE con intento registrado corresponde a un timeout: se repite la misma clave
             // de pasarela para recuperar el resultado idempotente que el simulador pudo haber guardado.
-            validarSaldoParaReintento(s.referenciaId(), existente.getMoneda(), reembolsosPedido);
-            return Preparacion.paraEjecutar(existente, clavePasarela(existente));
+            PedidoResumen pedido = validarSaldoParaReintento(s.referenciaId(), existente.getMoneda(), reembolsosPedido);
+            return Preparacion.paraEjecutar(existente, clavePasarela(existente), pedido.canal());
         }
         if (repositorio.findByTipoOrigenAndIdOrigen(s.origen(), origenId).isPresent())
             throw new ConflictoException("ORIGEN_YA_REEMBOLSADO", "El origen ya tiene un reembolso registrado");
@@ -78,7 +81,7 @@ public class ReembolsoService {
         if (comprometido.add(s.monto()).compareTo(pedido.total())>0) throw new ConflictoException("SALDO_INSUFICIENTE", "El monto supera el saldo reembolsable");
         Reembolso r=new Reembolso(); r.setIdPedido(pedidoId); r.setIdOrigen(origenId); r.setTipoOrigen(s.origen()); r.setIdempotencyKey(clave); r.setMonto(s.monto()); r.setMoneda(s.moneda()); r.setEstado(EstadoReembolso.PENDIENTE); r.setIdAutorizador(autorizador(s.solicitadoPor())); r.setFecha(OffsetDateTime.now(reloj).toLocalDate());
         Reembolso guardado = repositorio.save(r);
-        return Preparacion.paraEjecutar(guardado, clavePasarela(guardado));
+        return Preparacion.paraEjecutar(guardado, clavePasarela(guardado), pedido.canal());
     }
     private static void validarMonto(BigDecimal monto) {
         if (monto == null || monto.signum() <= 0 || monto.scale() > 2)
@@ -105,10 +108,11 @@ public class ReembolsoService {
                 .orElseThrow(() -> new SolicitudInvalidaException("ORIGEN_NO_ELEGIBLE",
                         "La devolución no está aprobada para reembolso o no pertenece al pedido indicado"));
     }
-    private void validarSaldoParaReintento(String referenciaId, String moneda, List<Reembolso> reembolsosPedido) {
+    private PedidoResumen validarSaldoParaReintento(String referenciaId, String moneda, List<Reembolso> reembolsosPedido) {
         PedidoResumen pedido = consultarPagoConfirmado(referenciaId, moneda);
         if (saldoComprometido(reembolsosPedido).compareTo(pedido.total()) > 0)
             throw new ConflictoException("SALDO_INSUFICIENTE", "El monto comprometido supera el saldo reembolsable");
+        return pedido;
     }
     private static BigDecimal saldoComprometido(List<Reembolso> reembolsos) {
         return reembolsos.stream()
@@ -129,7 +133,17 @@ public class ReembolsoService {
             return null;
         }
     }
-    private ProcesarReembolsoResponse registrarResultado(Reembolso r, PasarelaClient.ResultadoExtorno x) { r.setEstado(x.estado()); r.setIdTransaccion(x.transaccionId()); r.agregarIntento(x.estado(),x.transaccionId(),x.detalle(), ahora()); return respuesta(repositorio.save(r)); }
+    private ProcesarReembolsoResponse registrarResultado(Reembolso r, CanalVenta canal, PasarelaClient.ResultadoExtorno x) {
+        OffsetDateTime fecha = ahora();
+        r.setEstado(x.estado());
+        r.setIdTransaccion(x.transaccionId());
+        r.agregarIntento(x.estado(), x.transaccionId(), x.detalle(), fecha);
+        Reembolso guardado = repositorio.save(r);
+        if (x.estado() == EstadoReembolso.EXITOSO) {
+            proyecciones.reembolsoExitoso(fecha, canal, guardado.getMonto(), guardado.getMoneda());
+        }
+        return respuesta(guardado);
+    }
     private static String clavePasarela(Reembolso r) {
         if (r.getIntentos().isEmpty())
             return r.getIdempotencyKey();
@@ -145,8 +159,8 @@ public class ReembolsoService {
     private ProcesarReembolsoResponse respuesta(Reembolso r) { return new ProcesarReembolsoResponse(r.codigo(),r.getIdTransaccion(),r.getEstado(),r.getMonto(),r.getMoneda(),r.getIntentos().isEmpty() ? ahora() : r.getIntentos().get(r.getIntentos().size()-1).getFechaHora()); }
     private OffsetDateTime ahora() { return OffsetDateTime.now(reloj).withOffsetSameInstant(ZoneOffset.UTC); }
     private static TransactionOperations sinTransaccion() { return new TransactionOperations() { @Override public <T> T execute(TransactionCallback<T> accion) { return accion.doInTransaction(null); } }; }
-    private record Preparacion(Reembolso reembolso, String clavePasarela, ProcesarReembolsoResponse respuesta) {
-        static Preparacion paraEjecutar(Reembolso reembolso, String clavePasarela) { return new Preparacion(reembolso, clavePasarela, null); }
-        static Preparacion respondida(ProcesarReembolsoResponse respuesta) { return new Preparacion(null, null, respuesta); }
+    private record Preparacion(Reembolso reembolso, String clavePasarela, CanalVenta canal, ProcesarReembolsoResponse respuesta) {
+        static Preparacion paraEjecutar(Reembolso reembolso, String clavePasarela, CanalVenta canal) { return new Preparacion(reembolso, clavePasarela, canal, null); }
+        static Preparacion respondida(ProcesarReembolsoResponse respuesta) { return new Preparacion(null, null, null, respuesta); }
     }
 }

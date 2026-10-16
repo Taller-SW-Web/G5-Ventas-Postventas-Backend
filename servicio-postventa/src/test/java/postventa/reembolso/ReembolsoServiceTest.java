@@ -39,7 +39,9 @@ import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionOperations;
 
 import postventa.compartido.ConflictoException;
+import postventa.compartido.CanalVenta;
 import postventa.compartido.SolicitudInvalidaException;
+import postventa.dashboard.ProyeccionesService;
 import postventa.devolucion.DevolucionRepository;
 import postventa.integracion.PasarelaClient;
 import postventa.integracion.PedidoResumen;
@@ -58,12 +60,13 @@ class ReembolsoServiceTest {
     @Mock VentasClient ventas;
     @Mock PasarelaClient pasarela;
     @Mock DevolucionRepository devoluciones;
+    @Mock ProyeccionesService proyecciones;
 
     private ReembolsoService servicio;
 
     @BeforeEach
     void preparar() {
-        servicio = new ReembolsoService(repositorio, ventas, pasarela, devoluciones, RELOJ);
+        servicio = new ReembolsoService(repositorio, ventas, pasarela, devoluciones, proyecciones, RELOJ);
         when(repositorio.bloquearReembolsosDelPedido(981L)).thenReturn(java.util.List.of());
         when(ventas.consultarPedido("PED-2026-00981")).thenReturn(Optional.of(pedido()));
         when(repositorio.save(any())).thenAnswer(invocacion -> {
@@ -91,6 +94,21 @@ class ReembolsoServiceTest {
             assertThat(intento.getNumeroIntento()).isEqualTo(1);
             assertThat(intento.getEstado()).isEqualTo(EstadoReembolso.EXITOSO);
         });
+        verify(proyecciones).reembolsoExitoso(
+                OffsetDateTime.ofInstant(RELOJ.instant(), ZoneOffset.UTC),
+                CanalVenta.MARKETPLACE, new BigDecimal("129.90"), "PEN");
+    }
+
+    @Test
+    void noActualizaElDashboardCuandoElReembolsoQuedaPendienteOFallido() {
+        when(pasarela.solicitarExtorno(any(), any(), any(), any()))
+                .thenReturn(new PasarelaClient.ResultadoExtorno(EstadoReembolso.PENDIENTE, null, "Timeout"),
+                        new PasarelaClient.ResultadoExtorno(EstadoReembolso.FALLIDO, null, "Rechazado"));
+
+        servicio.procesar("clave-pendiente", solicitud());
+        servicio.procesar("clave-fallido", solicitud());
+
+        verifyNoInteractions(proyecciones);
     }
 
     @Test
@@ -345,7 +363,7 @@ class ReembolsoServiceTest {
         TransactionOperations unaTransaccionALaVez = new TransactionOperations() {
             @Override public synchronized <T> T execute(TransactionCallback<T> accion) { return accion.doInTransaction(null); }
         };
-        ReembolsoService concurrente = new ReembolsoService(repositorio, ventas, pasarela, devoluciones, RELOJ,
+        ReembolsoService concurrente = new ReembolsoService(repositorio, ventas, pasarela, devoluciones, proyecciones, RELOJ,
                 unaTransaccionALaVez);
         ExecutorService hilos = Executors.newFixedThreadPool(2);
         try {
