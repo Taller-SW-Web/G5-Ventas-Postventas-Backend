@@ -131,4 +131,31 @@ class DespachoClientTest {
                 new DespachoClient.Destino("Av. La Marina 1234", "Frente al centro comercial", "Lima", "Lima", "San Miguel"),
                 List.of(new DespachoClient.Linea("SKU-AUR-01", 2)));
     }
+
+    @Test
+    void cancelarMandaLaClaveV4FijaYEntiendeLasRespuestasDeG2() {
+        String ruta = BASE + "/api/v1/despachos/pedidos/PED-2026-00981/cancelacion";
+        String clave = DespachoClient.uuidV4("CANCELACION:PED-2026-00981");
+        servidor.expect(requestTo(ruta)).andExpect(method(HttpMethod.POST))
+                .andExpect(header("Idempotency-Key", clave))
+                .andExpect(jsonPath("$.motivo").value("SOLICITUD_CLIENTE"))
+                .andRespond(withStatus(HttpStatus.ACCEPTED));
+        servidor.expect(requestTo(ruta)).andRespond(withStatus(HttpStatus.CONFLICT));
+        servidor.expect(requestTo(ruta)).andRespond(withStatus(HttpStatus.NOT_FOUND));
+        servidor.expect(requestTo(ruta)).andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+
+        assertThat(cliente.cancelar("PED-2026-00981", "SOLICITUD_CLIENTE")).isEqualTo(DespachoClient.Cancelacion.CANCELADO);
+        assertThat(cliente.cancelar("PED-2026-00981", "SOLICITUD_CLIENTE")).isEqualTo(DespachoClient.Cancelacion.EN_CAMINO);
+        assertThat(cliente.cancelar("PED-2026-00981", "SOLICITUD_CLIENTE")).isEqualTo(DespachoClient.Cancelacion.SIN_DESPACHO);
+        assertThat(cliente.cancelar("PED-2026-00981", "SOLICITUD_CLIENTE")).isEqualTo(DespachoClient.Cancelacion.FALLO);
+        servidor.verify();
+        assertThat(UUID.fromString(clave).version()).isEqualTo(4);
+        assertThat(clave).isNotEqualTo(DespachoClient.claveIdempotencia("PED-2026-00981"));
+    }
+
+    @Test
+    void cancelarEnModoSimuladoNoLlama() {
+        DespachoClient simulado = new DespachoClient(true, BASE, RestClient.builder(), TokenServicio.sinCredenciales());
+        assertThat(simulado.cancelar("PED-2026-00981", "x")).isEqualTo(DespachoClient.Cancelacion.SIMULADO);
+    }
 }
