@@ -20,8 +20,6 @@ import ventas.compartido.CodigoPublico;
 import ventas.compartido.ConflictoException;
 import ventas.compartido.RecursoNoEncontradoException;
 import ventas.compartido.SolicitudInvalidaException;
-import ventas.integracion.DespachoClient;
-import ventas.integracion.DespachoClient.Cancelacion;
 import ventas.integracion.ProductosClient;
 import ventas.integracion.ProductosClient.MotivoLiberacion;
 import ventas.pedido.*;
@@ -36,7 +34,6 @@ public class AnulacionService {
     private final MaquinaEstados maquinaEstados;
     private final ReembolsoAnulacionService reembolsos;
     private final ProductosClient productos;
-    private final DespachoClient despacho;
 
     /**
      * Endpoint 1.7: POST /api/v1/pedidos/{pedidoId}/anulaciones
@@ -94,10 +91,12 @@ public class AnulacionService {
             maquinaEstados.cambiar(pedido, EstadoPedido.ANULADO, actor, motivoEnum.name());
 
             // Efectos de F2:
-            // 1. Liberar stock reservado en Productos si aplica, después del commit
-            MotivoLiberacion motivoProd = (motivoEnum == MotivoAnulacion.PAGO_NO_COMPLETADO)
-                    ? MotivoLiberacion.PAGO_NO_COMPLETADO : MotivoLiberacion.ANULACION;
-            liberarDespuesDeCommit(pedido, motivoProd);
+            // 1. Liberar stock reservado en Productos si aplica
+            if (pedido.getCanal() != CanalVenta.RETAIL && pedido.getReservaId() != null) {
+                MotivoLiberacion motivoProd = (motivoEnum == MotivoAnulacion.PAGO_NO_COMPLETADO)
+                        ? MotivoLiberacion.PAGO_NO_COMPLETADO : MotivoLiberacion.ANULACION;
+                productos.liberar(pedido.getCodigo(), pedido.getReservaId(), motivoProd);
+            }
 
             // 2. Si estaba PAGADO, registrar reembolso y enviarlo a M2 (F4) después del commit
             boolean reembolsoGenerado = false;
@@ -202,23 +201,6 @@ public class AnulacionService {
                 throw new ConflictoException("PEDIDO_YA_NO_EN_PREPARACION", "El pedido ya no está en EN_PREPARACION; anulación rechazada");
             }
 
-            // ESP-06: cancelar el despacho en G2 antes de anular; si el paquete ya salió, la anulación no procede
-            if (pedido.getCanal() != CanalVenta.RETAIL) {
-                Cancelacion cancelacion = despacho.cancelar(pedido.getCodigo(), a.getMotivo());
-                if (cancelacion == Cancelacion.EN_CAMINO) {
-                    a.setEstado(EstadoAnulacion.RECHAZADA);
-                    a.setIdAutorizador(autorizadorUuid);
-                    anulaciones.saveAndFlush(a);
-                    throw new ConflictoException("PEDIDO_EN_CAMINO",
-                            "El pedido ya salió a reparto; la anulación no procede. Si se entrega, el cliente puede pedir una devolución");
-                }
-                if (cancelacion == Cancelacion.FALLO) {
-                    // ESP-06 CA-05: la anulación sigue, pero la falla queda visible para reintentarla a mano
-                    log.error("INCONSISTENCIA: no se pudo cancelar el despacho de {} en Despacho; reintentar la cancelación",
-                            pedido.getCodigo());
-                }
-            }
-
             a.setEstado(EstadoAnulacion.EJECUTADA);
             a.setIdAutorizador(autorizadorUuid);
             anulaciones.saveAndFlush(a);
@@ -226,8 +208,10 @@ public class AnulacionService {
             // Transicionar estado a ANULADO con GESTOR
             maquinaEstados.cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.GESTOR, a.getMotivo());
 
-            // Efectos: liberar stock y reembolsar, después del commit
-            liberarDespuesDeCommit(pedido, MotivoLiberacion.ANULACION);
+            // Efectos: liberar stock y reembolsar
+            if (pedido.getCanal() != CanalVenta.RETAIL && pedido.getReservaId() != null) {
+                productos.liberar(pedido.getCodigo(), pedido.getReservaId(), MotivoLiberacion.ANULACION);
+            }
 
             reembolsos.registrar(anulacionCodigo, pedido.getId(), pedido.getTotal(), pedido.getMoneda(), a.getMotivo());
             ejecutarDespuesDeCommit(() -> reembolsos.enviar(anulacionCodigo));
@@ -243,15 +227,6 @@ public class AnulacionService {
         }
 
         throw new SolicitudInvalidaException("DECISION_INVALIDA", "La decisión debe ser APROBADA o RECHAZADA");
-    }
-
-    /** RETAIL nunca reserva stock (acuerdo G4, R9); sin reservaId todavía, la libera ResultadoReserva al llegar. */
-    private void liberarDespuesDeCommit(Pedido pedido, MotivoLiberacion motivo) {
-        if (pedido.getCanal() != CanalVenta.RETAIL && pedido.getReservaId() != null) {
-            String codigo = pedido.getCodigo();
-            String reservaId = pedido.getReservaId();
-            ejecutarDespuesDeCommit(() -> productos.liberar(codigo, reservaId, motivo));
-        }
     }
 
     private void ejecutarDespuesDeCommit(Runnable accion) {
