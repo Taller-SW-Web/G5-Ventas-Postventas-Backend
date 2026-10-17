@@ -20,4 +20,8 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long>, JpaSpecif
     Page<Pedido> findByIdCliente(UUID idCliente, Pageable pagina);
 
     Page<Pedido> findByIdClienteAndEstado(UUID idCliente, EstadoPedido estado, Pageable pagina);
+
+    /** La orden de reemplazo vigente (no anulada) de una devolución de M2, para no crear dos (F3). */
+    @EntityGraph(attributePaths = "detalles")
+    Optional<Pedido> findFirstByDevolucionIdAndEstadoNotOrderByIdDesc(String devolucionId, EstadoPedido estado);
 }

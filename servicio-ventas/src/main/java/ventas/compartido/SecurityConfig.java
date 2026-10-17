@@ -81,6 +81,8 @@ public class SecurityConfig {
                 // Tokens de servicio (A10)
                 .requestMatchers(HttpMethod.POST, "/api/v1/pedidos").hasAuthority("SCOPE_ventas:pedidos:crear")
                 .requestMatchers(HttpMethod.POST, "/api/v1/pedidos/*/pagos/notificacion").hasAuthority("SCOPE_ventas:pagos:webhook")
+                // 1.11: M2 pide la orden de reemplazo de un CAMBIO (F3)
+                .requestMatchers(HttpMethod.POST, "/api/v1/pedidos/reemplazos").hasAuthority("SCOPE_ventas:pedidos:reemplazar")
                 // 1.5: webhook de Despacho (acuerdo G2, D6 y D7: se reusa el scope ventas:pedidos:estado)
                 .requestMatchers(HttpMethod.POST, "/api/v1/integraciones/despachos/eventos").hasAuthority("SCOPE_ventas:pedidos:estado")
                 // Botones del Gestor: iniciar preparación y paquete sellado (crea el despacho en G2)

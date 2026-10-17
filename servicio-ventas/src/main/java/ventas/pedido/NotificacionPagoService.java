@@ -79,6 +79,10 @@ public class NotificacionPagoService {
         if (recibidos.existsByIdEventoAndOrigen(req.transaccionId(), OrigenEvento.PASARELA_PAGOS)) {
             return new Aplicado(reintento(pedido, req), null, null);
         }
+        if (pedido.esReemplazo()) {
+            throw new ConflictoException("ESTADO_NO_PERMITE_PAGO",
+                    "El pedido %s es una orden de reemplazo (F3): no se cobra".formatted(pedido.getCodigo()));
+        }
         if (pedido.getEstado() != EstadoPedido.CREADO) {
             // ESP-03 7.4 C: notificación tardía, se rechaza y queda en el log para revisión manual
             log.warn("Notificación {} {} sobre {} en estado {}: rechazada",

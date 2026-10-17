@@ -250,4 +250,59 @@ class MaquinaEstadosTest {
         p.agregarDetalle(d);
         return p;
     }
+
+    // ---------- Orden de reemplazo (F3) ----------
+
+    @Test
+    void elReemplazoPasaDeCreadoAPreparacionPorProductos() {
+        Pedido p = pedidoEn(EstadoPedido.CREADO);
+        p.setTipo(TipoPedido.REEMPLAZO);
+
+        maquina.cambiar(p, EstadoPedido.EN_PREPARACION, ActorHistorial.SISTEMA_PRODUCTOS, "Reserva confirmada");
+
+        assertThat(p.getEstado()).isEqualTo(EstadoPedido.EN_PREPARACION);
+        verifyNoInteractions(eventos);
+    }
+
+    @Test
+    void unaVentaNoSeSaltaElPago() {
+        Pedido p = pedidoEn(EstadoPedido.CREADO);
+
+        assertThatThrownBy(() -> maquina.cambiar(p, EstadoPedido.EN_PREPARACION, ActorHistorial.SISTEMA_PRODUCTOS, "x"))
+                .isInstanceOf(ConflictoException.class)
+                .extracting("codigo").isEqualTo("TRANSICION_NO_PERMITIDA");
+        verifyNoInteractions(pedidos, historial, eventos);
+    }
+
+    @Test
+    void productosSoloAnulaEnPreparacionUnReemplazo() {
+        Pedido venta = pedidoEn(EstadoPedido.EN_PREPARACION);
+        assertThatThrownBy(() -> maquina.cambiar(venta, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_PRODUCTOS, "RESERVA_EXPIRADA"))
+                .isInstanceOf(ConflictoException.class);
+
+        Pedido reemplazo = pedidoEn(EstadoPedido.EN_PREPARACION);
+        reemplazo.setTipo(TipoPedido.REEMPLAZO);
+        reemplazo.setDevolucionId("DEV-2026-0042");
+        maquina.cambiar(reemplazo, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_PRODUCTOS, "RESERVA_EXPIRADA");
+
+        ArgumentCaptor<EventoPedidoPayload> captor = ArgumentCaptor.forClass(EventoPedidoPayload.class);
+        verify(eventos).publicar(eq(TipoEvento.PEDIDO_ANULADO), eq(reemplazo), captor.capture());
+        assertThat(captor.getValue().datos().devolucionId()).isEqualTo("DEV-2026-0042");
+    }
+
+    @Test
+    void laEntregaDelReemplazoLlevaLaDevolucionYUnaVentaNo() {
+        Pedido reemplazo = pedidoEn(EstadoPedido.DESPACHADO);
+        reemplazo.setTipo(TipoPedido.REEMPLAZO);
+        reemplazo.setDevolucionId("DEV-2026-0042");
+        maquina.cambiar(reemplazo, EstadoPedido.ENTREGADO, ActorHistorial.SISTEMA_LOGISTICA, null);
+
+        Pedido venta = pedidoEn(EstadoPedido.DESPACHADO);
+        maquina.cambiar(venta, EstadoPedido.ENTREGADO, ActorHistorial.SISTEMA_LOGISTICA, null);
+
+        ArgumentCaptor<EventoPedidoPayload> captor = ArgumentCaptor.forClass(EventoPedidoPayload.class);
+        verify(eventos, org.mockito.Mockito.times(2)).publicar(eq(TipoEvento.PEDIDO_ENTREGADO), any(), captor.capture());
+        assertThat(captor.getAllValues()).extracting(e -> e.datos().devolucionId())
+                .containsExactly("DEV-2026-0042", null);
+    }
 }

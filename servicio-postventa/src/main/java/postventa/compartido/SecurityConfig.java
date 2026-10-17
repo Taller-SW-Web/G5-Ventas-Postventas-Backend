@@ -90,9 +90,12 @@ public class SecurityConfig {
                 // Gestor
                 .requestMatchers(HttpMethod.GET, "/api/v2/devoluciones").hasRole("ADMIN_VENTAS")
                 .requestMatchers(HttpMethod.PATCH, "/api/v2/devoluciones/*/resolucion").hasRole("ADMIN_VENTAS")
+                .requestMatchers(HttpMethod.PATCH, "/api/v2/devoluciones/*/recepcion").hasRole("ADMIN_VENTAS")
                 .requestMatchers(HttpMethod.GET, "/api/v2/reclamos").hasRole("ADMIN_VENTAS")
                 .requestMatchers(HttpMethod.PATCH, "/api/v2/reclamos/*/respuesta").hasRole("ADMIN_VENTAS")
                 .requestMatchers(HttpMethod.GET, "/api/v2/dashboard/**").hasRole("ADMIN_VENTAS")
+                .requestMatchers(HttpMethod.GET, "/api/v2/reembolsos").hasRole("ADMIN_VENTAS")
+                .requestMatchers(HttpMethod.GET, "/api/v2/csat").hasRole("ADMIN_VENTAS")
                 // Consulta de un expediente o reclamo: su titular (el service valida el sub) o el Gestor
                 .requestMatchers(HttpMethod.GET, "/api/v2/devoluciones/*").hasAnyRole("CLIENTE", "ADMIN_VENTAS")
                 .requestMatchers(HttpMethod.GET, "/api/v2/reclamos/*").hasAnyRole("CLIENTE", "ADMIN_VENTAS")

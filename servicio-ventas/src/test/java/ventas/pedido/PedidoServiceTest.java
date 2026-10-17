@@ -98,7 +98,7 @@ class PedidoServiceTest {
         when(pedidos.findAll(ArgumentMatchers.<Specification<Pedido>>any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(pedido()), PageRequest.of(0, 10), 1));
 
-        ListadoPedidosResponse r = servicio.listar(CLIENTE, null, null, null, 0, 10);
+        ListadoPedidosResponse r = servicio.listar(CLIENTE, null, null, null, null, null, null, 0, 10);
 
         assertThat(r.clienteId()).isEqualTo(CLIENTE);
         assertThat(r.pagina()).isZero();
@@ -110,7 +110,7 @@ class PedidoServiceTest {
     @Test
     void listarPaginaDesdeCeroYOrdenaPorFechaDescendente() {
         when(pedidos.findAll(ArgumentMatchers.<Specification<Pedido>>any(), any(Pageable.class))).thenReturn(Page.empty());
-        servicio.listar(CLIENTE, EstadoPedido.PAGADO, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 13), 2, 25);
+        servicio.listar(CLIENTE, EstadoPedido.PAGADO, null, null, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 13), null, 2, 25);
 
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
         verify(pedidos).findAll(ArgumentMatchers.<Specification<Pedido>>any(), captor.capture());
@@ -120,16 +120,27 @@ class PedidoServiceTest {
     }
 
     @Test
+    void listarSinClienteYOrdenAntiguos() {
+        when(pedidos.findAll(ArgumentMatchers.<Specification<Pedido>>any(), any(Pageable.class))).thenReturn(Page.empty());
+
+        ListadoPedidosResponse r = servicio.listar(null, null, CanalVenta.RETAIL, "PED-2026-00012", null, null,
+                PedidosFiltro.Orden.ANTIGUOS, 0, 10);
+
+        assertThat(r.clienteId()).isNull();
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(pedidos).findAll(ArgumentMatchers.<Specification<Pedido>>any(), captor.capture());
+        assertThat(captor.getValue().getSort().getOrderFor("creadoEn").isAscending()).isTrue();
+    }
+
+    @Test
     void listarRechazaParametrosInvalidos() {
-        assertThatThrownBy(() -> servicio.listar(null, null, null, null, 0, 10))
-                .isInstanceOf(SolicitudInvalidaException.class).hasFieldOrPropertyWithValue("codigo", "PARAMETRO_FALTANTE");
-        assertThatThrownBy(() -> servicio.listar(CLIENTE, null, null, null, -1, 10))
+        assertThatThrownBy(() -> servicio.listar(CLIENTE, null, null, null, null, null, null, -1, 10))
                 .isInstanceOf(SolicitudInvalidaException.class).hasFieldOrPropertyWithValue("codigo", "PAGINACION_INVALIDA");
-        assertThatThrownBy(() -> servicio.listar(CLIENTE, null, null, null, 0, 0))
+        assertThatThrownBy(() -> servicio.listar(CLIENTE, null, null, null, null, null, null, 0, 0))
                 .isInstanceOf(SolicitudInvalidaException.class).hasFieldOrPropertyWithValue("codigo", "PAGINACION_INVALIDA");
-        assertThatThrownBy(() -> servicio.listar(CLIENTE, null, null, null, 0, 51))
+        assertThatThrownBy(() -> servicio.listar(CLIENTE, null, null, null, null, null, null, 0, 51))
                 .isInstanceOf(SolicitudInvalidaException.class).hasFieldOrPropertyWithValue("codigo", "PAGINACION_INVALIDA");
-        assertThatThrownBy(() -> servicio.listar(CLIENTE, null, LocalDate.of(2026, 10, 2), LocalDate.of(2026, 10, 1), 0, 10))
+        assertThatThrownBy(() -> servicio.listar(CLIENTE, null, null, null, LocalDate.of(2026, 10, 2), LocalDate.of(2026, 10, 1), null, 0, 10))
                 .isInstanceOf(SolicitudInvalidaException.class).hasFieldOrPropertyWithValue("codigo", "PARAMETRO_INVALIDO");
         verifyNoInteractions(pedidos);
     }

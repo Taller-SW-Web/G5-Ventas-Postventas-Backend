@@ -175,4 +175,17 @@ class EventoDespachoServiceTest {
     private static EventoDespachoRequest evento(TipoEventoDespacho tipo, Map<String, Object> datos) {
         return new EventoDespachoRequest("evt-1", CODIGO, "DESP-00412", tipo, null, null, CUANDO, datos);
     }
+
+    // ---------- Orden de reemplazo (F3) ----------
+
+    @Test
+    void elReemplazoNoSeAvisaAMarketplace() {
+        pedido.setTipo(TipoPedido.REEMPLAZO);
+        pedido.setEstado(EstadoPedido.EN_PREPARACION);
+
+        servicio.procesar(evento(TipoEventoDespacho.DESPACHO_EN_CAMINO, null));
+
+        verify(maquina).cambiar(pedido, EstadoPedido.DESPACHADO, ActorHistorial.SISTEMA_LOGISTICA, null, CUANDO);
+        verifyNoInteractions(envios);
+    }
 }

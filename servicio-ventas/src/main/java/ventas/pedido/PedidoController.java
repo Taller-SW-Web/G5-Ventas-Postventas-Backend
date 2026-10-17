@@ -110,16 +110,23 @@ public class PedidoController {
         return ResponseEntity.ok(consultarPedidoService.consultar(pedidoId, soloCliente(jwt, autenticacion)));
     }
 
-    /** 1.4 Listar pedidos de un cliente (Gestor, rol ADMIN_VENTAS, lo exige SecurityConfig). */
+    /**
+     * 1.4 Listar pedidos (Gestor, rol ADMIN_VENTAS, lo exige SecurityConfig). Sin clienteId lista todos.
+     * canal, buscar y orden van además del contrato (bandeja del mockup 02).
+     */
     @GetMapping
     public ResponseEntity<ListadoPedidosResponse> listar(
             @RequestParam(required = false) UUID clienteId,
             @RequestParam(required = false) EstadoPedido estado,
+            @RequestParam(required = false) CanalVenta canal,
+            @RequestParam(required = false) String buscar,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,
+            @RequestParam(required = false) PedidosFiltro.Orden orden,
             @RequestParam(defaultValue = "0") int pagina,
             @RequestParam(defaultValue = "10") int tamano) {
-        return ResponseEntity.ok(pedidoService.listar(clienteId, estado, desde, hasta, pagina, tamano));
+        return ResponseEntity.ok(pedidoService.listar(clienteId, estado, canal, buscar, desde, hasta, orden,
+                pagina, tamano));
     }
 
     /** Botón del Gestor "Iniciar preparación": PAGADO -> EN_PREPARACION. Rol ADMIN_VENTAS (SecurityConfig). */

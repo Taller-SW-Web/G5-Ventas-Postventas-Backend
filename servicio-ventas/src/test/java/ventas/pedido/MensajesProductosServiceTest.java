@@ -370,4 +370,73 @@ class MensajesProductosServiceTest {
         pedido.setCodigoCupon(" ");
         assertThat(MensajesProductosService.tieneCupon(pedido)).isFalse();
     }
+
+    // ---------- Orden de reemplazo (F3) ----------
+
+    @Test
+    void laReservaDelReemplazoLoPasaAPreparacionSinCobrar() {
+        pedido.setTipo(TipoPedido.REEMPLAZO);
+        pedido.setTotal(BigDecimal.ZERO);
+        pedidoExiste();
+
+        assertThat(servicio.procesar(creada())).isEqualTo(Desenlace.APLICADO);
+
+        assertThat(pedido.getReservaId()).isEqualTo("RES-778");
+        verify(maquina).cambiar(pedido, EstadoPedido.EN_PREPARACION, ActorHistorial.SISTEMA_PRODUCTOS,
+                MensajesProductosService.MOTIVO_REEMPLAZO_RESERVADO);
+        verifyNoInteractions(pasarela, cupones);
+        verify(productos, never()).confirmar(anyString(), anyString());
+    }
+
+    @Test
+    void siLaReservaDelReemplazoVenceEnPreparacionSeAnulaSinReembolso() {
+        pedido.setTipo(TipoPedido.REEMPLAZO);
+        pedido.setEstado(EstadoPedido.EN_PREPARACION);
+        pedidoExiste();
+
+        servicio.procesar(mensaje(MensajeInventario.RESERVA_EXPIRADA, null, Map.of("reservation_id", "RES-778")));
+
+        verify(maquina).cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_PRODUCTOS,
+                MensajesProductosService.MOTIVO_RESERVA_EXPIRADA);
+        verifyNoInteractions(reembolsos, anulaciones);
+    }
+
+    @Test
+    void unaVentaEnPreparacionNoSeAnulaPorUnaReservaVencida() {
+        pedido.setEstado(EstadoPedido.EN_PREPARACION);
+        pedidoExiste();
+
+        servicio.procesar(mensaje(MensajeInventario.RESERVA_EXPIRADA, null, Map.of("reservation_id", "RES-778")));
+
+        verifyNoInteractions(maquina);
+    }
+
+    @Test
+    void siProductosRechazaConsumirElReemplazoSeAnula() {
+        pedido.setTipo(TipoPedido.REEMPLAZO);
+        pedido.setEstado(EstadoPedido.EN_PREPARACION);
+        pedidoExiste();
+
+        servicio.procesar(mensaje(MensajeInventario.CONSUMO_RECHAZADO, ProductosClient.operacionId(Operacion.CONFIRMAR, CODIGO),
+                Map.of("error_code", "RESERVA_EXPIRADA")));
+
+        verify(maquina).cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_PRODUCTOS,
+                MensajesProductosService.MOTIVO_RESERVA_EXPIRADA);
+        verifyNoInteractions(reembolsos);
+    }
+
+    @Test
+    void reservaExpiradaAlSellarAnulaSoloUnReemplazoEnPreparacion() {
+        pedido.setTipo(TipoPedido.REEMPLAZO);
+        pedido.setEstado(EstadoPedido.EN_PREPARACION);
+        pedidoExiste();
+
+        servicio.reservaExpiradaReemplazo(CODIGO);
+        verify(maquina).cambiar(pedido, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_PRODUCTOS,
+                MensajesProductosService.MOTIVO_RESERVA_EXPIRADA);
+
+        pedido.setTipo(TipoPedido.VENTA);
+        servicio.reservaExpiradaReemplazo(CODIGO);
+        verify(maquina, org.mockito.Mockito.times(1)).cambiar(any(), any(), any(), any());
+    }
 }

@@ -1,7 +1,6 @@
 package ventas.pedido;
 
 import java.time.LocalDate;
-import java.util.List;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -11,7 +10,6 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import ventas.compartido.ErrorResponse;
 import ventas.compartido.SolicitudInvalidaException;
 import ventas.pedido.dto.ListadoPedidosResponse;
 import ventas.pedido.dto.MisPedidosResponse;
@@ -53,16 +51,13 @@ public class PedidoService {
     }
 
     /**
-     * 1.4: listado para el Gestor (rol ADMIN_VENTAS). clienteId obligatorio (api-ventas 1.4); estado, desde y
-     * hasta opcionales. pagina empieza en 0; tamano entre 1 y 50. Más recientes primero.
+     * 1.4: listado para el Gestor (rol ADMIN_VENTAS). Todos los filtros son opcionales: sin clienteId lista todos
+     * los pedidos (bandeja del mockup 02). pagina empieza en 0; tamano entre 1 y 50. Por defecto, más recientes.
      */
     @Transactional(readOnly = true)
-    public ListadoPedidosResponse listar(UUID clienteId, EstadoPedido estado, LocalDate desde, LocalDate hasta,
+    public ListadoPedidosResponse listar(UUID clienteId, EstadoPedido estado, CanalVenta canal, String buscar,
+                                         LocalDate desde, LocalDate hasta, PedidosFiltro.Orden orden,
                                          int pagina, int tamano) {
-        if (clienteId == null) {
-            throw new SolicitudInvalidaException("PARAMETRO_FALTANTE", "clienteId es obligatorio",
-                    List.of(new ErrorResponse.Detalle("clienteId", "es obligatorio")));
-        }
         if (pagina < 0) {
             throw new SolicitudInvalidaException("PAGINACION_INVALIDA", "pagina debe ser 0 o mayor");
         }
@@ -72,8 +67,9 @@ public class PedidoService {
         if (desde != null && hasta != null && desde.isAfter(hasta)) {
             throw new SolicitudInvalidaException("PARAMETRO_INVALIDO", "desde no puede ser posterior a hasta");
         }
-        Pageable pageable = PageRequest.of(pagina, tamano, Sort.by(Sort.Order.desc("creadoEn"), Sort.Order.desc("id")));
-        Page<Pedido> resultado = pedidos.findAll(PedidosFiltro.de(clienteId, estado, desde, hasta), pageable);
+        Pageable pageable = PageRequest.of(pagina, tamano, PedidosFiltro.orden(orden));
+        Page<Pedido> resultado = pedidos.findAll(
+                PedidosFiltro.de(clienteId, estado, canal, buscar, desde, hasta), pageable);
         return new ListadoPedidosResponse(clienteId,
                 resultado.getContent().stream().map(PedidoService::resumen).toList(),
                 pagina, resultado.getTotalPages(), resultado.getTotalElements());
@@ -81,6 +77,6 @@ public class PedidoService {
 
     static PedidoResumen resumen(Pedido p) {
         return new PedidoResumen(p.getCodigo(), p.getCanal(), p.getEstado(),
-                p.getTotal(), p.getMoneda(), p.getCreadoEn());
+                p.getTotal(), p.getMoneda(), p.getCreadoEn(), p.getNombreContacto());
     }
 }

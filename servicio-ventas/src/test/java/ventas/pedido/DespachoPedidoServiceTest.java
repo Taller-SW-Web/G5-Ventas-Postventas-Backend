@@ -25,6 +25,8 @@ import ventas.compartido.RecursoNoEncontradoException;
 import ventas.integracion.DespachoClient;
 import ventas.integracion.DespachoClient.Respuesta;
 import ventas.integracion.DespachoClient.Resultado;
+import ventas.integracion.ProductosClient;
+import ventas.integracion.ProductosClient.ResultadoConfirmacion;
 import ventas.pedido.dto.DespachoPedidoResponse;
 
 @ExtendWith(MockitoExtension.class)
@@ -35,13 +37,16 @@ class DespachoPedidoServiceTest {
     @Mock PedidoRepository pedidos;
     @Mock MaquinaEstados maquina;
     @Mock DespachoClient despacho;
+    @Mock ProductosClient productos;
+    @Mock MensajesProductosService mensajesProductos;
 
     DespachoPedidoService servicio;
     Pedido pedido;
 
     @BeforeEach
     void armar() {
-        servicio = new DespachoPedidoService(pedidos, maquina, despacho, TransactionOperations.withoutTransaction());
+        servicio = new DespachoPedidoService(pedidos, maquina, despacho, productos, mensajesProductos,
+                TransactionOperations.withoutTransaction());
         pedido = new Pedido();
         pedido.setId(981L);
         pedido.setCodigo(CODIGO);
@@ -179,5 +184,89 @@ class DespachoPedidoServiceTest {
         assertThatThrownBy(() -> servicio.paqueteSellado(CODIGO))
                 .isInstanceOf(ConflictoException.class).hasFieldOrPropertyWithValue("codigo", "DATOS_ENVIO_INCOMPLETOS");
         verifyNoInteractions(despacho);
+    }
+
+    @Test
+    void sinDistritoNoSePideElDespacho() {
+        pedido.setEstado(EstadoPedido.EN_PREPARACION);
+        pedido.setDistrito(" ");
+        when(pedidos.findById(981L)).thenReturn(Optional.of(pedido));
+
+        assertThatThrownBy(() -> servicio.paqueteSellado(CODIGO))
+                .isInstanceOf(ConflictoException.class).hasFieldOrPropertyWithValue("codigo", "DATOS_ENVIO_INCOMPLETOS");
+        verifyNoInteractions(despacho);
+    }
+
+    @Test
+    void losOpcionalesVaciosDelDestinoSeOmiten() {
+        pedido.setEstado(EstadoPedido.EN_PREPARACION);
+        pedido.setReferenciaEnvio("");
+        pedido.setDepartamento(null);
+        pedido.setProvincia("  ");
+        when(pedidos.findById(981L)).thenReturn(Optional.of(pedido));
+        when(despacho.crear(any())).thenReturn(new Respuesta(Resultado.CREADO, "DESP-00412", null, null));
+
+        servicio.paqueteSellado(CODIGO);
+
+        ArgumentCaptor<DespachoClient.Solicitud> captor = ArgumentCaptor.forClass(DespachoClient.Solicitud.class);
+        verify(despacho).crear(captor.capture());
+        assertThat(captor.getValue().destino())
+                .isEqualTo(new DespachoClient.Destino("Av. La Marina 1234", null, null, null, "San Miguel"));
+    }
+
+    // ---------- Orden de reemplazo (F3) ----------
+
+    private void reemplazoEnPreparacion() {
+        pedido.setTipo(TipoPedido.REEMPLAZO);
+        pedido.setEstado(EstadoPedido.EN_PREPARACION);
+        pedido.setReservaId("RES-778");
+        when(pedidos.findById(981L)).thenReturn(Optional.of(pedido));
+    }
+
+    @Test
+    void alSellarElReemplazoSeConsumeSuReservaYLuegoSeDespacha() {
+        reemplazoEnPreparacion();
+        when(productos.confirmar(CODIGO, "RES-778")).thenReturn(ResultadoConfirmacion.ACEPTADA);
+        when(despacho.crear(any())).thenReturn(new Respuesta(Resultado.CREADO, "DESP-00412", null, null));
+
+        DespachoPedidoResponse r = servicio.paqueteSellado(CODIGO);
+
+        org.mockito.InOrder orden = org.mockito.Mockito.inOrder(productos, despacho);
+        orden.verify(productos).confirmar(CODIGO, "RES-778");
+        orden.verify(despacho).crear(any());
+        assertThat(r.idDespacho()).isEqualTo("DESP-00412");
+    }
+
+    @Test
+    void siLaReservaDelReemplazoVencioSeAnulaYNoSeDespacha() {
+        reemplazoEnPreparacion();
+        when(productos.confirmar(CODIGO, "RES-778")).thenReturn(ResultadoConfirmacion.RESERVA_EXPIRADA);
+
+        assertThatThrownBy(() -> servicio.paqueteSellado(CODIGO))
+                .isInstanceOf(ConflictoException.class).extracting("codigo").isEqualTo("RESERVA_EXPIRADA");
+
+        verify(mensajesProductos).reservaExpiradaReemplazo(CODIGO);
+        verifyNoInteractions(despacho);
+    }
+
+    @Test
+    void siProductosNoRespondeElReemplazoSigueEnPreparacion() {
+        reemplazoEnPreparacion();
+        when(productos.confirmar(CODIGO, "RES-778")).thenReturn(ResultadoConfirmacion.NO_ENVIADA);
+
+        assertThatThrownBy(() -> servicio.paqueteSellado(CODIGO)).isInstanceOf(DependenciaNoDisponibleException.class);
+        verifyNoInteractions(despacho, mensajesProductos);
+    }
+
+    @Test
+    void unaVentaNoConsumeLaReservaAlSellar() {
+        pedido.setEstado(EstadoPedido.EN_PREPARACION);
+        pedido.setReservaId("RES-778");
+        when(pedidos.findById(981L)).thenReturn(Optional.of(pedido));
+        when(despacho.crear(any())).thenReturn(new Respuesta(Resultado.CREADO, "DESP-00412", null, null));
+
+        servicio.paqueteSellado(CODIGO);
+
+        verifyNoInteractions(productos);
     }
 }

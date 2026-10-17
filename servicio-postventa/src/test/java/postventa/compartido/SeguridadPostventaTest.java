@@ -26,6 +26,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.MediaType;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
@@ -41,8 +42,16 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.ResultActions;
 
+import postventa.calificacion.CalificacionService;
+import postventa.calificacion.ConsultaCalificacionesService;
+import postventa.dashboard.DashboardService;
+import postventa.integracion.eventos.EventoPedidoService;
 import postventa.devolucion.DevolucionService;
 import postventa.devolucion.EvidenciaService;
+import postventa.devolucion.RecepcionService;
+import postventa.reembolso.ConsultaReembolsosService;
+import postventa.reembolso.ReembolsoService;
+import postventa.reclamo.ReclamoService;
 
 /**
  * Reglas de acceso de M2 (acuerdo A10) con tokens RS256 firmados de verdad.
@@ -64,6 +73,15 @@ class SeguridadPostventaTest {
 
     @MockitoBean DevolucionService devolucionService;
     @MockitoBean EvidenciaService evidenciaService;
+    @MockitoBean RecepcionService recepcionService;
+    @MockitoBean ReembolsoService reembolsoService;
+    @MockitoBean
+    CalificacionService calificacionService;
+    @MockitoBean ReclamoService reclamoService;
+    @MockitoBean DashboardService dashboardService;
+    @MockitoBean EventoPedidoService eventoPedidoService;
+    @MockitoBean ConsultaReembolsosService consultaReembolsos;
+    @MockitoBean ConsultaCalificacionesService consultaCalificaciones;
 
     @TestConfiguration
     static class Claves {
@@ -122,6 +140,18 @@ class SeguridadPostventaTest {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void bandejasDeReembolsosYCalificacionesSoloParaElGestor() throws Exception {
+        for (String ruta : new String[] {"/api/v2/reembolsos", "/api/v2/csat"}) {
+            pasa(mvc.perform(get(ruta).header("Authorization", "Bearer " + usuario("ADMIN_VENTAS"))));
+            mvc.perform(get(ruta).header("Authorization", "Bearer " + usuario("CLIENTE")))
+                    .andExpect(status().isForbidden());
+            mvc.perform(get(ruta).header("Authorization", "Bearer " + servicio("postventa:reembolsos:procesar")))
+                    .andExpect(status().isForbidden());
+            mvc.perform(get(ruta)).andExpect(status().isUnauthorized());
+        }
+    }
+
     // ---------- tokens de servicio ----------
 
     @Test
@@ -136,6 +166,28 @@ class SeguridadPostventaTest {
         pasa(mvc.perform(post("/api/v2/reembolsos").header("Authorization", "Bearer " + usuario("ADMIN_VENTAS"))));
         mvc.perform(post("/api/v2/reembolsos").header("Authorization", "Bearer " + usuario("CLIENTE")))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void unaAnulacionSoloPuedeSerSolicitadaPorM1() throws Exception {
+        mvc.perform(post("/api/v2/reembolsos")
+                        .header("Authorization", "Bearer " + usuario("ADMIN_VENTAS"))
+                        .header("X-Idempotency-Key", "clave-anulacion")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"origen\":\"ANULACION\",\"origenId\":\"ANUL-2026-12\",\"referenciaId\":\"PED-2026-981\",\"monto\":129.90,\"moneda\":\"PEN\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.codigo").value("ACCESO_DENEGADO"));
+    }
+
+    @Test
+    void origenDeReembolsoFueraDelCatalogoResponde403() throws Exception {
+        mvc.perform(post("/api/v2/reembolsos")
+                        .header("Authorization", "Bearer " + servicio("postventa:reembolsos:procesar"))
+                        .header("X-Idempotency-Key", "clave-origen")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"origen\":\"DESPACHO_FALLIDO\",\"origenId\":\"DESP-2026-1\",\"referenciaId\":\"PED-2026-981\",\"monto\":10.00,\"moneda\":\"PEN\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.codigo").value("ORIGEN_NO_PERMITIDO"));
     }
 
     @Test
@@ -160,6 +212,35 @@ class SeguridadPostventaTest {
                 .andExpect(status().isForbidden());
         mvc.perform(get("/api/v2/devoluciones/DEV-2026-0001").header("Authorization", canal))
                 .andExpect(status().isForbidden());
+        // 2.5b: la recepción física la confirma solo el Gestor o el almacén (ADMIN_VENTAS)
+        pasa(mvc.perform(patch("/api/v2/devoluciones/DEV-2026-0001/recepcion").header("Authorization", gestor)));
+        mvc.perform(patch("/api/v2/devoluciones/DEV-2026-0001/recepcion").header("Authorization", cliente))
+                .andExpect(status().isForbidden());
+        mvc.perform(patch("/api/v2/devoluciones/DEV-2026-0001/recepcion").header("Authorization", canal))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void reclamosF6SoloConElRolOScopeQueCorresponde() throws Exception {
+        String cliente = "Bearer " + usuario("CLIENTE");
+        String gestor = "Bearer " + usuario("ADMIN_VENTAS");
+        String canal = "Bearer " + servicio("postventa:reclamos:escribir");
+        // El cliente registra y consulta lo suyo; el Gestor consulta, lista y responde
+        pasa(mvc.perform(post("/api/v2/reclamos").header("Authorization", cliente)));
+        pasa(mvc.perform(get("/api/v2/reclamos/REC-2026-0001").header("Authorization", cliente)));
+        pasa(mvc.perform(get("/api/v2/reclamos/REC-2026-0001").header("Authorization", gestor)));
+        pasa(mvc.perform(patch("/api/v2/reclamos/REC-2026-0001/respuesta").header("Authorization", gestor)));
+        // Nadie más responde ni lista
+        mvc.perform(patch("/api/v2/reclamos/REC-2026-0001/respuesta").header("Authorization", cliente))
+                .andExpect(status().isForbidden());
+        mvc.perform(patch("/api/v2/reclamos/REC-2026-0001/respuesta").header("Authorization", canal))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v2/reclamos").header("Authorization", cliente))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v2/reclamos/REC-2026-0001").header("Authorization", canal))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v2/dashboard/metricas").header("Authorization", canal))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -176,6 +257,18 @@ class SeguridadPostventaTest {
     }
 
     /** La seguridad dejó pasar: lo que responda el controller (o 404 si aún no existe) ya no es 401 ni 403. */
+    // ---------- 2.13 eventos de M1 ----------
+
+    @Test
+    void eventosSoloConLaCredencialDeServicioDeM1() throws Exception {
+        pasa(mvc.perform(post("/api/v2/eventos").header("Authorization", "Bearer " + servicio("postventa:reembolsos:procesar"))));
+        mvc.perform(post("/api/v2/eventos")).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v2/eventos").header("Authorization", "Bearer " + usuario("ADMIN_VENTAS")))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v2/eventos").header("Authorization", "Bearer " + servicio("postventa:reclamos:escribir")))
+                .andExpect(status().isForbidden());
+    }
+
     private static void pasa(ResultActions r) throws Exception {
         r.andExpect(res -> assertThat(res.getResponse().getStatus()).isNotIn(401, 403));
     }

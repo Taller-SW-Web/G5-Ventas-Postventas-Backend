@@ -80,6 +80,39 @@ class ReembolsoAnulacionServiceTest {
     }
 
     @Test
+    void siM2DejaElReembolsoPendienteLaSolicitudSigueParaReintentar() {
+        SolicitudReembolso s = solicitud(EstadoSolicitudReembolso.PENDIENTE);
+        when(solicitudes.findByIdAnulacion(12L)).thenReturn(Optional.of(s));
+        when(pedidos.findById(981L)).thenReturn(Optional.of(pedido()));
+        when(postventa.solicitarReembolso(any(), any(), any(), any(), any()))
+                .thenReturn(new RespuestaReembolso(Envio.ACEPTADO, "REEM-90815", "PENDIENTE", null));
+
+        servicio.enviar("ANUL-0012");
+
+        assertThat(s.getEstado()).isEqualTo(EstadoSolicitudReembolso.PENDIENTE);
+        assertThat(s.getReembolsoId()).isEqualTo("REEM-90815");
+        assertThat(s.getIntentos()).isEqualTo(1);
+        assertThat(s.getUltimoError()).contains("PENDIENTE");
+        verify(solicitudes).save(s);
+    }
+
+    @Test
+    void elReintentoDeUnPendienteEnM2QuedaEnviadaCuandoM2Confirma() {
+        SolicitudReembolso s = solicitud(EstadoSolicitudReembolso.PENDIENTE);
+        when(solicitudes.findTop20ByEstadoOrderByCreadoEnAsc(EstadoSolicitudReembolso.PENDIENTE)).thenReturn(List.of(s));
+        when(pedidos.findById(981L)).thenReturn(Optional.of(pedido()));
+        when(postventa.solicitarReembolso(any(), any(), any(), any(), any()))
+                .thenReturn(new RespuestaReembolso(Envio.ACEPTADO, "REEM-90815", "PENDIENTE", null))
+                .thenReturn(new RespuestaReembolso(Envio.ACEPTADO, "REEM-90815", "EXITOSO", null));
+
+        assertThat(servicio.reintentarPendientes()).isZero();     // sigue PENDIENTE en M2
+        assertThat(servicio.reintentarPendientes()).isEqualTo(1); // M2 ya confirmó
+        assertThat(s.getEstado()).isEqualTo(EstadoSolicitudReembolso.ENVIADA);
+        assertThat(s.getIntentos()).isEqualTo(2);
+        assertThat(s.getUltimoError()).isNull();
+    }
+
+    @Test
     void enviarConM2CaidoQuedaPendienteConElError() {
         SolicitudReembolso s = solicitud(EstadoSolicitudReembolso.PENDIENTE);
         when(solicitudes.findByIdAnulacion(12L)).thenReturn(Optional.of(s));
@@ -184,5 +217,12 @@ class ReembolsoAnulacionServiceTest {
         p.setId(981L);
         p.setCodigo("PED-2026-00981");
         return p;
+    }
+
+    @Test
+    void unReemplazoSinCobroNoGeneraReembolso() {
+        servicio.registrar("ANUL-0012", 981L, BigDecimal.ZERO, "PEN", "ENTREGA_FALLIDA_DEFINITIVA");
+        verify(solicitudes, never()).save(any());
+        verify(solicitudes, never()).findByIdAnulacion(any());
     }
 }

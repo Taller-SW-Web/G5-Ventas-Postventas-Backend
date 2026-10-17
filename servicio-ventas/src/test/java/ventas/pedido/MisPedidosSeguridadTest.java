@@ -54,7 +54,7 @@ import ventas.pedido.dto.MisPedidosResponse;
  * Prueba de punta a punta de la seguridad de /pedidos/me con tokens RS256 firmados de verdad
  * (el mock Prism de Seguridad no firma tokens, kit §2 "Qué prueban los mocks").
  */
-@WebMvcTest(controllers = {PedidoController.class, DespachoEventosController.class}, properties = {
+@WebMvcTest(controllers = {PedidoController.class, DespachoEventosController.class, ReemplazoController.class}, properties = {
         "seguridad.habilitada=true",
         "seguridad.issuer=" + MisPedidosSeguridadTest.ISSUER,
         "seguridad.jwks-url=http://localhost:1/no-se-usa-en-pruebas"
@@ -74,6 +74,7 @@ class MisPedidosSeguridadTest {
     @MockitoBean ConsultarPedidoService consultarPedidoService;
     @MockitoBean DespachoPedidoService despachoPedidoService;
     @MockitoBean EventoDespachoService eventoDespachoService;
+    @MockitoBean ReemplazoService reemplazoService;
 
     @TestConfiguration
     static class Claves {
@@ -209,6 +210,34 @@ class MisPedidosSeguridadTest {
                         .header("Authorization", "Bearer " + usuario(ISSUER, List.of("ADMIN_VENTAS")))
                         .contentType(MediaType.APPLICATION_JSON).content(cuerpo))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void elReemplazoSoloLoPideM2ConSuScope() throws Exception {
+        String cuerpo = "{\"devolucionId\": \"DEV-2026-0042\", \"pedidoOrigenId\": \"PED-2026-00981\","
+                + " \"items\": [{\"sku\": \"SKU-AUR-01\", \"cantidad\": 1}]}";
+        when(reemplazoService.crear(org.mockito.ArgumentMatchers.any())).thenReturn(new ReemplazoService.Resultado(
+                new ventas.pedido.dto.CrearReemplazoResponse("PED-2026-01002", EstadoPedido.EN_PREPARACION,
+                        "DEV-2026-0042", "PED-2026-00981", null), true));
+        mvc.perform(post("/api/v1/pedidos/reemplazos").header("Authorization", "Bearer " + servicio("ventas:pedidos:reemplazar"))
+                        .contentType(MediaType.APPLICATION_JSON).content(cuerpo))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.pedidoId").value("PED-2026-01002"));
+        mvc.perform(post("/api/v1/pedidos/reemplazos").header("Authorization", "Bearer " + servicio("ventas:pedidos:crear"))
+                        .contentType(MediaType.APPLICATION_JSON).content(cuerpo))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/pedidos/reemplazos").header("Authorization", "Bearer " + usuario(ISSUER, List.of("ADMIN_VENTAS")))
+                        .contentType(MediaType.APPLICATION_JSON).content(cuerpo))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void elReemplazoValidaElCuerpo() throws Exception {
+        mvc.perform(post("/api/v1/pedidos/reemplazos").header("Authorization", "Bearer " + servicio("ventas:pedidos:reemplazar"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"devolucionId\": \"X-1\", \"pedidoOrigenId\": \"PED-2026-00981\", \"items\": []}"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(reemplazoService);
     }
 
     @Test
