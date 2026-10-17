@@ -28,7 +28,8 @@ public record FiltroReclamos(String documento, UUID clienteId, EstadoReclamo est
 
     public enum Orden { RECIENTES, ANTIGUOS }
 
-    private static final Pattern CODIGO_PEDIDO = Pattern.compile("(?i)PED-\\d{4}-\\d+");
+    /** También lo usa ReclamoService para validar el pedidoId al registrar. */
+    static final Pattern CODIGO_PEDIDO = Pattern.compile("(?i)PED-\\d{4}-\\d+");
 
     /** Solo los filtros del contrato (lo que usa /me y los tests). */
     public static FiltroReclamos de(String documento, UUID clienteId, EstadoReclamo estado) {

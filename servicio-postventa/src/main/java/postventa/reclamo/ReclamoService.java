@@ -6,7 +6,6 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
-import java.util.UUID;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -66,8 +65,12 @@ public class ReclamoService {
      */
     @Transactional
     public RegistrarReclamoResponse registrar(RegistrarReclamoRequest solicitud, Solicitante quien) {
-        Long idPedido = textoOpcional(solicitud.pedidoId()) == null ? null
-                : CodigoPublico.id(solicitud.pedidoId().trim());
+        String pedidoId = textoOpcional(solicitud.pedidoId());
+        if (pedidoId != null && !FiltroReclamos.CODIGO_PEDIDO.matcher(pedidoId).matches()) {
+            throw new SolicitudInvalidaException("CODIGO_INVALIDO",
+                    "pedidoId debe tener el formato PED-AAAA-NNNNN: " + pedidoId);
+        }
+        Long idPedido = pedidoId == null ? null : CodigoPublico.id(pedidoId);
         OffsetDateTime ahora = ahora();
 
         Reclamo reclamo = new Reclamo();
