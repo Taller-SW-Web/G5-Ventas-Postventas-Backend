@@ -26,7 +26,7 @@ class ProyeccionVentasServiceTest {
     @InjectMocks ProyeccionVentasService servicio;
 
     @Test
-    void sumaCadaLineaEnElPeriodoUtcDelPago() {
+    void esp15_ca01_sumaCadaLineaEnElPeriodoUtcDelPago() {
         UUID vendedor = UUID.fromString("3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a");
         // 30/09 23:30 en Lima ya es octubre en UTC
         servicio.pedidoPagado(OffsetDateTime.parse("2026-09-30T23:30:00-05:00"), CanalVenta.RETAIL, vendedor,
