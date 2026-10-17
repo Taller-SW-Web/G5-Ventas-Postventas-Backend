@@ -14,21 +14,28 @@ import postventa.compartido.CanalVenta;
  * pruebas y adaptadores anteriores al campo, asumen MARKETPLACE.
  */
 public record PedidoResumen(String pedidoId, String estado, UUID clienteId, BigDecimal total, String moneda,
-                            List<Item> items, OffsetDateTime fechaEntrega, boolean pagoConfirmado, CanalVenta canal) {
+                            List<Item> items, OffsetDateTime fechaEntrega, boolean pagoConfirmado, CanalVenta canal,
+                            String nombreCliente, String metodoPago) {
 
     public static final String ENTREGADO = "ENTREGADO";
 
     /** Constructor conservado para pruebas y adaptadores que ya entregan un pedido pagado. */
     public PedidoResumen(String pedidoId, String estado, UUID clienteId, BigDecimal total, String moneda,
                          List<Item> items, OffsetDateTime fechaEntrega) {
-        this(pedidoId, estado, clienteId, total, moneda, items, fechaEntrega, true, CanalVenta.MARKETPLACE);
+        this(pedidoId, estado, clienteId, total, moneda, items, fechaEntrega, true, CanalVenta.MARKETPLACE, null, null);
     }
 
     /** Compatibilidad para adaptadores anteriores al campo canal de la API 1.3. */
     public PedidoResumen(String pedidoId, String estado, UUID clienteId, BigDecimal total, String moneda,
                          List<Item> items, OffsetDateTime fechaEntrega, boolean pagoConfirmado) {
         this(pedidoId, estado, clienteId, total, moneda, items, fechaEntrega, pagoConfirmado,
-                CanalVenta.MARKETPLACE);
+                CanalVenta.MARKETPLACE, null, null);
+    }
+
+    /** Compatibilidad con quienes ya proveen el canal, antes de exponer los datos de detalle de 1.3. */
+    public PedidoResumen(String pedidoId, String estado, UUID clienteId, BigDecimal total, String moneda,
+                         List<Item> items, OffsetDateTime fechaEntrega, boolean pagoConfirmado, CanalVenta canal) {
+        this(pedidoId, estado, clienteId, total, moneda, items, fechaEntrega, pagoConfirmado, canal, null, null);
     }
 
     /**
