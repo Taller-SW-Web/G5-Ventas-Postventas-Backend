@@ -1,11 +1,13 @@
 package postventa.reembolso;
 
 import jakarta.validation.Valid;
+import java.time.LocalDate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.format.annotation.DateTimeFormat;
 import postventa.reembolso.dto.*;
 
 @RestController
@@ -20,14 +22,22 @@ public class ReembolsoController {
         this.consulta=consulta;
         this.seguridadHabilitada=seguridadHabilitada;
     }
-    /** Bandeja del Gestor (mockup 08, rol ADMIN_VENTAS). Filtros opcionales: estado, origen y pedidoId. */
+    /** Bandeja del Gestor (mockup 08). Cliente es solo del detalle para evitar una llamada a M1 por fila. */
     @GetMapping
     public ResponseEntity<ListadoReembolsosResponse> listar(@RequestParam(required = false) EstadoReembolso estado,
             @RequestParam(required = false) OrigenReembolso origen,
             @RequestParam(required = false) String pedidoId,
+            @RequestParam(required = false) String buscar,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,
+            @RequestParam(required = false) ConsultaReembolsosService.Orden orden,
             @RequestParam(defaultValue = "0") int pagina,
             @RequestParam(defaultValue = "10") int tamano) {
-        return ResponseEntity.ok(consulta.listar(estado, origen, pedidoId, pagina, tamano));
+        return ResponseEntity.ok(consulta.listar(estado, origen, pedidoId, buscar, desde, hasta, orden, pagina, tamano));
+    }
+    @GetMapping("/{reembolsoId}")
+    public ResponseEntity<DetalleReembolsoResponse> detalle(@PathVariable String reembolsoId) {
+        return ResponseEntity.ok(consulta.detalle(reembolsoId));
     }
     @PostMapping
     public ResponseEntity<ProcesarReembolsoResponse> procesar(@RequestHeader("X-Idempotency-Key") String clave,

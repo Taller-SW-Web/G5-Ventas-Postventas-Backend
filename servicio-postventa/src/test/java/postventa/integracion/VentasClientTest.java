@@ -96,8 +96,8 @@ class VentasClientTest {
                 .andExpect(header("Authorization", "Bearer token-m2"))
                 .andRespond(withSuccess("""
                         {"pedidoId":"PED-2026-00008","estado":"ENTREGADO",
-                         "contacto":{"clienteId":"3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a"},
-                         "pago":{"total":100.00,"moneda":"PEN"},
+                         "contacto":{"clienteId":"3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a","nombreCompleto":"Ana LÃ³pez"},
+                         "pago":{"total":100.00,"moneda":"PEN","metodoPago":"TARJETA"},
                          "canal":"MARKETPLACE",
                          "items":[{"productoId":"PROD-101","cantidad":2,"precioUnitario":50.00}],
                          "historialEstados":[{"estado":"ENTREGADO","fecha":"2026-10-13T05:28:45Z"}]}
@@ -108,6 +108,8 @@ class VentasClientTest {
             assertThat(p.entregado()).isTrue();
             assertThat(p.items()).containsExactly(new PedidoResumen.Item("PROD-101", 2, new BigDecimal("50.00")));
             assertThat(p.canal()).isEqualTo(CanalVenta.MARKETPLACE);
+            assertThat(p.nombreCliente()).isEqualTo("Ana LÃ³pez");
+            assertThat(p.metodoPago()).isEqualTo("TARJETA");
         });
         m1.verify();
     }

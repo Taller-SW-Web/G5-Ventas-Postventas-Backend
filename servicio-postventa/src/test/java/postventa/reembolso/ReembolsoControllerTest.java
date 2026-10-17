@@ -42,7 +42,8 @@ class ReembolsoControllerTest {
         var fila = new ListadoReembolsosResponse.Resumen("REEM-00041", "PED-2026-00981", OrigenReembolso.ANULACION,
                 "ANUL-0012", new BigDecimal("129.90"), "PEN", EstadoReembolso.EXITOSO, "TX-001",
                 LocalDate.of(2026, 10, 16), 1, "Extorno aceptado", OffsetDateTime.parse("2026-10-16T15:00:00Z"));
-        when(consulta.listar(EstadoReembolso.EXITOSO, OrigenReembolso.ANULACION, "PED-2026-00981", 0, 10))
+        when(consulta.listar(EstadoReembolso.EXITOSO, OrigenReembolso.ANULACION, "PED-2026-00981",
+                null, null, null, null, 0, 10))
                 .thenReturn(new ListadoReembolsosResponse(List.of(fila), 0, 1, 1));
 
         mvc.perform(get("/api/v2/reembolsos").param("estado", "EXITOSO").param("origen", "ANULACION")
@@ -56,7 +57,7 @@ class ReembolsoControllerTest {
 
     @Test
     void paginacionInvalidaResponde400() throws Exception {
-        when(consulta.listar(null, null, null, 0, 500))
+        when(consulta.listar(null, null, null, null, null, null, null, 0, 500))
                 .thenThrow(new SolicitudInvalidaException("PAGINACION_INVALIDA", "tamano fuera de rango"));
 
         mvc.perform(get("/api/v2/reembolsos").param("tamano", "500"))

@@ -50,10 +50,14 @@ public class VentasClient {
                     OffsetDateTime ultimaActualizacion, List<HistorialM1> historialEstados, String canal) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record ContactoM1(UUID clienteId) {}
+    record ContactoM1(UUID clienteId, String nombreCompleto) {
+        ContactoM1(UUID clienteId) { this(clienteId, null); }
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record PagoM1(BigDecimal total, String moneda) {}
+    record PagoM1(BigDecimal total, String moneda, String metodoPago) {
+        PagoM1(BigDecimal total, String moneda) { this(total, moneda, null); }
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record ItemM1(String productoId, int cantidad, BigDecimal precioUnitario, String sku) {}
@@ -189,7 +193,9 @@ public class VentasClient {
                 p.contacto() == null ? null : p.contacto().clienteId(),
                 p.pago() == null ? null : p.pago().total(),
                 p.pago() == null ? null : p.pago().moneda(),
-                items, fechaEntrega, pagoConfirmado, canal(p.canal()));
+                items, fechaEntrega, pagoConfirmado, canal(p.canal()),
+                p.contacto() == null ? null : p.contacto().nombreCompleto(),
+                p.pago() == null ? null : p.pago().metodoPago());
     }
 
     /** Canal del pedido (MARKETPLACE, CHATBOT, RETAIL); null si M1 no lo manda o trae otro valor. */
@@ -219,6 +225,6 @@ public class VentasClient {
                 clientePrueba, new BigDecimal("129.90"), "PEN",
                 List.of(new PedidoResumen.Item("PROD-101", 1, new BigDecimal("99.90"), "SKU-101"),
                         new PedidoResumen.Item("PROD-999", 1, new BigDecimal("30.00"), "SKU-999")),
-                entrega, true, CanalVenta.MARKETPLACE));
+                entrega, true, CanalVenta.MARKETPLACE, "Cliente de prueba", "TARJETA"));
     }
 }
