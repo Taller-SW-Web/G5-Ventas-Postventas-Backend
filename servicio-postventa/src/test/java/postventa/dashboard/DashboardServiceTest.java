@@ -33,7 +33,7 @@ class DashboardServiceTest {
     @InjectMocks DashboardService servicio;
 
     @Test
-    void ca01_ca02_sumaElPeriodoYCanalPedidos() {
+    void esp16_ca01_ca02_sumaElPeriodoYCanalPedidos() {
         OffsetDateTime actualizado = OffsetDateTime.parse("2026-09-30T22:00:00Z");
         when(agregados.totales(DESDE, HASTA, CanalVenta.CHATBOT)).thenReturn(
                 new Totales(5420, 115, 4980, 45, new BigDecimal("5890.5"), 462, 100, actualizado));
@@ -51,7 +51,7 @@ class DashboardServiceTest {
     }
 
     @Test
-    void ca03_sinEncuestasElCsatEsNull() {
+    void esp15_ca03_sinEncuestasElCsatEsNull() {
         when(agregados.totales(DESDE, HASTA, null)).thenReturn(
                 new Totales(0, 0, 0, 0, BigDecimal.ZERO, 0, 0, null));
 
@@ -62,7 +62,7 @@ class DashboardServiceTest {
     }
 
     @Test
-    void ca04_desdePosteriorAHastaResponde400() {
+    void esp16_ca04_desdePosteriorAHastaResponde400() {
         assertThatThrownBy(() -> servicio.metricas(HASTA, DESDE, null))
                 .isInstanceOf(SolicitudInvalidaException.class)
                 .extracting("codigo").isEqualTo("RANGO_FECHAS_INVALIDO");
