@@ -6,7 +6,7 @@ import java.util.Optional;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
-public interface ReembolsoRepository extends JpaRepository<Reembolso, Long> {
+public interface ReembolsoRepository extends JpaRepository<Reembolso, Long>, JpaSpecificationExecutor<Reembolso> {
     Optional<Reembolso> findByIdempotencyKey(String clave);
 
     Optional<Reembolso> findByTipoOrigenAndIdOrigen(OrigenReembolso tipoOrigen, long idOrigen);

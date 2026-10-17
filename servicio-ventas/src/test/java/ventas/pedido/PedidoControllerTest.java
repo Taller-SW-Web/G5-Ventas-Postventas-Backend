@@ -185,7 +185,7 @@ class PedidoControllerTest {
     @Test
     void listarPasaLosFiltrosAlServicio() throws Exception {
         UUID cliente = UUID.fromString("3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a");
-        when(pedidoService.listar(cliente, EstadoPedido.PAGADO, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 13), 1, 20))
+        when(pedidoService.listar(cliente, EstadoPedido.PAGADO, null, null, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 13), null, 1, 20))
                 .thenReturn(new ListadoPedidosResponse(cliente, List.of(), 1, 0, 0));
 
         mvc.perform(get("/api/v1/pedidos").param("clienteId", cliente.toString()).param("estado", "PAGADO")
@@ -201,10 +201,22 @@ class PedidoControllerTest {
     @Test
     void listarUsaPaginaCeroYTamanoDiezPorDefecto() throws Exception {
         UUID cliente = UUID.fromString("3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a");
-        when(pedidoService.listar(cliente, null, null, null, 0, 10))
+        when(pedidoService.listar(cliente, null, null, null, null, null, null, 0, 10))
                 .thenReturn(new ListadoPedidosResponse(cliente, List.of(), 0, 0, 0));
         mvc.perform(get("/api/v1/pedidos").param("clienteId", cliente.toString()))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void listarSinClienteConLosFiltrosDeLaBandeja() throws Exception {
+        when(pedidoService.listar(null, EstadoPedido.PAGADO, CanalVenta.MARKETPLACE, "Ana", null, null,
+                PedidosFiltro.Orden.ANTIGUOS, 0, 10))
+                .thenReturn(new ListadoPedidosResponse(null, List.of(), 0, 0, 0));
+
+        mvc.perform(get("/api/v1/pedidos").param("estado", "PAGADO").param("canal", "MARKETPLACE")
+                        .param("buscar", "Ana").param("orden", "ANTIGUOS"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElementos").value(0));
     }
 
     @Test
