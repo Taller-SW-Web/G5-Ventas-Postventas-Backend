@@ -12,11 +12,22 @@ import postventa.reembolso.dto.*;
 @RequestMapping("/api/v2/reembolsos")
 public class ReembolsoController {
     private final ReembolsoService servicio;
+    private final ConsultaReembolsosService consulta;
     private final boolean seguridadHabilitada;
-    public ReembolsoController(ReembolsoService servicio,
+    public ReembolsoController(ReembolsoService servicio, ConsultaReembolsosService consulta,
                                @Value("${seguridad.habilitada:true}") boolean seguridadHabilitada) {
         this.servicio=servicio;
+        this.consulta=consulta;
         this.seguridadHabilitada=seguridadHabilitada;
+    }
+    /** Bandeja del Gestor (mockup 08, rol ADMIN_VENTAS). Filtros opcionales: estado, origen y pedidoId. */
+    @GetMapping
+    public ResponseEntity<ListadoReembolsosResponse> listar(@RequestParam(required = false) EstadoReembolso estado,
+            @RequestParam(required = false) OrigenReembolso origen,
+            @RequestParam(required = false) String pedidoId,
+            @RequestParam(defaultValue = "0") int pagina,
+            @RequestParam(defaultValue = "10") int tamano) {
+        return ResponseEntity.ok(consulta.listar(estado, origen, pedidoId, pagina, tamano));
     }
     @PostMapping
     public ResponseEntity<ProcesarReembolsoResponse> procesar(@RequestHeader("X-Idempotency-Key") String clave,

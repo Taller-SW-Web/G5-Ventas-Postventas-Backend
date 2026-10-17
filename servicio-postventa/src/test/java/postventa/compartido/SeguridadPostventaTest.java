@@ -43,11 +43,13 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.ResultActions;
 
 import postventa.calificacion.CalificacionService;
+import postventa.calificacion.ConsultaCalificacionesService;
 import postventa.dashboard.DashboardService;
 import postventa.integracion.eventos.EventoPedidoService;
 import postventa.devolucion.DevolucionService;
 import postventa.devolucion.EvidenciaService;
 import postventa.devolucion.RecepcionService;
+import postventa.reembolso.ConsultaReembolsosService;
 import postventa.reembolso.ReembolsoService;
 import postventa.reclamo.ReclamoService;
 
@@ -78,6 +80,8 @@ class SeguridadPostventaTest {
     @MockitoBean ReclamoService reclamoService;
     @MockitoBean DashboardService dashboardService;
     @MockitoBean EventoPedidoService eventoPedidoService;
+    @MockitoBean ConsultaReembolsosService consultaReembolsos;
+    @MockitoBean ConsultaCalificacionesService consultaCalificaciones;
 
     @TestConfiguration
     static class Claves {
@@ -134,6 +138,18 @@ class SeguridadPostventaTest {
         pasa(mvc.perform(get("/api/v2/reclamos").header("Authorization", "Bearer " + usuario("ADMIN_VENTAS"))));
         mvc.perform(get("/api/v2/dashboard/metricas").header("Authorization", "Bearer " + usuario("CLIENTE")))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void bandejasDeReembolsosYCalificacionesSoloParaElGestor() throws Exception {
+        for (String ruta : new String[] {"/api/v2/reembolsos", "/api/v2/csat"}) {
+            pasa(mvc.perform(get(ruta).header("Authorization", "Bearer " + usuario("ADMIN_VENTAS"))));
+            mvc.perform(get(ruta).header("Authorization", "Bearer " + usuario("CLIENTE")))
+                    .andExpect(status().isForbidden());
+            mvc.perform(get(ruta).header("Authorization", "Bearer " + servicio("postventa:reembolsos:procesar")))
+                    .andExpect(status().isForbidden());
+            mvc.perform(get(ruta)).andExpect(status().isUnauthorized());
+        }
     }
 
     // ---------- tokens de servicio ----------

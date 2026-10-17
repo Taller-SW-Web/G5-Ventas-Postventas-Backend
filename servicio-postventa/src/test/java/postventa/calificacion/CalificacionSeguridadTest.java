@@ -59,6 +59,9 @@ class CalificacionSeguridadTest {
     private CalificacionService servicio;
 
     @MockitoBean
+    private ConsultaCalificacionesService consulta;
+
+    @MockitoBean
     private JwtDecoder decoder;
 
     @Test

@@ -5,10 +5,16 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -23,6 +29,8 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import postventa.calificacion.dto.ListadoCalificacionesResponse;
+import postventa.compartido.CanalVenta;
 import postventa.compartido.ConflictoException;
 import postventa.compartido.DependenciaNoDisponibleException;
 import postventa.compartido.SecurityConfig;
@@ -57,6 +65,9 @@ class CalificacionControllerTest {
 
     @MockitoBean
     private CalificacionService servicio;
+
+    @MockitoBean
+    private ConsultaCalificacionesService consulta;
 
     @Test
     void esp11_ca01_solicitudValidaResponde201() throws Exception {
@@ -171,5 +182,23 @@ class CalificacionControllerTest {
                 .andExpect(jsonPath("$.codigo").value("DATOS_INVALIDOS"));
 
         verifyNoInteractions(servicio);
+    }
+
+    @Test
+    void listadoParaElGestorPasaLosFiltrosYDevuelveElResumen() throws Exception {
+        var item = new ListadoCalificacionesResponse.Item("PED-2026-00012", 5, "Llegó rápido",
+                CanalVenta.MARKETPLACE, LocalDate.of(2026, 10, 12));
+        var resumen = new ListadoCalificacionesResponse.Resumen(1, new BigDecimal("5.00"),
+                Map.of(1, 0L, 2, 0L, 3, 0L, 4, 0L, 5, 1L));
+        when(consulta.listar(CanalVenta.MARKETPLACE, null, LocalDate.of(2026, 10, 1), null, 0, 20))
+                .thenReturn(new ListadoCalificacionesResponse(List.of(item), 0, 1, 1, resumen));
+
+        mvc.perform(get("/api/v2/csat").param("canal", "MARKETPLACE").param("desde", "2026-10-01")
+                        .param("tamano", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.contenido[0].pedidoId").value("PED-2026-00012"))
+                .andExpect(jsonPath("$.contenido[0].puntaje").value(5))
+                .andExpect(jsonPath("$.resumen.promedio").value(5.00))
+                .andExpect(jsonPath("$.resumen.distribucion['5']").value(1));
     }
 }
