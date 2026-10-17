@@ -51,6 +51,8 @@ import postventa.compartido.CanalVenta;
 import postventa.compartido.SolicitudInvalidaException;
 import postventa.dashboard.AgregadoMetricasRepository;
 import postventa.dashboard.ProyeccionesService;
+import postventa.dashboard.ProyeccionVentasService;
+import postventa.dashboard.AgregadoVentasRepository;
 
 /**
  * Comprueba el receptor con registro, validación y proyecciones reales.
@@ -198,6 +200,28 @@ class EventoPedidoPostgresTest {
         assertThat(registros(evento)).isZero();
     }
 
+    @Test
+    void pagoSumaLasVentasPorProductoUnaVezAunqueSeRepita() {
+        EventoPedidoPayload original = evento("pedido.pagado");
+        UUID vendedor = UUID.randomUUID();
+        EventoPedidoPayload evento = new EventoPedidoPayload(original.idEvento(), original.tipo(),
+                original.pedidoId(), original.fecha(), new EventoPedidoPayload.Datos(
+                        CanalVenta.RETAIL, original.datos().clienteId(), vendedor, new BigDecimal("25.00"),
+                        "PEN", null, List.of(new EventoPedidoPayload.Item("PROD-42", 2,
+                                new BigDecimal("25.00"))), null));
+
+        assertThat(servicio.recibir(evento)).isTrue();
+        assertThat(servicio.recibir(evento)).isFalse();
+
+        Map<String, Object> venta = jdbc.queryForMap("""
+                SELECT periodo, unidades, monto FROM postventa.agregado_ventas
+                WHERE canal = 'RETAIL' AND id_vendedor = ? AND id_producto = 'PROD-42'
+                """, vendedor);
+        assertThat(venta.get("periodo")).isEqualTo(diaUtc(evento).toString().substring(0, 7));
+        assertThat(((Number) venta.get("unidades")).longValue()).isEqualTo(2);
+        assertThat((BigDecimal) venta.get("monto")).isEqualByComparingTo("25.00");
+    }
+
     private static EventoPedidoPayload evento(String tipo) {
         LocalDate dia = LocalDate.of(2100, 1, 1)
                 .plusDays(ThreadLocalRandom.current().nextLong(365000));
@@ -254,7 +278,9 @@ class EventoPedidoPostgresTest {
     @Import({
             EventoPedidoService.class,
             EventoRecibidoRepository.class,
-            AgregadoMetricasRepository.class
+            AgregadoMetricasRepository.class,
+            AgregadoVentasRepository.class,
+            ProyeccionVentasService.class
     })
     static class ConfiguracionLocal {
 
@@ -299,6 +325,19 @@ class EventoPedidoPostgresTest {
                         "ALTER TABLE postventa.agregado_metricas ADD COLUMN IF NOT EXISTS "
                                 + columna + " BIGINT NOT NULL DEFAULT 0");
             }
+
+            esquema.execute("""
+                    CREATE TABLE IF NOT EXISTS postventa.agregado_ventas (
+                        periodo VARCHAR(7) NOT NULL,
+                        canal VARCHAR(30) NOT NULL,
+                        id_vendedor UUID NOT NULL,
+                        id_producto VARCHAR(64) NOT NULL,
+                        unidades BIGINT NOT NULL DEFAULT 0,
+                        monto NUMERIC(18, 2) NOT NULL DEFAULT 0,
+                        actualizado_en TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        PRIMARY KEY (periodo, canal, id_vendedor, id_producto)
+                    )
+                    """);
 
             return fuente;
         }
