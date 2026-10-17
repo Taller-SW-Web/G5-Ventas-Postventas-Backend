@@ -51,7 +51,7 @@ class DashboardControllerTest {
     }
 
     @Test
-    void ca04_canalFueraDelCatalogoResponde400() throws Exception {
+    void esp16_ca04_canalFueraDelCatalogoResponde400() throws Exception {
         mvc.perform(get("/api/v2/dashboard/metricas")
                         .param("desde", "2026-09-01").param("hasta", "2026-09-30").param("canal", "WEB"))
                 .andExpect(status().isBadRequest())

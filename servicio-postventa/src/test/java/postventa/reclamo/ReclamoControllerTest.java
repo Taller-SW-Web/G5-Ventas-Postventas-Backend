@@ -65,7 +65,7 @@ class ReclamoControllerTest {
     @MockitoBean ReclamoService reclamoService;
 
     @Test
-    void ca01_registrarResponde201ConLosCamposDelContrato() throws Exception {
+    void esp13_ca01_registrarResponde201ConLosCamposDelContrato() throws Exception {
         when(reclamoService.registrar(any(), any())).thenReturn(new RegistrarReclamoResponse("REC-2026-0015",
                 "REC-2026-0015", EstadoReclamo.REGISTRADO, MotivoReclamo.INCUMPLIMIENTO_PLAZO_ENTREGA, 15,
                 OffsetDateTime.parse("2026-10-14T23:59:59Z"), null));
@@ -82,7 +82,7 @@ class ReclamoControllerTest {
     }
 
     @Test
-    void ca03_motivoNoTipificadoResponde400SinRegistrar() throws Exception {
+    void esp13_ca04_motivoNoTipificadoResponde400SinRegistrar() throws Exception {
         mvc.perform(post("/api/v2/reclamos").contentType(MediaType.APPLICATION_JSON)
                         .content(CUERPO.replace("INCUMPLIMIENTO_PLAZO_ENTREGA", "MOTIVO_NO_VALIDO")))
                 .andExpect(status().isBadRequest())
@@ -91,7 +91,7 @@ class ReclamoControllerTest {
     }
 
     @Test
-    void ca04_consumidorIncompletoResponde400() throws Exception {
+    void esp13_ca04_consumidorIncompletoResponde400() throws Exception {
         mvc.perform(post("/api/v2/reclamos").contentType(MediaType.APPLICATION_JSON)
                         .content(CUERPO.replace("\"juan.perez@example.com\"", "\"\"")))
                 .andExpect(status().isBadRequest())
@@ -101,7 +101,7 @@ class ReclamoControllerTest {
     }
 
     @Test
-    void ca02_quejaSinPedidoSeAcepta() throws Exception {
+    void esp13_ca02_quejaSinPedidoSeAcepta() throws Exception {
         when(reclamoService.registrar(any(), any())).thenReturn(new RegistrarReclamoResponse("REC-2026-0016",
                 "REC-2026-0016", EstadoReclamo.REGISTRADO, MotivoReclamo.ATENCION_INADECUADA, 15,
                 OffsetDateTime.parse("2026-10-14T23:59:59Z"), null));
@@ -195,7 +195,7 @@ class ReclamoControllerTest {
     }
 
     @Test
-    void ca05_respuestaVaciaResponde400() throws Exception {
+    void esp14_ca03_respuestaVaciaResponde400() throws Exception {
         when(reclamoService.responder(eq("REC-2026-0015"), any()))
                 .thenThrow(new SolicitudInvalidaException("RESPUESTA_VACIA", "vacía"));
 
