@@ -72,4 +72,24 @@ class ProyeccionesServiceTest {
         servicio.calificacionRegistrada(fecha, CanalVenta.CHATBOT, 5);
         verify(agregados).sumarCsat(fecha.toLocalDate(), CanalVenta.CHATBOT, 5);
     }
+
+    @Test
+    void hechoSinCanalNoSumaNiFalla() {
+        OffsetDateTime fecha = OffsetDateTime.parse("2026-09-23T10:00:00Z");
+        servicio.aplicarEventoPedido("pedido.pagado", fecha, null);
+        servicio.devolucionAprobada(fecha, null);
+        servicio.reembolsoExitoso(fecha, null, new BigDecimal("99.90"), "PEN");
+        servicio.calificacionRegistrada(fecha, null, 5);
+        servicio.reclamoRegistrado(fecha, null);
+        servicio.reclamoAtendido(fecha, null);
+
+        verifyNoInteractions(agregados);
+    }
+
+    @Test
+    void tipoDesconocidoSinCanalSigueSiendoInvalido() {
+        assertThatThrownBy(() -> servicio.aplicarEventoPedido("pedido.creado",
+                OffsetDateTime.parse("2026-09-23T10:00:00Z"), null))
+                .isInstanceOf(SolicitudInvalidaException.class);
+    }
 }

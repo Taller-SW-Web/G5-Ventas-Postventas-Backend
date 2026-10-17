@@ -123,6 +123,16 @@ class ReclamoServiceTest {
         verifyNoInteractions(reclamos, proyecciones);
     }
 
+    @Test
+    void ca04_codigoDeOtroRecursoComoPedidoNoGeneraCodigo() {
+        // Termina en número (CodigoPublico.id lo aceptaría), pero no es un pedido
+        assertThatThrownBy(() -> servicio.registrar(solicitud("REC-2026-0001", TipoReclamo.RECLAMO),
+                Solicitante.servicio()))
+                .isInstanceOf(SolicitudInvalidaException.class)
+                .extracting("codigo").isEqualTo("CODIGO_INVALIDO");
+        verifyNoInteractions(reclamos, proyecciones);
+    }
+
     // ================================================================ 2.9 consulta (F6 CA-06)
 
     @Test

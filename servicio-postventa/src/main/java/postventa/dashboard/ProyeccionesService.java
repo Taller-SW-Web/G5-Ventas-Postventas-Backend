@@ -20,6 +20,7 @@ import postventa.dashboard.AgregadoMetricasRepository.Contador;
  * de origen se revierte, la suma también: un hecho no se cuenta dos veces ni a medias.
  *
  * La fila es la de la fecha UTC del hecho (no la de recepción), así un evento atrasado cae en su periodo.
+ * Un hecho sin canal no suma (no tiene fila) y nunca revierte la operación de origen.
  */
 @Slf4j
 @Service
@@ -43,13 +44,13 @@ public class ProyeccionesService {
             case "pedido.entregado" -> Contador.PEDIDOS_ENTREGADOS;
             default -> throw new SolicitudInvalidaException("DATOS_INVALIDOS", "Tipo de evento no permitido: " + tipo);
         };
-        agregados.sumar(dia(fecha), canal, contador, 1);
+        sumar(fecha, canal, contador, 1);
     }
 
     /** F3: devolución aprobada (ESP-15 regla 3). */
     @Transactional(propagation = Propagation.MANDATORY)
     public void devolucionAprobada(OffsetDateTime fecha, CanalVenta canal) {
-        agregados.sumar(dia(fecha), canal, Contador.DEVOLUCIONES_APROBADAS, 1);
+        sumar(fecha, canal, Contador.DEVOLUCIONES_APROBADAS, 1);
     }
 
     /** F4: solo reembolsos confirmados en PEN suman (ESP-15 regla 4). Otra moneda se ignora. */
@@ -59,7 +60,7 @@ public class ProyeccionesService {
             log.debug("Reembolso en {} por {} no suma a montoReembolsadoPEN", moneda, monto);
             return;
         }
-        agregados.sumar(dia(fecha), canal, Contador.MONTO_REEMBOLSADO_PEN, monto);
+        sumar(fecha, canal, Contador.MONTO_REEMBOLSADO_PEN, monto);
     }
 
     /** F5: encuesta CSAT válida (1 a 5). Fuera de rango no modifica el agregado (ESP-15 8.5). */
@@ -69,19 +70,38 @@ public class ProyeccionesService {
             log.warn("Puntaje CSAT {} fuera de rango, no se suma", puntaje);
             return;
         }
+        if (sinCanal(canal, "CSAT")) {
+            return;
+        }
         agregados.sumarCsat(dia(fecha), canal, puntaje);
     }
 
     /** F6: reclamo registrado (2.8). */
     @Transactional(propagation = Propagation.MANDATORY)
     public void reclamoRegistrado(OffsetDateTime fecha, CanalVenta canal) {
-        agregados.sumar(dia(fecha), canal, Contador.RECLAMOS_REGISTRADOS, 1);
+        sumar(fecha, canal, Contador.RECLAMOS_REGISTRADOS, 1);
     }
 
     /** F6: reclamo que pasa a ATENDIDO (2.11). */
     @Transactional(propagation = Propagation.MANDATORY)
     public void reclamoAtendido(OffsetDateTime fecha, CanalVenta canal) {
-        agregados.sumar(dia(fecha), canal, Contador.RECLAMOS_ATENDIDOS, 1);
+        sumar(fecha, canal, Contador.RECLAMOS_ATENDIDOS, 1);
+    }
+
+    private void sumar(OffsetDateTime fecha, CanalVenta canal, Contador contador, Number valor) {
+        if (sinCanal(canal, contador.name())) {
+            return;
+        }
+        agregados.sumar(dia(fecha), canal, contador, valor);
+    }
+
+    /** Por ejemplo, un pedido de M1 que llega sin canal desde F4: se registra en el log en vez de fallar. */
+    private static boolean sinCanal(CanalVenta canal, String metrica) {
+        if (canal == null) {
+            log.warn("Hecho sin canal: no suma a {} en el dashboard", metrica);
+            return true;
+        }
+        return false;
     }
 
     private static LocalDate dia(OffsetDateTime fecha) {
