@@ -75,7 +75,7 @@ class ReclamoServiceTest {
     // ================================================================ ESP-13 (registro)
 
     @Test
-    void ca01_registraConCodigoEstadoInicialYSla() {
+    void esp13_ca01_ca03_registraConCodigoEstadoInicialYSla() {
         RegistrarReclamoResponse r = servicio.registrar(solicitud("PED-2026-00981", TipoReclamo.RECLAMO),
                 Solicitante.servicio());
 
@@ -97,7 +97,7 @@ class ReclamoServiceTest {
     }
 
     @Test
-    void ca02_quejaGeneralSinPedido() {
+    void esp13_ca02_quejaGeneralSinPedido() {
         servicio.registrar(solicitud(null, TipoReclamo.QUEJA), Solicitante.servicio());
 
         ArgumentCaptor<Reclamo> guardado = ArgumentCaptor.forClass(Reclamo.class);
@@ -116,7 +116,7 @@ class ReclamoServiceTest {
     }
 
     @Test
-    void ca04_pedidoMalFormadoNoGeneraCodigo() {
+    void esp13_ca04_pedidoMalFormadoNoGeneraCodigo() {
         assertThatThrownBy(() -> servicio.registrar(solicitud("PED-XX", TipoReclamo.RECLAMO), Solicitante.servicio()))
                 .isInstanceOf(SolicitudInvalidaException.class)
                 .extracting("codigo").isEqualTo("CODIGO_INVALIDO");
@@ -124,7 +124,7 @@ class ReclamoServiceTest {
     }
 
     @Test
-    void ca04_codigoDeOtroRecursoComoPedidoNoGeneraCodigo() {
+    void esp13_ca04_codigoDeOtroRecursoComoPedidoNoGeneraCodigo() {
         // Termina en número (CodigoPublico.id lo aceptaría), pero no es un pedido
         assertThatThrownBy(() -> servicio.registrar(solicitud("REC-2026-0001", TipoReclamo.RECLAMO),
                 Solicitante.servicio()))
@@ -153,7 +153,7 @@ class ReclamoServiceTest {
     }
 
     @Test
-    void ca06_clienteVeSuReclamoConLaRespuestaVisible() {
+    void esp14_ca02_ca04_clienteVeSuReclamoConLaRespuestaVisible() {
         Reclamo r = reclamo(EstadoReclamo.ATENDIDO, CLIENTE);
         r.setRespuestaVisibleCliente("Se coordinó la entrega prioritaria.");
         r.setFechaAtencion(OffsetDateTime.parse("2026-09-23T08:30:00Z"));
@@ -169,7 +169,7 @@ class ReclamoServiceTest {
     }
 
     @Test
-    void ca07_respuestaFueraDePlazoMarcaSlaExcedido() {
+    void esp14_ca04_respuestaFueraDePlazoMarcaSlaExcedido() {
         Reclamo r = reclamo(EstadoReclamo.ATENDIDO, CLIENTE);
         r.setFechaAtencion(OffsetDateTime.parse("2026-10-15T10:00:00Z")); // un día después del límite
         when(reclamos.findByCodigo("REC-2026-0015")).thenReturn(Optional.of(r));
@@ -206,7 +206,7 @@ class ReclamoServiceTest {
     }
 
     @Test
-    void ca05_respuestaVaciaNoCierraElReclamo() {
+    void esp14_ca03_respuestaVaciaNoCierraElReclamo() {
         assertThatThrownBy(() -> servicio.responder("REC-2026-0015",
                 new ResponderReclamoRequest(EstadoReclamo.ATENDIDO, "   ", "GESTOR-02")))
                 .isInstanceOf(SolicitudInvalidaException.class)

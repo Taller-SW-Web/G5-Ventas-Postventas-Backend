@@ -12,7 +12,7 @@ class CalculadoraSlaTest {
     static final LocalDate LIMITE = LocalDate.parse("2026-10-14"); // miércoles
 
     @Test
-    void ca03_quinceDiasHabilesComoElEjemploDelContrato() {
+    void esp13_ca03_quinceDiasHabilesComoElEjemploDelContrato() {
         // Registrado el miércoles 23/09/2026 -> fechaLimiteSLA 2026-10-14 (api-postventas.md 2.8)
         assertThat(CalculadoraSla.sumarDiasHabiles(LocalDate.parse("2026-09-23"), 15)).isEqualTo(LIMITE);
     }

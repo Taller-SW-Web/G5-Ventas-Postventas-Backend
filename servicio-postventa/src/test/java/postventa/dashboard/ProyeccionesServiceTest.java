@@ -26,7 +26,7 @@ class ProyeccionesServiceTest {
     @InjectMocks ProyeccionesService servicio;
 
     @Test
-    void ca01_eventoPagadoSumaEnLaFechaUtcDelHecho() {
+    void esp15_ca01_eventoPagadoSumaEnLaFechaUtcDelHecho() {
         // 23:30 en Lima ya es el día siguiente en UTC
         servicio.aplicarEventoPedido("pedido.pagado", OffsetDateTime.parse("2026-09-30T23:30:00-05:00"),
                 CanalVenta.MARKETPLACE);
@@ -35,7 +35,7 @@ class ProyeccionesServiceTest {
     }
 
     @Test
-    void anuladoYEntregadoSumanSuContador() {
+    void esp15_ca02_anuladoYEntregadoSumanSuContador() {
         OffsetDateTime fecha = OffsetDateTime.parse("2026-09-23T10:00:00Z");
         servicio.aplicarEventoPedido("pedido.anulado", fecha, CanalVenta.CHATBOT);
         servicio.aplicarEventoPedido("pedido.entregado", fecha, CanalVenta.RETAIL);
@@ -53,7 +53,7 @@ class ProyeccionesServiceTest {
     }
 
     @Test
-    void soloReembolsosEnPenSuman() {
+    void esp15_ca03_soloReembolsosEnPenSuman() {
         OffsetDateTime fecha = OffsetDateTime.parse("2026-09-23T10:00:00Z");
         servicio.reembolsoExitoso(fecha, CanalVenta.MARKETPLACE, new BigDecimal("99.90"), "USD");
         verifyNoInteractions(agregados);
@@ -64,7 +64,7 @@ class ProyeccionesServiceTest {
     }
 
     @Test
-    void csatFueraDeRangoNoModificaElAgregado() {
+    void esp15_ca03_csatFueraDeRangoNoModificaElAgregado() {
         OffsetDateTime fecha = OffsetDateTime.parse("2026-09-23T10:00:00Z");
         servicio.calificacionRegistrada(fecha, CanalVenta.CHATBOT, 6);
         verifyNoInteractions(agregados);
