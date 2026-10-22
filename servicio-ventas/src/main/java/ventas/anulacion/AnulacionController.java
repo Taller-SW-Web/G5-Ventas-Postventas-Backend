@@ -19,14 +19,54 @@ public class AnulacionController {
     private final AnulacionService anulacionService;
 
     /**
-     * 1.8 Listar anulaciones pendientes de autorización (Gestor, rol ADMIN_VENTAS).
-     * Ruta fija antes de las variables {pedidoId}.
+     * 1.8 Listar anulaciones (Gestor, rol ADMIN_VENTAS).
+     * Soporta Server-Side Filtering, Sorting y Pagination delegados.
+     */
+    @GetMapping("/anulaciones")
+    public ResponseEntity<ListadoAnulacionesPendientesResponse> listar(
+            @RequestParam(required = false) EstadoAnulacion estado,
+            @RequestParam(required = false) ventas.pedido.CanalVenta canal,
+            @RequestParam(required = false) String busqueda,
+            @RequestParam(value = "buscar", required = false) String buscar,
+            @RequestParam(value = "page", required = false) Integer page,
+            @RequestParam(value = "pagina", required = false) Integer pagina,
+            @RequestParam(value = "size", required = false) Integer size,
+            @RequestParam(value = "tamano", required = false) Integer tamano,
+            @RequestParam(value = "sort", required = false) String sort,
+            @RequestParam(value = "orden", required = false) String orden) {
+
+        String busquedaEfectiva = busqueda != null ? busqueda : buscar;
+        int pageEfectivo = page != null ? page : (pagina != null ? pagina : 0);
+        int sizeEfectivo = size != null ? size : (tamano != null ? tamano : 10);
+        String sortEfectivo = sort != null ? sort : (orden != null ? orden : "fecha,desc");
+
+        return ResponseEntity.ok(anulacionService.listarConFiltros(
+                estado, canal, busquedaEfectiva, pageEfectivo, sizeEfectivo, sortEfectivo
+        ));
+    }
+
+    /**
+     * 1.8 Retrocompatibilidad: Listar anulaciones pendientes de autorización.
      */
     @GetMapping("/anulaciones/pendientes")
     public ResponseEntity<ListadoAnulacionesPendientesResponse> listarPendientes(
-            @RequestParam(defaultValue = "0") int pagina,
-            @RequestParam(defaultValue = "10") int tamano) {
-        return ResponseEntity.ok(anulacionService.listarPendientes(pagina, tamano));
+            @RequestParam(required = false) EstadoAnulacion estado,
+            @RequestParam(required = false) ventas.pedido.CanalVenta canal,
+            @RequestParam(required = false) String busqueda,
+            @RequestParam(value = "page", required = false) Integer page,
+            @RequestParam(value = "pagina", required = false) Integer pagina,
+            @RequestParam(value = "size", required = false) Integer size,
+            @RequestParam(value = "tamano", required = false) Integer tamano,
+            @RequestParam(value = "sort", required = false) String sort) {
+
+        EstadoAnulacion estadoEfectivo = (estado != null) ? estado : EstadoAnulacion.PENDIENTE_AUTORIZACION;
+        int pageEfectivo = page != null ? page : (pagina != null ? pagina : 0);
+        int sizeEfectivo = size != null ? size : (tamano != null ? tamano : 10);
+        String sortEfectivo = sort != null ? sort : "fecha,desc";
+
+        return ResponseEntity.ok(anulacionService.listarConFiltros(
+                estadoEfectivo, canal, busqueda, pageEfectivo, sizeEfectivo, sortEfectivo
+        ));
     }
 
     /**
