@@ -147,6 +147,18 @@ class DevolucionControllerTest {
     }
 
     @Test
+    void listarSinClienteIdListaTodos() throws Exception {
+        when(devolucionService.listar(eq(null), eq(null), eq(null), eq(0), eq(10)))
+                .thenReturn(new ListadoDevolucionesResponse(null, List.of(), 0, 0, 0));
+
+        mvc.perform(get("/api/v2/devoluciones"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.clienteId").doesNotExist())
+                .andExpect(jsonPath("$.totalElementos").value(0));
+        verify(devolucionService).listar(null, null, null, 0, 10);
+    }
+
+    @Test
     void resolverResponde200() throws Exception {
         when(devolucionService.resolver(eq("DEV-2026-0042"), any(), any())).thenReturn(new ResolucionResponse(
                 "DEV-2026-0042", EstadoDevolucion.RECHAZADA, DecisionDevolucion.RECHAZADA, TipoResolucion.RECHAZO,
