@@ -92,10 +92,10 @@ public class DevolucionController {
         return ResponseEntity.ok(devolucionService.consultar(devolucionId, solicitante(auth)));
     }
 
-    /** 2.4 Listado administrativo por cliente. Rol ADMIN_VENTAS. */
+    /** 2.4 Listado administrativo. Rol ADMIN_VENTAS. Sin clienteId lista todos. */
     @GetMapping
     public ResponseEntity<ListadoDevolucionesResponse> listar(
-            @RequestParam UUID clienteId,
+            @RequestParam(required = false) UUID clienteId,
             @RequestParam(required = false) EstadoDevolucion estado,
             @RequestParam(required = false) TipoDevolucion tipo,
             @RequestParam(defaultValue = "0") int pagina,
