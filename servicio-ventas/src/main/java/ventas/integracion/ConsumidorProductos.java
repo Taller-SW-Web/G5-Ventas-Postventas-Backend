@@ -18,7 +18,7 @@ import ventas.pedido.MensajesProductosService;
 import ventas.pedido.MensajesProductosService.Desenlace;
 
 /**
- * Lee po.sales.q del RabbitMQ de Productos (vhost /marketplace, rabbitmq-topologia.md) y se lo pasa a
+ * Lee po.sales.q del RabbitMQ de Productos (vhost g6-productos-ofertas, rabbitmq-topologia.md) y se lo pasa a
  * MensajesProductosService. Solo existe con integracion.simulado=false: en modo simulado no se conecta a nada.
  * - Mensaje mal formado: se rechaza sin reintentar (va a la DLQ).
  * - Pedido todavía no guardado: se lanza error y el contenedor reintenta (spring.rabbitmq.listener.simple.retry).
