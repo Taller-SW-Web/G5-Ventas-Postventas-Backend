@@ -5,6 +5,7 @@
 #   llamando a sus Deploy Hooks (Render > servicio > Settings > Deploy Hook). No necesita que la app
 #   de Render esté instalada en la organización.
 # Requiere los secrets RENDER_HOOK_VENTAS y RENDER_HOOK_POSTVENTA (Settings > Secrets and variables > Actions).
+# RENDER_HOOK_GATEWAY y RENDER_HOOK_PASARELA son opcionales: sin ellos se omite ese servicio.
 
 name: CI Backend
 
@@ -19,9 +20,9 @@ jobs:
     name: Build, Compile y Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
@@ -49,3 +50,18 @@ jobs:
         run: |
           if [ -z "$HOOK" ]; then echo "Falta el secret RENDER_HOOK_POSTVENTA"; exit 1; fi
           curl -fsS -X POST "$HOOK" > /dev/null && echo "Deploy de servicio-postventa solicitado"
+
+      # api-gateway y simulador-pasarela: opcionales mientras no tengan su secret (se omiten con un aviso)
+      - name: Desplegar api-gateway
+        env:
+          HOOK: ${{ secrets.RENDER_HOOK_GATEWAY }}
+        run: |
+          if [ -z "$HOOK" ]; then echo "::notice::Sin RENDER_HOOK_GATEWAY: se omite api-gateway"; exit 0; fi
+          curl -fsS -X POST "$HOOK" > /dev/null && echo "Deploy de api-gateway solicitado"
+
+      - name: Desplegar simulador-pasarela
+        env:
+          HOOK: ${{ secrets.RENDER_HOOK_PASARELA }}
+        run: |
+          if [ -z "$HOOK" ]; then echo "::notice::Sin RENDER_HOOK_PASARELA: se omite simulador-pasarela"; exit 0; fi
+          curl -fsS -X POST "$HOOK" > /dev/null && echo "Deploy de simulador-pasarela solicitado"
