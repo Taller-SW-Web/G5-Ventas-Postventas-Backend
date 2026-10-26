@@ -192,6 +192,23 @@ class MisPedidosSeguridadTest {
                 .andExpect(status().isForbidden());
     }
 
+    // ---------- 1.14 KPIs del Dashboard ----------
+
+    @Test
+    void losKpisSonSoloDelGestorYNoSeConfundenConUnPedidoId() throws Exception {
+        mvc.perform(get("/api/v1/pedidos/kpis").param("desde", "2026-10-01").param("hasta", "2026-10-26")
+                        .header("Authorization", "Bearer " + usuario(ISSUER, List.of("ADMIN_VENTAS"))))
+                .andExpect(status().isOk());
+        // Sin la regla propia, /pedidos/* (1.3) dejaría pasar a un CLIENTE
+        mvc.perform(get("/api/v1/pedidos/kpis").param("desde", "2026-10-01").param("hasta", "2026-10-26")
+                        .header("Authorization", "Bearer " + usuario(ISSUER, List.of("CLIENTE"))))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/pedidos/kpis").param("desde", "2026-10-01").param("hasta", "2026-10-26")
+                        .header("Authorization", "Bearer " + servicio("ventas:pedidos:consultar")))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(consultarPedidoService);
+    }
+
     // ---------- 1.5 Webhook de Despacho ----------
 
     @Test

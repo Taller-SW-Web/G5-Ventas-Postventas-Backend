@@ -29,6 +29,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 
 import ventas.compartido.SolicitudInvalidaException;
+import ventas.pedido.dto.KpisVentasResponse;
 import ventas.pedido.dto.ListadoPedidosResponse;
 import ventas.pedido.dto.MisPedidosResponse;
 
@@ -143,6 +144,98 @@ class PedidoServiceTest {
         assertThatThrownBy(() -> servicio.listar(CLIENTE, null, null, null, LocalDate.of(2026, 10, 2), LocalDate.of(2026, 10, 1), null, 0, 10))
                 .isInstanceOf(SolicitudInvalidaException.class).hasFieldOrPropertyWithValue("codigo", "PARAMETRO_INVALIDO");
         verifyNoInteractions(pedidos);
+    }
+
+    // ---------- 1.14 KPIs de ventas (Dashboard) ----------
+
+    private static final LocalDate DESDE = LocalDate.of(2026, 10, 1);
+    private static final LocalDate HASTA = LocalDate.of(2026, 10, 3);
+
+    @Test
+    void kpisSumanSoloLosPedidosVendidosYCuentanLaCohorte() {
+        when(pedidos.findByTipoAndCreadoEnGreaterThanEqualAndCreadoEnLessThan(eq(TipoPedido.VENTA), any(), any()))
+                .thenReturn(List.of(
+                        fila(1, CanalVenta.CHATBOT, EstadoPedido.ENTREGADO, "100.00"),
+                        fila(1, CanalVenta.MARKETPLACE, EstadoPedido.PAGADO, "50.00"),
+                        fila(3, CanalVenta.RETAIL, EstadoPedido.EN_PREPARACION, "30.00"),
+                        fila(2, CanalVenta.CHATBOT, EstadoPedido.ANULADO, "999.00"),
+                        fila(2, CanalVenta.CHATBOT, EstadoPedido.CREADO, "888.00")));
+
+        KpisVentasResponse r = servicio.kpis(DESDE, HASTA, null);
+
+        assertThat(r.montoVendido()).isEqualByComparingTo("180.00");
+        assertThat(r.pedidosVendidos()).isEqualTo(3);
+        assertThat(r.ticketPromedio()).isEqualByComparingTo("60.00");
+        assertThat(r.pedidosTotal()).isEqualTo(4);          // el CREADO no cuenta
+        assertThat(r.pedidosEntregados()).isEqualTo(1);
+        assertThat(r.pedidosAnulados()).isEqualTo(1);
+        assertThat(r.ventasPorCanal().get(CanalVenta.CHATBOT)).isEqualByComparingTo("100.00");
+        assertThat(r.ventasPorCanal().get(CanalVenta.MARKETPLACE)).isEqualByComparingTo("50.00");
+        assertThat(r.ventasPorCanal().get(CanalVenta.RETAIL)).isEqualByComparingTo("30.00");
+    }
+
+    @Test
+    void kpisDevuelvenUnDiaPorCadaFechaDelRangoAunqueNoHayaVentas() {
+        when(pedidos.findByTipoAndCreadoEnGreaterThanEqualAndCreadoEnLessThan(eq(TipoPedido.VENTA), any(), any()))
+                .thenReturn(List.of(fila(1, CanalVenta.CHATBOT, EstadoPedido.PAGADO, "40.00"),
+                        fila(1, CanalVenta.RETAIL, EstadoPedido.ENTREGADO, "10.00")));
+
+        KpisVentasResponse r = servicio.kpis(DESDE, HASTA, null);
+
+        assertThat(r.ventasPorDia()).extracting(KpisVentasResponse.VentaDia::fecha)
+                .containsExactly(DESDE, DESDE.plusDays(1), HASTA);
+        assertThat(r.ventasPorDia().get(0).monto()).isEqualByComparingTo("50.00");
+        assertThat(r.ventasPorDia().get(1).monto()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void kpisSinVentasTienenTicketNulo() {
+        when(pedidos.findByTipoAndCreadoEnGreaterThanEqualAndCreadoEnLessThan(eq(TipoPedido.VENTA), any(), any()))
+                .thenReturn(List.of());
+
+        KpisVentasResponse r = servicio.kpis(DESDE, HASTA, null);
+
+        assertThat(r.montoVendido()).isEqualByComparingTo("0");
+        assertThat(r.ticketPromedio()).isNull();
+        assertThat(r.ventasPorCanal()).containsOnlyKeys(CanalVenta.values());
+    }
+
+    @Test
+    void kpisFiltranPorCanalYUsanElRangoUtcCompleto() {
+        when(pedidos.findByTipoAndCanalAndCreadoEnGreaterThanEqualAndCreadoEnLessThan(
+                eq(TipoPedido.VENTA), eq(CanalVenta.RETAIL), any(), any())).thenReturn(List.of());
+
+        servicio.kpis(DESDE, HASTA, CanalVenta.RETAIL);
+
+        ArgumentCaptor<OffsetDateTime> inicio = ArgumentCaptor.forClass(OffsetDateTime.class);
+        ArgumentCaptor<OffsetDateTime> fin = ArgumentCaptor.forClass(OffsetDateTime.class);
+        verify(pedidos).findByTipoAndCanalAndCreadoEnGreaterThanEqualAndCreadoEnLessThan(
+                eq(TipoPedido.VENTA), eq(CanalVenta.RETAIL), inicio.capture(), fin.capture());
+        assertThat(inicio.getValue()).isEqualTo(OffsetDateTime.of(2026, 10, 1, 0, 0, 0, 0, ZoneOffset.UTC));
+        assertThat(fin.getValue()).isEqualTo(OffsetDateTime.of(2026, 10, 4, 0, 0, 0, 0, ZoneOffset.UTC));
+    }
+
+    @Test
+    void kpisRechazanRangosInvalidos() {
+        assertThatThrownBy(() -> servicio.kpis(null, HASTA, null))
+                .isInstanceOf(SolicitudInvalidaException.class).hasFieldOrPropertyWithValue("codigo", "PARAMETRO_INVALIDO");
+        assertThatThrownBy(() -> servicio.kpis(HASTA, DESDE, null))
+                .isInstanceOf(SolicitudInvalidaException.class).hasFieldOrPropertyWithValue("codigo", "PARAMETRO_INVALIDO");
+        assertThatThrownBy(() -> servicio.kpis(DESDE, DESDE.plusDays(366), null))
+                .isInstanceOf(SolicitudInvalidaException.class).hasFieldOrPropertyWithValue("codigo", "PARAMETRO_INVALIDO");
+        verifyNoInteractions(pedidos);
+    }
+
+    /** Pedido del día 'dia' de octubre de 2026, a las 15:00 UTC. */
+    private static FilaKpi fila(int dia, CanalVenta canal, EstadoPedido estado, String total) {
+        OffsetDateTime creado = OffsetDateTime.of(2026, 10, dia, 15, 0, 0, 0, ZoneOffset.UTC);
+        BigDecimal monto = new BigDecimal(total);
+        return new FilaKpi() {
+            public OffsetDateTime getCreadoEn() { return creado; }
+            public CanalVenta getCanal() { return canal; }
+            public EstadoPedido getEstado() { return estado; }
+            public BigDecimal getTotal() { return monto; }
+        };
     }
 
     private static Pedido pedido() {

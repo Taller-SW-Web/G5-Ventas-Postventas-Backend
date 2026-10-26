@@ -1,5 +1,7 @@
 package ventas.pedido;
 
+import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -24,4 +26,12 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long>, JpaSpecif
     /** La orden de reemplazo vigente (no anulada) de una devolución de M2, para no crear dos (F3). */
     @EntityGraph(attributePaths = "detalles")
     Optional<Pedido> findFirstByDevolucionIdAndEstadoNotOrderByIdDesc(String devolucionId, EstadoPedido estado);
+
+    /** 1.14: pedidos de un tipo creados en [inicio, fin), todos los canales. */
+    List<FilaKpi> findByTipoAndCreadoEnGreaterThanEqualAndCreadoEnLessThan(
+            TipoPedido tipo, OffsetDateTime inicio, OffsetDateTime fin);
+
+    /** 1.14: igual que el anterior, de un solo canal. */
+    List<FilaKpi> findByTipoAndCanalAndCreadoEnGreaterThanEqualAndCreadoEnLessThan(
+            TipoPedido tipo, CanalVenta canal, OffsetDateTime inicio, OffsetDateTime fin);
 }
