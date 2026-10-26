@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 import ventas.pedido.dto.CrearPedidoRequest;
 import ventas.pedido.dto.CrearPedidoResponse;
 import ventas.pedido.dto.DespachoPedidoResponse;
+import ventas.pedido.dto.KpisVentasResponse;
 import ventas.pedido.dto.ListadoPedidosResponse;
 import ventas.pedido.dto.MisPedidosResponse;
 import ventas.pedido.dto.NotificacionPagoRequest;
@@ -127,6 +128,15 @@ public class PedidoController {
             @RequestParam(defaultValue = "10") int tamano) {
         return ResponseEntity.ok(pedidoService.listar(clienteId, estado, canal, buscar, desde, hasta, orden,
                 pagina, tamano));
+    }
+
+    /** 1.14 KPIs de ventas del Dashboard (Gestor, rol ADMIN_VENTAS, lo exige SecurityConfig). desde y hasta obligatorios. */
+    @GetMapping("/kpis")
+    public ResponseEntity<KpisVentasResponse> kpis(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,
+            @RequestParam(required = false) CanalVenta canal) {
+        return ResponseEntity.ok(pedidoService.kpis(desde, hasta, canal));
     }
 
     /** Botón del Gestor "Iniciar preparación": PAGADO -> EN_PREPARACION. Rol ADMIN_VENTAS (SecurityConfig). */

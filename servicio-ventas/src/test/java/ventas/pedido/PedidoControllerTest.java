@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,7 @@ import ventas.compartido.NoProcesableException;
 import ventas.compartido.SecurityConfig;
 import ventas.pedido.dto.CrearPedidoResponse;
 import ventas.pedido.dto.DespachoPedidoResponse;
+import ventas.pedido.dto.KpisVentasResponse;
 import ventas.pedido.dto.ListadoPedidosResponse;
 import ventas.pedido.dto.NotificacionPagoResponse;
 import ventas.pedido.dto.PedidoDetalle;
@@ -225,6 +227,37 @@ class PedidoControllerTest {
                 .andExpect(status().isBadRequest());
         mvc.perform(get("/api/v1/pedidos").param("clienteId", "3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a").param("estado", "VOLANDO"))
                 .andExpect(status().isBadRequest());
+        verifyNoInteractions(pedidoService);
+    }
+
+    // ---------- 1.14 KPIs del Dashboard ----------
+
+    @Test
+    void kpisDevuelvenElFormatoDelContrato() throws Exception {
+        LocalDate desde = LocalDate.of(2026, 10, 1);
+        LocalDate hasta = LocalDate.of(2026, 10, 2);
+        when(pedidoService.kpis(desde, hasta, CanalVenta.CHATBOT)).thenReturn(new KpisVentasResponse(
+                desde, hasta, CanalVenta.CHATBOT, new BigDecimal("129.90"), 1, new BigDecimal("129.90"), 2, 1, 1,
+                List.of(new KpisVentasResponse.VentaDia(desde, new BigDecimal("129.90")),
+                        new KpisVentasResponse.VentaDia(hasta, BigDecimal.ZERO)),
+                Map.of(CanalVenta.CHATBOT, new BigDecimal("129.90"))));
+
+        mvc.perform(get("/api/v1/pedidos/kpis").param("desde", "2026-10-01").param("hasta", "2026-10-02")
+                        .param("canal", "CHATBOT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.montoVendido").value(129.90))
+                .andExpect(jsonPath("$.pedidosVendidos").value(1))
+                .andExpect(jsonPath("$.ticketPromedio").value(129.90))
+                .andExpect(jsonPath("$.ventasPorDia[0].fecha").value("2026-10-01"))
+                .andExpect(jsonPath("$.ventasPorCanal.CHATBOT").value(129.90));
+        verifyNoInteractions(consultarPedidoService);   // "kpis" no se tomó como pedidoId
+    }
+
+    @Test
+    void kpisConFechaMalFormadaResponde400() throws Exception {
+        mvc.perform(get("/api/v1/pedidos/kpis").param("desde", "01/10/2026").param("hasta", "2026-10-02"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.codigo").value("FORMATO_INVALIDO"));
         verifyNoInteractions(pedidoService);
     }
 
