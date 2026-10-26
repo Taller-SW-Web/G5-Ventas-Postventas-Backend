@@ -110,10 +110,9 @@ class DevolucionControllerTest {
     }
 
     @Test
-    void listadoAdministrativoExigeClienteId() throws Exception {
+    void listadoAdministrativoSinClienteIdListaTodos() throws Exception {
         mvc.perform(get("/api/v2/devoluciones"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.codigo").value("PARAMETRO_FALTANTE"));
+                .andExpect(status().isOk());
     }
 
     @Test
