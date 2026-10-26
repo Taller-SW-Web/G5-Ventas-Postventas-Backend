@@ -1,8 +1,10 @@
-# CI del backend (Hito 4): Build → Compile → Test
+# CI/CD del backend (Hito 4): Build → Compile → Test → Deploy
 # - Corre en cada PR hacia main y en cada push a main.
 # - Compila los 4 módulos y ejecuta todos los tests con Maven.
-# - El Deploy lo hace Render: con Auto-Deploy en "After CI Checks Pass",
-#   solo despliega servicio-ventas y servicio-postventa si este workflow pasa.
+# - En un push a main, si los tests pasan, despliega servicio-ventas y servicio-postventa en Render
+#   llamando a sus Deploy Hooks (Render > servicio > Settings > Deploy Hook). No necesita que la app
+#   de Render esté instalada en la organización.
+# Requiere los secrets RENDER_HOOK_VENTAS y RENDER_HOOK_POSTVENTA (Settings > Secrets and variables > Actions).
 
 name: CI Backend
 
@@ -27,3 +29,23 @@ jobs:
 
       - name: Compilar y ejecutar tests (mvn verify)
         run: mvn -B verify
+
+  deploy:
+    name: Deploy a Render
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Desplegar servicio-ventas (M1)
+        env:
+          HOOK: ${{ secrets.RENDER_HOOK_VENTAS }}
+        run: |
+          if [ -z "$HOOK" ]; then echo "Falta el secret RENDER_HOOK_VENTAS"; exit 1; fi
+          curl -fsS -X POST "$HOOK" > /dev/null && echo "Deploy de servicio-ventas solicitado"
+
+      - name: Desplegar servicio-postventa (M2)
+        env:
+          HOOK: ${{ secrets.RENDER_HOOK_POSTVENTA }}
+        run: |
+          if [ -z "$HOOK" ]; then echo "Falta el secret RENDER_HOOK_POSTVENTA"; exit 1; fi
+          curl -fsS -X POST "$HOOK" > /dev/null && echo "Deploy de servicio-postventa solicitado"
