@@ -45,6 +45,13 @@ public class PedidoService {
      */
     @Transactional(readOnly = true)
     public MisPedidosResponse listarMios(UUID clienteId, EstadoPedido estado, int page, int pageSize) {
+        return listarMios(clienteId, estado, null, null, page, pageSize);
+    }
+
+    /** 1.4b con rango opcional de fechas de creación (días inclusivos en hora de Perú, ver PedidosFiltro.mios). */
+    @Transactional(readOnly = true)
+    public MisPedidosResponse listarMios(UUID clienteId, EstadoPedido estado, LocalDate desde, LocalDate hasta,
+                                         int page, int pageSize) {
         if (page < 1) {
             throw new SolicitudInvalidaException("PAGINACION_INVALIDA", "page debe ser 1 o mayor");
         }
@@ -52,11 +59,19 @@ public class PedidoService {
             throw new SolicitudInvalidaException("PAGINACION_INVALIDA",
                     "pageSize debe estar entre 1 y " + TAMANO_MAXIMO);
         }
+        if (desde != null && hasta != null && desde.isAfter(hasta)) {
+            throw new SolicitudInvalidaException("RANGO_FECHAS_INVALIDO", "desde no puede ser posterior a hasta");
+        }
         Pageable pagina = PageRequest.of(page - 1, pageSize,
                 Sort.by(Sort.Order.desc("creadoEn"), Sort.Order.desc("id")));
-        Page<Pedido> resultado = estado == null
-                ? pedidos.findByIdCliente(clienteId, pagina)
-                : pedidos.findByIdClienteAndEstado(clienteId, estado, pagina);
+        Page<Pedido> resultado;
+        if (desde != null || hasta != null) {
+            resultado = pedidos.findAll(PedidosFiltro.mios(clienteId, estado, desde, hasta), pagina);
+        } else {
+            resultado = estado == null
+                    ? pedidos.findByIdCliente(clienteId, pagina)
+                    : pedidos.findByIdClienteAndEstado(clienteId, estado, pagina);
+        }
         return new MisPedidosResponse(
                 resultado.getContent().stream().map(PedidoService::resumen).toList(),
                 resultado.getTotalElements(), page, pageSize);

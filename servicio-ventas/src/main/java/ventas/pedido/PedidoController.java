@@ -95,9 +95,11 @@ public class PedidoController {
     public ResponseEntity<MisPedidosResponse> misPedidos(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(required = false) EstadoPedido estado,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int pageSize) {
-        return ResponseEntity.ok(pedidoService.listarMios(clienteDelToken(jwt), estado, page, pageSize));
+        return ResponseEntity.ok(pedidoService.listarMios(clienteDelToken(jwt), estado, desde, hasta, page, pageSize));
     }
 
     /**

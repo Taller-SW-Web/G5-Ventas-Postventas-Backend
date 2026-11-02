@@ -107,7 +107,7 @@ class MisPedidosSeguridadTest {
 
     @Test
     void clienteVeSusPedidosFiltradosPorSub() throws Exception {
-        when(pedidoService.listarMios(eq(CLIENTE), isNull(), eq(1), eq(10)))
+        when(pedidoService.listarMios(eq(CLIENTE), isNull(), isNull(), isNull(), eq(1), eq(10)))
                 .thenReturn(new MisPedidosResponse(List.of(), 0, 1, 10));
 
         mvc.perform(get("/api/v1/pedidos/me").header("Authorization", "Bearer " + usuario(ISSUER, List.of("CLIENTE"))))
@@ -117,7 +117,29 @@ class MisPedidosSeguridadTest {
                 .andExpect(jsonPath("$.page").value(1))
                 .andExpect(jsonPath("$.pageSize").value(10));
 
-        verify(pedidoService).listarMios(eq(CLIENTE), isNull(), eq(1), eq(10));
+        verify(pedidoService).listarMios(eq(CLIENTE), isNull(), isNull(), isNull(), eq(1), eq(10));
+    }
+
+    @Test
+    void filtroPorFechasLlegaAlServicio() throws Exception {
+        when(pedidoService.listarMios(eq(CLIENTE), eq(EstadoPedido.ENTREGADO), eq(java.time.LocalDate.parse("2026-10-01")),
+                eq(java.time.LocalDate.parse("2026-10-31")), eq(2), eq(5)))
+                .thenReturn(new MisPedidosResponse(List.of(), 0, 2, 5));
+
+        mvc.perform(get("/api/v1/pedidos/me").param("estado", "ENTREGADO").param("desde", "2026-10-01")
+                        .param("hasta", "2026-10-31").param("page", "2").param("pageSize", "5")
+                        .header("Authorization", "Bearer " + usuario(ISSUER, List.of("CLIENTE"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(2))
+                .andExpect(jsonPath("$.pageSize").value(5));
+    }
+
+    @Test
+    void fechaConOtroFormatoResponde400() throws Exception {
+        mvc.perform(get("/api/v1/pedidos/me").param("desde", "01/10/2026")
+                        .header("Authorization", "Bearer " + usuario(ISSUER, List.of("CLIENTE"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.codigo").value("FORMATO_INVALIDO"));
     }
 
     @Test

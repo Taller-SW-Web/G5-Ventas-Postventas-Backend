@@ -2,6 +2,7 @@ package ventas.pedido;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -55,6 +56,38 @@ final class PedidosFiltro {
             spec = spec.and((r, q, cb) -> cb.lessThan(r.get("creadoEn"), fin));
         }
         return spec;
+    }
+
+    /**
+     * 1.4b /pedidos/me con rango de fechas (acuerdo con G1 Marketplace, 2026-11-02): desde y hasta son días
+     * inclusivos en hora de Perú (America/Lima), el mismo día que ve el cliente en la pantalla del canal.
+     */
+    static final ZoneId ZONA_CLIENTE = ZoneId.of("America/Lima");
+
+    static Specification<Pedido> mios(UUID clienteId, EstadoPedido estado, LocalDate desde, LocalDate hasta) {
+        Specification<Pedido> spec = (r, q, cb) -> cb.equal(r.get("idCliente"), clienteId);
+        if (estado != null) {
+            spec = spec.and((r, q, cb) -> cb.equal(r.get("estado"), estado));
+        }
+        if (desde != null) {
+            OffsetDateTime inicio = inicioDelDia(desde);
+            spec = spec.and((r, q, cb) -> cb.greaterThanOrEqualTo(r.get("creadoEn"), inicio));
+        }
+        if (hasta != null) {
+            OffsetDateTime fin = finDelDia(hasta);
+            spec = spec.and((r, q, cb) -> cb.lessThan(r.get("creadoEn"), fin));
+        }
+        return spec;
+    }
+
+    /** 00:00 de ese día en Perú (inclusive). */
+    static OffsetDateTime inicioDelDia(LocalDate dia) {
+        return dia.atStartOfDay(ZONA_CLIENTE).toOffsetDateTime();
+    }
+
+    /** 00:00 del día siguiente en Perú (exclusivo), para que hasta incluya todo su día. */
+    static OffsetDateTime finDelDia(LocalDate dia) {
+        return dia.plusDays(1).atStartOfDay(ZONA_CLIENTE).toOffsetDateTime();
     }
 
     static Sort orden(Orden orden) {
