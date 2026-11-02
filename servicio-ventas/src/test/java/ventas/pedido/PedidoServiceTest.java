@@ -250,4 +250,37 @@ class PedidoServiceTest {
         p.setCreadoEn(OffsetDateTime.of(2026, 9, 23, 0, 5, 0, 0, ZoneOffset.UTC));
         return p;
     }
+
+    @Test
+    void misPedidosConRangoInvertidoResponde400() {
+        assertThatThrownBy(() -> servicio.listarMios(CLIENTE, null, LocalDate.parse("2026-10-10"),
+                LocalDate.parse("2026-10-01"), 1, 10))
+                .isInstanceOf(SolicitudInvalidaException.class)
+                .hasFieldOrPropertyWithValue("codigo", "RANGO_FECHAS_INVALIDO");
+        verifyNoInteractions(pedidos);
+    }
+
+    @Test
+    void misPedidosConFechasFiltraConEspecificacionYConservaElFormato() {
+        when(pedidos.findAll(ArgumentMatchers.<Specification<Pedido>>any(), any(Pageable.class)))
+                .thenReturn(Page.empty());
+
+        MisPedidosResponse r = servicio.listarMios(CLIENTE, EstadoPedido.PAGADO, LocalDate.parse("2026-10-01"), null, 2, 20);
+
+        assertThat(r.page()).isEqualTo(2);
+        assertThat(r.pageSize()).isEqualTo(20);
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(pedidos).findAll(ArgumentMatchers.<Specification<Pedido>>any(), captor.capture());
+        assertThat(captor.getValue().getPageNumber()).isEqualTo(1);
+        assertThat(captor.getValue().getPageSize()).isEqualTo(20);
+    }
+
+    @Test
+    void losDiasLimiteSeCuentanEnHoraDePeru() {
+        // 10/10 en Perú va de 2026-10-10T05:00Z (incluido) a 2026-10-11T05:00Z (excluido)
+        assertThat(PedidosFiltro.inicioDelDia(LocalDate.parse("2026-10-10")).toInstant())
+                .isEqualTo(OffsetDateTime.parse("2026-10-10T05:00:00Z").toInstant());
+        assertThat(PedidosFiltro.finDelDia(LocalDate.parse("2026-10-10")).toInstant())
+                .isEqualTo(OffsetDateTime.parse("2026-10-11T05:00:00Z").toInstant());
+    }
 }
