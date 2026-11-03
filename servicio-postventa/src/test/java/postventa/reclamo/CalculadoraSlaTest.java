@@ -75,4 +75,15 @@ class CalculadoraSlaTest {
         assertThat(CalculadoraSla.estado(EstadoReclamo.REGISTRADO, LocalDate.parse("2026-10-16"), hoy))
                 .isEqualTo(EstadoSla.CRITICO);
     }
+
+    @Test
+    void rangoCriticoEsDeHoyADosDiasHabilesYCruzaElFinDeSemana() {
+        LocalDate viernes = LocalDate.parse("2026-10-16");
+        assertThat(CalculadoraSla.rangoLimite(EstadoSla.CRITICO, viernes))
+                .isEqualTo(new CalculadoraSla.RangoLimite(viernes, LocalDate.parse("2026-10-20")));
+        assertThat(CalculadoraSla.estado(EstadoReclamo.EN_PROCESO, LocalDate.parse("2026-10-20"), viernes))
+                .isEqualTo(EstadoSla.CRITICO);
+        assertThat(CalculadoraSla.estado(EstadoReclamo.EN_PROCESO, LocalDate.parse("2026-10-21"), viernes))
+                .isEqualTo(EstadoSla.POR_VENCER);
+    }
 }

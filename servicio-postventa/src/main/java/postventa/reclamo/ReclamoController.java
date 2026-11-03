@@ -96,11 +96,12 @@ public class ReclamoController {
                 new FiltroReclamos(documento, clienteId, estado, buscar, sla, desde, hasta, orden), pagina, tamano));
     }
 
-    /** 2.11 Responder o iniciar la atención (rol ADMIN_VENTAS). */
+    /** 2.11 Responder o iniciar la atención (rol ADMIN_VENTAS). El autor sale del token, no del cuerpo (RNF-03). */
     @PatchMapping("/{reclamoId}/respuesta")
     public ResponseEntity<RespuestaReclamoResponse> responder(@PathVariable String reclamoId,
-                                                              @Valid @RequestBody ResponderReclamoRequest solicitud) {
-        return ResponseEntity.ok(reclamoService.responder(reclamoId, solicitud));
+                                                              @Valid @RequestBody ResponderReclamoRequest solicitud,
+                                                              Authentication auth) {
+        return ResponseEntity.ok(reclamoService.responder(reclamoId, solicitud, solicitante(auth)));
     }
 
     /** pagina o tamano que no son números responden PAGINACION_INVALIDA, igual que en F3. */
