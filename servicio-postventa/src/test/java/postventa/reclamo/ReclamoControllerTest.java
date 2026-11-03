@@ -30,6 +30,7 @@ import postventa.compartido.CanalVenta;
 import postventa.compartido.RecursoNoEncontradoException;
 import postventa.compartido.SecurityConfig;
 import postventa.compartido.SolicitudInvalidaException;
+import postventa.devolucion.Solicitante;
 import postventa.reclamo.dto.ListadoReclamosResponse;
 import postventa.reclamo.dto.RegistrarReclamoResponse;
 import postventa.reclamo.dto.RespuestaReclamoResponse;
@@ -178,7 +179,7 @@ class ReclamoControllerTest {
 
     @Test
     void responderDevuelveFechaRespuesta() throws Exception {
-        when(reclamoService.responder(eq("REC-2026-0015"), any())).thenReturn(new RespuestaReclamoResponse(
+        when(reclamoService.responder(eq("REC-2026-0015"), any(), any())).thenReturn(new RespuestaReclamoResponse(
                 "REC-2026-0015", EstadoReclamo.ATENDIDO, OffsetDateTime.parse("2026-09-23T00:18:00Z"),
                 "Estimado Juan, lamentamos la demora."));
 
@@ -191,12 +192,13 @@ class ReclamoControllerTest {
                 .andExpect(jsonPath("$.estado").value("ATENDIDO"))
                 .andExpect(jsonPath("$.fechaRespuesta").value("2026-09-23T00:18:00Z"));
         verify(reclamoService).responder("REC-2026-0015",
-                new ResponderReclamoRequest(EstadoReclamo.ATENDIDO, "Estimado Juan, lamentamos la demora.", "GESTOR-02"));
+                new ResponderReclamoRequest(EstadoReclamo.ATENDIDO, "Estimado Juan, lamentamos la demora.", "GESTOR-02"),
+                Solicitante.gestor(null));
     }
 
     @Test
     void esp14_ca03_respuestaVaciaResponde400() throws Exception {
-        when(reclamoService.responder(eq("REC-2026-0015"), any()))
+        when(reclamoService.responder(eq("REC-2026-0015"), any(), any()))
                 .thenThrow(new SolicitudInvalidaException("RESPUESTA_VACIA", "vacía"));
 
         mvc.perform(patch("/api/v2/reclamos/REC-2026-0015/respuesta").contentType(MediaType.APPLICATION_JSON)
@@ -206,9 +208,24 @@ class ReclamoControllerTest {
     }
 
     @Test
-    void responderSinAtendidoPorResponde400() throws Exception {
+    void responderSinAtendidoPorLoDecideElServiceSegunLaIdentidad() throws Exception {
+        // atendidoPor ya no es obligatorio en el DTO: con token el autor es el sub; sin token el service exige el campo
+        when(reclamoService.responder(eq("REC-2026-0015"), any(), any()))
+                .thenThrow(new SolicitudInvalidaException("DATOS_INVALIDOS", "atendidoPor es obligatorio"));
+
         mvc.perform(patch("/api/v2/reclamos/REC-2026-0015/respuesta").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nuevoEstado\": \"ATENDIDO\", \"respuestaVisibleCliente\": \"ok\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.codigo").value("DATOS_INVALIDOS"));
+        verify(reclamoService).responder("REC-2026-0015",
+                new ResponderReclamoRequest(EstadoReclamo.ATENDIDO, "ok", null), Solicitante.gestor(null));
+    }
+
+    @Test
+    void atendidoPorDeMasDe50CaracteresResponde400() throws Exception {
+        mvc.perform(patch("/api/v2/reclamos/REC-2026-0015/respuesta").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nuevoEstado\": \"ATENDIDO\", \"respuestaVisibleCliente\": \"ok\", \"atendidoPor\": \""
+                                + "x".repeat(51) + "\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.codigo").value("DATOS_INVALIDOS"));
         verifyNoInteractions(reclamoService);

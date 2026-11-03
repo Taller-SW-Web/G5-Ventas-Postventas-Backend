@@ -56,6 +56,9 @@ class ReclamoServiceTest {
     static final OffsetDateTime AHORA_UTC = OffsetDateTime.ofInstant(AHORA, ZoneOffset.UTC);
     static final UUID CLIENTE = UUID.fromString("3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a");
     static final UUID OTRO = UUID.fromString("22222222-2222-2222-2222-222222222222");
+    static final UUID GESTOR = UUID.fromString("44444444-4444-4444-4444-444444444444");
+    /** Gestor sin identidad en el token (seguridad apagada): se usa el atendidoPor del cuerpo. */
+    static final Solicitante SIN_TOKEN = Solicitante.gestor(null);
 
     @Mock ReclamoRepository reclamos;
     @Mock ProyeccionesService proyecciones;
@@ -178,6 +181,37 @@ class ReclamoServiceTest {
     }
 
     @Test
+    void esp14_ca04_respuestaElUltimoSegundoDelDiaLimiteCumpleElSla() {
+        Reclamo r = reclamo(EstadoReclamo.ATENDIDO, CLIENTE);
+        r.setFechaAtencion(OffsetDateTime.parse("2026-10-14T23:59:59Z")); // fechaLimiteSLA exacta
+        when(reclamos.findByCodigo("REC-2026-0015")).thenReturn(Optional.of(r));
+
+        assertThat(servicio.consultar("REC-2026-0015", Solicitante.gestor(null)).slaCumplido()).isTrue();
+    }
+
+    @Test
+    void esp14_ca04_slaSeEvaluaEnUtcAunqueEnLimaSigaSiendoElDiaLimite() {
+        // 2026-10-14 20:00 en Lima (UTC-5) ya es 2026-10-15 en UTC: fuera de plazo por la decisión UTC (guía 10.2)
+        Reclamo r = reclamo(EstadoReclamo.ATENDIDO, CLIENTE);
+        r.setFechaAtencion(OffsetDateTime.parse("2026-10-14T20:00:00-05:00"));
+        when(reclamos.findByCodigo("REC-2026-0015")).thenReturn(Optional.of(r));
+
+        assertThat(servicio.consultar("REC-2026-0015", Solicitante.gestor(null)).slaCumplido()).isFalse();
+    }
+
+    @Test
+    void esp13_ca03_elPlazoCuentaDesdeElDiaUtcDelRegistro() {
+        // Jueves 24/09 a las 20:00 en Lima = viernes 25/09 01:00 UTC: el plazo arranca del viernes UTC
+        ReclamoService deNoche = new ReclamoService(reclamos, proyecciones,
+                Clock.fixed(Instant.parse("2026-09-25T01:00:00Z"), ZoneOffset.UTC));
+
+        RegistrarReclamoResponse r = deNoche.registrar(solicitud("PED-2026-00981", TipoReclamo.RECLAMO),
+                Solicitante.servicio());
+
+        assertThat(r.fechaLimiteSLA()).isEqualTo(OffsetDateTime.parse("2026-10-16T23:59:59Z"));
+    }
+
+    @Test
     void reclamoAbiertoMuestraSemaforoYDiasRestantes() {
         when(reclamos.findByCodigo("REC-2026-0015")).thenReturn(Optional.of(reclamo(EstadoReclamo.EN_PROCESO, null)));
 
@@ -197,7 +231,7 @@ class ReclamoServiceTest {
                 "GESTOR-02", AHORA_UTC)).thenReturn(1);
 
         RespuestaReclamoResponse r = servicio.responder("REC-2026-0015",
-                new ResponderReclamoRequest(EstadoReclamo.ATENDIDO, "  Respuesta formal  ", "GESTOR-02"));
+                new ResponderReclamoRequest(EstadoReclamo.ATENDIDO, "  Respuesta formal  ", "GESTOR-02"), SIN_TOKEN);
 
         assertThat(r.estado()).isEqualTo(EstadoReclamo.ATENDIDO);
         assertThat(r.fechaRespuesta()).isEqualTo(AHORA_UTC);
@@ -206,9 +240,51 @@ class ReclamoServiceTest {
     }
 
     @Test
+    void elAutorEsElGestorDelTokenAunqueElCuerpoDeclareOtro() {
+        when(reclamos.findByCodigo("REC-2026-0015")).thenReturn(Optional.of(reclamo(EstadoReclamo.EN_PROCESO, null)));
+        when(reclamos.responder(anyLong(), any(), any(), any(), any(), any())).thenReturn(1);
+
+        servicio.responder("REC-2026-0015",
+                new ResponderReclamoRequest(EstadoReclamo.ATENDIDO, "Respuesta formal", "GESTOR-02"),
+                Solicitante.gestor(GESTOR));
+
+        verify(reclamos).responder(15L, EstadoReclamo.EN_PROCESO, EstadoReclamo.ATENDIDO, "Respuesta formal",
+                GESTOR.toString(), AHORA_UTC);
+    }
+
+    @Test
+    void conTokenAtendidoPorEsOpcionalEInicioDeAtencionTambienQuedaConElSub() {
+        when(reclamos.findByCodigo("REC-2026-0015")).thenReturn(Optional.of(reclamo(EstadoReclamo.REGISTRADO, null)));
+        when(reclamos.iniciarAtencion(15L, GESTOR.toString())).thenReturn(1);
+
+        RespuestaReclamoResponse r = servicio.responder("REC-2026-0015",
+                new ResponderReclamoRequest(EstadoReclamo.EN_PROCESO, null, null), Solicitante.gestor(GESTOR));
+
+        assertThat(r.estado()).isEqualTo(EstadoReclamo.EN_PROCESO);
+        verify(reclamos).iniciarAtencion(15L, GESTOR.toString());
+    }
+
+    @Test
+    void sinTokenNiAtendidoPorResponde400SinTocarElReclamo() {
+        assertThatThrownBy(() -> servicio.responder("REC-2026-0015",
+                new ResponderReclamoRequest(EstadoReclamo.ATENDIDO, "Respuesta", "  "), SIN_TOKEN))
+                .isInstanceOf(SolicitudInvalidaException.class)
+                .extracting("codigo").isEqualTo("DATOS_INVALIDOS");
+        verifyNoInteractions(reclamos, proyecciones);
+    }
+
+    @Test
+    void soloElGestorPuedeResponder() {
+        assertThatThrownBy(() -> servicio.responder("REC-2026-0015",
+                new ResponderReclamoRequest(EstadoReclamo.ATENDIDO, "Respuesta", null), Solicitante.cliente(CLIENTE)))
+                .isInstanceOf(AccessDeniedException.class);
+        verifyNoInteractions(reclamos, proyecciones);
+    }
+
+    @Test
     void esp14_ca03_respuestaVaciaNoCierraElReclamo() {
         assertThatThrownBy(() -> servicio.responder("REC-2026-0015",
-                new ResponderReclamoRequest(EstadoReclamo.ATENDIDO, "   ", "GESTOR-02")))
+                new ResponderReclamoRequest(EstadoReclamo.ATENDIDO, "   ", "GESTOR-02"), SIN_TOKEN))
                 .isInstanceOf(SolicitudInvalidaException.class)
                 .extracting("codigo").isEqualTo("RESPUESTA_VACIA");
         verifyNoInteractions(reclamos, proyecciones);
@@ -219,7 +295,7 @@ class ReclamoServiceTest {
         when(reclamos.findByCodigo("REC-2026-0015")).thenReturn(Optional.of(reclamo(EstadoReclamo.ATENDIDO, null)));
 
         assertThatThrownBy(() -> servicio.responder("REC-2026-0015",
-                new ResponderReclamoRequest(EstadoReclamo.ATENDIDO, "Otra respuesta", "GESTOR-02")))
+                new ResponderReclamoRequest(EstadoReclamo.ATENDIDO, "Otra respuesta", "GESTOR-02"), SIN_TOKEN))
                 .isInstanceOf(ConflictoException.class)
                 .extracting("codigo").isEqualTo("RECLAMO_YA_ATENDIDO");
         verify(reclamos, never()).responder(anyLong(), any(), any(), any(), any(), any());
@@ -231,7 +307,7 @@ class ReclamoServiceTest {
         when(reclamos.iniciarAtencion(15L, "GESTOR-02")).thenReturn(1);
 
         RespuestaReclamoResponse r = servicio.responder("REC-2026-0015",
-                new ResponderReclamoRequest(EstadoReclamo.EN_PROCESO, null, "GESTOR-02"));
+                new ResponderReclamoRequest(EstadoReclamo.EN_PROCESO, null, "GESTOR-02"), SIN_TOKEN);
 
         assertThat(r.estado()).isEqualTo(EstadoReclamo.EN_PROCESO);
         assertThat(r.fechaRespuesta()).isNull();
@@ -243,7 +319,7 @@ class ReclamoServiceTest {
         when(reclamos.findByCodigo("REC-2026-0015")).thenReturn(Optional.of(reclamo(EstadoReclamo.EN_PROCESO, null)));
 
         assertThatThrownBy(() -> servicio.responder("REC-2026-0015",
-                new ResponderReclamoRequest(EstadoReclamo.EN_PROCESO, null, "GESTOR-02")))
+                new ResponderReclamoRequest(EstadoReclamo.EN_PROCESO, null, "GESTOR-02"), SIN_TOKEN))
                 .isInstanceOf(ConflictoException.class)
                 .extracting("codigo").isEqualTo("RECLAMO_NO_RESPONDIBLE");
         verify(reclamos, never()).iniciarAtencion(anyLong(), anyString());
@@ -255,7 +331,7 @@ class ReclamoServiceTest {
         when(reclamos.responder(anyLong(), any(), any(), any(), any(), any())).thenReturn(0);
 
         assertThatThrownBy(() -> servicio.responder("REC-2026-0015",
-                new ResponderReclamoRequest(EstadoReclamo.ATENDIDO, "Respuesta", "GESTOR-02")))
+                new ResponderReclamoRequest(EstadoReclamo.ATENDIDO, "Respuesta", "GESTOR-02"), SIN_TOKEN))
                 .isInstanceOf(ConflictoException.class);
         verifyNoInteractions(proyecciones);
     }
@@ -267,7 +343,7 @@ class ReclamoServiceTest {
                 .thenReturn(1);
 
         RespuestaReclamoResponse r = servicio.responder("REC-2026-0015",
-                new ResponderReclamoRequest(EstadoReclamo.DERIVADO, "Se derivó a mediación", "GESTOR-02"));
+                new ResponderReclamoRequest(EstadoReclamo.DERIVADO, "Se derivó a mediación", "GESTOR-02"), SIN_TOKEN);
 
         assertThat(r.estado()).isEqualTo(EstadoReclamo.DERIVADO);
         verifyNoInteractions(proyecciones);
@@ -276,7 +352,7 @@ class ReclamoServiceTest {
     @Test
     void nuevoEstadoRegistradoNoSePermite() {
         assertThatThrownBy(() -> servicio.responder("REC-2026-0015",
-                new ResponderReclamoRequest(EstadoReclamo.REGISTRADO, "x", "GESTOR-02")))
+                new ResponderReclamoRequest(EstadoReclamo.REGISTRADO, "x", "GESTOR-02"), SIN_TOKEN))
                 .isInstanceOf(SolicitudInvalidaException.class)
                 .extracting("codigo").isEqualTo("ESTADO_INVALIDO");
     }
