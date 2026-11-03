@@ -110,10 +110,9 @@ class DevolucionControllerTest {
     }
 
     @Test
-    void listadoAdministrativoExigeClienteId() throws Exception {
+    void listadoAdministrativoSinClienteIdListaTodos() throws Exception {
         mvc.perform(get("/api/v2/devoluciones"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.codigo").value("PARAMETRO_FALTANTE"));
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -144,6 +143,18 @@ class DevolucionControllerTest {
                 .andExpect(jsonPath("$.clienteId").doesNotExist())
                 .andExpect(jsonPath("$.totalElementos").value(0));
         verify(devolucionService).listar(CLIENTE_PRUEBA, null, null, 0, 10);
+    }
+
+    @Test
+    void listarSinClienteIdListaTodos() throws Exception {
+        when(devolucionService.listar(eq(null), eq(null), eq(null), eq(0), eq(10)))
+                .thenReturn(new ListadoDevolucionesResponse(null, List.of(), 0, 0, 0));
+
+        mvc.perform(get("/api/v2/devoluciones"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.clienteId").doesNotExist())
+                .andExpect(jsonPath("$.totalElementos").value(0));
+        verify(devolucionService).listar(null, null, null, 0, 10);
     }
 
     @Test

@@ -69,6 +69,7 @@ class EventoPedidoPostgresTest {
     private static AnnotationConfigApplicationContext contexto;
     private static EventoPedidoService servicio;
     private static ProyeccionesService proyecciones;
+    private static ProyeccionVentasService ventas;
     private static JdbcTemplate jdbc;
 
     @BeforeAll
@@ -78,11 +79,12 @@ class EventoPedidoPostgresTest {
         jdbc = contexto.getBean(JdbcTemplate.class);
         proyecciones = AopTestUtils.getUltimateTargetObject(
                 contexto.getBean(ProyeccionesService.class));
+        ventas = AopTestUtils.getUltimateTargetObject(contexto.getBean(ProyeccionVentasService.class));
     }
 
     @BeforeEach
     void restaurarProyecciones() {
-        reset(proyecciones);
+        reset(proyecciones, ventas);
     }
 
     @AfterAll
@@ -222,6 +224,71 @@ class EventoPedidoPostgresTest {
         assertThat((BigDecimal) venta.get("monto")).isEqualByComparingTo("25.00");
     }
 
+    @Test
+    void falloTrasActualizarVentasRevierteTodoYPermiteReintentarElMismoEvento() {
+        UUID vendedor = UUID.randomUUID();
+        EventoPedidoPayload evento = pagoRetail(vendedor, null);
+        long metricasAntes = contador(evento, diaUtc(evento));
+
+        // Ejecuta el INSERT real de ventas y falla antes de confirmar la transacción del receptor.
+        doAnswer(invocacion -> {
+            invocacion.callRealMethod();
+            throw new IllegalStateException("Fallo posterior al agregado de ventas");
+        }).when(ventas).pedidoPagado(any(OffsetDateTime.class), any(CanalVenta.class),
+                any(UUID.class), org.mockito.ArgumentMatchers.anyList());
+
+        assertThatThrownBy(() -> servicio.recibir(evento))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Fallo posterior al agregado de ventas");
+        assertThat(registros(evento)).isZero();
+        assertThat(contador(evento, diaUtc(evento))).isEqualTo(metricasAntes);
+        assertThat(filasVentas(vendedor)).isZero();
+
+        reset(ventas);
+        assertThat(servicio.recibir(evento)).isTrue();
+        assertThat(servicio.recibir(evento)).isFalse();
+        assertThat(registros(evento)).isEqualTo(1L);
+        assertThat(contador(evento, diaUtc(evento))).isEqualTo(metricasAntes + 1);
+        assertThat(filasVentas(vendedor)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("""
+                SELECT unidades FROM postventa.agregado_ventas
+                WHERE id_vendedor = ? AND id_producto = 'PROD-PRUEBA-42'
+                """, Long.class, vendedor)).isEqualTo(2L);
+        assertThat(jdbc.queryForObject("""
+                SELECT monto FROM postventa.agregado_ventas
+                WHERE id_vendedor = ? AND id_producto = 'PROD-PRUEBA-42'
+                """, BigDecimal.class, vendedor)).isEqualByComparingTo("25.00");
+    }
+
+    @Test
+    void pagoConReferenciaDeReemplazoNoSumaMetricasNiVentas() {
+        UUID vendedor = UUID.randomUUID();
+        EventoPedidoPayload evento = pagoRetail(vendedor, "DEV-2026-0042");
+        long metricasAntes = contador(evento, diaUtc(evento));
+
+        assertThat(servicio.recibir(evento)).isTrue();
+        assertThat(servicio.recibir(evento)).isFalse();
+
+        assertThat(registros(evento)).isEqualTo(1L);
+        assertThat(contador(evento, diaUtc(evento))).isEqualTo(metricasAntes);
+        assertThat(filasVentas(vendedor)).isZero();
+        org.mockito.Mockito.verifyNoInteractions(proyecciones, ventas);
+    }
+
+    private static long filasVentas(UUID vendedor) {
+        return Objects.requireNonNull(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM postventa.agregado_ventas WHERE id_vendedor = ?", Long.class, vendedor));
+    }
+
+    private static EventoPedidoPayload pagoRetail(UUID vendedor, String devolucionId) {
+        EventoPedidoPayload original = evento("pedido.pagado");
+        return new EventoPedidoPayload(original.idEvento(), original.tipo(), original.pedidoId(), original.fecha(),
+                new EventoPedidoPayload.Datos(CanalVenta.RETAIL, original.datos().clienteId(), vendedor,
+                        new BigDecimal("25.00"), "PEN", null,
+                        List.of(new EventoPedidoPayload.Item("PROD-PRUEBA-42", 2, new BigDecimal("25.00"))),
+                        devolucionId));
+    }
+
     private static EventoPedidoPayload evento(String tipo) {
         LocalDate dia = LocalDate.of(2100, 1, 1)
                 .plusDays(ThreadLocalRandom.current().nextLong(365000));
@@ -279,8 +346,7 @@ class EventoPedidoPostgresTest {
             EventoPedidoService.class,
             EventoRecibidoRepository.class,
             AgregadoMetricasRepository.class,
-            AgregadoVentasRepository.class,
-            ProyeccionVentasService.class
+            AgregadoVentasRepository.class
     })
     static class ConfiguracionLocal {
 
@@ -361,6 +427,11 @@ class EventoPedidoPostgresTest {
         ValidadorEventoPedido validadorEventoPedido(
                 LocalValidatorFactoryBean validator) {
             return new ValidadorEventoPedido(validator);
+        }
+
+        @Bean
+        ProyeccionVentasService proyeccionVentasService(AgregadoVentasRepository agregados) {
+            return spy(new ProyeccionVentasService(agregados));
         }
 
         @Bean

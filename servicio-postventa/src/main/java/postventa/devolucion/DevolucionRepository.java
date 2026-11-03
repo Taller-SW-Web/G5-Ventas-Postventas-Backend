@@ -24,7 +24,7 @@ public interface DevolucionRepository extends JpaRepository<Devolucion, Long> {
 
     @Query("""
             select d from Devolucion d
-            where d.idCliente = :idCliente
+            where (:idCliente is null or d.idCliente = :idCliente)
               and (:estado is null or d.estado = :estado)
               and (:tipo is null or d.tipo = :tipo)
             """)

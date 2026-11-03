@@ -127,11 +127,17 @@ El gateway vacío permite usar las URLs directas de microservicios con el client
 actual. Si se usa un gateway real, conservar su URL y configurar sus rutas en vez de
 vaciarla. No subir `.env` al repositorio. Reiniciar Vite tras cambiar variables.
 
-## Validación de esta entrega
+## Validación actualizada (2026-11-03)
 
-- Revisados los scripts contra el SQL compartido y las entidades actuales de M2.
-- Maven de Postventa: `BUILD SUCCESS`, 289 pruebas reportadas, 0 fallos, 0 errores,
-  13 omitidas por ser pruebas opcionales con PostgreSQL.
-- Aplicación del SQL y arranque real pendientes: Docker Desktop falló al iniciar
-  por un error de su gestor de inferencia (`dockerInference`). Esta entrega no afirma
-  que los scripts ya se ejecutaron ni que el servicio arrancó contra una base actualizada.
+- Comparadas las definiciones de las doce tablas con el esquema compartido vigente
+  (blob ba164f413c278bd2d05d9eceaea83480f725e8c8); coinciden.
+- Scripts ejecutados en PostgreSQL 16 local, base f4_integracion_johan: creación
+  aprobada, doce tablas presentes y actualizador ejecutado dos veces con COMMIT.
+- El ensayo del actualizador se hizo sobre la base recién creada; no demuestra
+  una migración sobre una base antigua con datos.
+- Postventa con F5_POSTGRES_TEST=true: BUILD SUCCESS, 307 pruebas, sin fallos,
+  errores ni omisiones; diez pruebas PostgreSQL del receptor aprobadas.
+- No se ejecutaron estos scripts en Supabase ni se validó el arranque de la
+  aplicación contra f4_integracion_johan. No cambiar ddl-auto=validate.
+
+Resultados, ejemplo de evento y límites: [validación de eventos](../../docs/validacion-eventos-ventas.md).

@@ -10,6 +10,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -147,23 +149,65 @@ public class AnulacionService {
      * Endpoint 1.8: GET /api/v1/pedidos/anulaciones/pendientes
      */
     @Transactional(readOnly = true)
-    public ListadoAnulacionesPendientesResponse listarPendientes(int pagina, int tamano) {
-        Pageable pageable = PageRequest.of(Math.max(0, pagina), Math.max(1, tamano));
-        Page<Anulacion> page = anulaciones.findByEstado(EstadoAnulacion.PENDIENTE_AUTORIZACION, pageable);
+    public ListadoAnulacionesPendientesResponse listarConFiltros(
+            EstadoAnulacion estado,
+            ventas.pedido.CanalVenta canal,
+            String busqueda,
+            int page,
+            int size,
+            String sort) {
 
-        List<AnulacionPendienteDto> items = page.getContent().stream()
+        Sort ordenacion = Sort.by(Sort.Direction.DESC, "fecha").and(Sort.by(Sort.Direction.DESC, "id"));
+        if (sort != null && !sort.isBlank()) {
+            String[] partes = sort.split(",");
+            String campo = partes[0].trim();
+            if ("fechaSolicitud".equalsIgnoreCase(campo)) {
+                campo = "fecha";
+            }
+            if ("recientes".equalsIgnoreCase(campo)) {
+                ordenacion = Sort.by(Sort.Direction.DESC, "fecha").and(Sort.by(Sort.Direction.DESC, "id"));
+            } else if ("antiguos".equalsIgnoreCase(campo)) {
+                ordenacion = Sort.by(Sort.Direction.ASC, "fecha").and(Sort.by(Sort.Direction.ASC, "id"));
+            } else {
+                Sort.Direction dir = partes.length > 1 && "asc".equalsIgnoreCase(partes[1].trim())
+                        ? Sort.Direction.ASC
+                        : Sort.Direction.DESC;
+                ordenacion = Sort.by(dir, campo).and(Sort.by(dir, "id"));
+            }
+        }
+
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.max(1, size), ordenacion);
+        Specification<Anulacion> spec = AnulacionesFiltro.conFiltros(estado, canal, busqueda);
+
+        Page<Anulacion> pageResult = anulaciones.findAll(spec, pageable);
+
+        List<AnulacionPendienteDto> items = pageResult.getContent().stream()
                 .map(a -> {
-                    String pedidoCod = pedidos.findById(a.getIdPedido()).map(Pedido::getCodigo).orElse("PED-" + a.getIdPedido());
+                    Pedido p = a.getPedido();
                     return new AnulacionPendienteDto(
                             CodigoPublico.anulacion(a.getId()),
-                            pedidoCod,
+                            p != null ? p.getCodigo() : "PED-" + a.getIdPedido(),
                             a.getMotivo(),
-                            a.getFecha()
+                            a.getFecha(),
+                            a.getEstado(),
+                            p != null ? p.getCanal() : null,
+                            p != null ? p.getNombreContacto() : null,
+                            p != null ? p.getEstado() : null
                     );
                 })
                 .toList();
 
-        return new ListadoAnulacionesPendientesResponse(items, page.getNumber(), page.getTotalPages(), page.getTotalElements());
+        return new ListadoAnulacionesPendientesResponse(
+                items,
+                pageResult.getNumber(),
+                pageResult.getTotalPages(),
+                pageResult.getTotalElements()
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public ListadoAnulacionesPendientesResponse listarPendientes(int pagina, int tamano) {
+        return listarConFiltros(EstadoAnulacion.PENDIENTE_AUTORIZACION, null, null, pagina, tamano, "fecha,desc");
     }
 
     /**

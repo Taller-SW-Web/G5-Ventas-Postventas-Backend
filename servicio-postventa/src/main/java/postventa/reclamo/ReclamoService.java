@@ -152,9 +152,10 @@ public class ReclamoService {
      * EN_PROCESO: "Iniciar atención", solo desde REGISTRADO y sin respuesta.
      * ATENDIDO / DERIVADO: exigen respuestaVisibleCliente (400 RESPUESTA_VACIA, el reclamo no cambia) y
      * registran la hora UTC de la respuesta. Un reclamo ATENDIDO ya no se vuelve a responder (409).
+     * atendidoPor es el sub del Gestor autenticado (ver autor), no lo que diga el cuerpo.
      */
     @Transactional
-    public RespuestaReclamoResponse responder(String codigo, ResponderReclamoRequest solicitud) {
+    public RespuestaReclamoResponse responder(String codigo, ResponderReclamoRequest solicitud, Solicitante quien) {
         EstadoReclamo nuevo = solicitud.nuevoEstado();
         if (nuevo == EstadoReclamo.REGISTRADO) {
             throw new SolicitudInvalidaException("ESTADO_INVALIDO",
@@ -165,7 +166,7 @@ public class ReclamoService {
             throw new SolicitudInvalidaException("RESPUESTA_VACIA",
                     "respuestaVisibleCliente es obligatoria para cerrar el reclamo");
         }
-        String atendidoPor = solicitud.atendidoPor().trim();
+        String atendidoPor = autor(solicitud, quien);
 
         Reclamo r = buscar(codigo);
         EstadoReclamo actual = r.getEstado();
@@ -209,6 +210,31 @@ public class ReclamoService {
         return reclamos.findByCodigo(codigo == null ? "" : codigo.trim())
                 .orElseThrow(() -> new RecursoNoEncontradoException("RECLAMO_NO_ENCONTRADO",
                         "No existe el reclamo " + codigo));
+    }
+
+    /**
+     * Quién queda como autor de la atención (RNF-03, ESP-14). Con seguridad es el sub del token del Gestor: un
+     * atendidoPor distinto en el cuerpo se ignora (solo se deja en el log). Sin identidad en el token (seguridad
+     * apagada, desarrollo local) se usa el del cuerpo, que entonces es obligatorio.
+     */
+    private static String autor(ResponderReclamoRequest solicitud, Solicitante quien) {
+        if (!quien.esGestor()) {
+            throw new AccessDeniedException("Solo el Gestor responde reclamos");
+        }
+        String declarado = textoOpcional(solicitud.atendidoPor());
+        if (quien.id() != null) {
+            String sub = quien.id().toString();
+            if (declarado != null && !declarado.equals(sub)) {
+                log.warn("atendidoPor del cuerpo ({}) no coincide con el Gestor autenticado ({}): se registra el token",
+                        declarado, sub);
+            }
+            return sub;
+        }
+        if (declarado == null) {
+            throw new SolicitudInvalidaException("DATOS_INVALIDOS",
+                    "atendidoPor es obligatorio cuando la petición no trae la identidad del Gestor");
+        }
+        return declarado;
     }
 
     private static ConflictoException noRespondible(Reclamo r, EstadoReclamo nuevo) {

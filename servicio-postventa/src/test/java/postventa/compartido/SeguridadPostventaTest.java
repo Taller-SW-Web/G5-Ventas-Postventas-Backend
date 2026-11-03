@@ -1,6 +1,9 @@
 package postventa.compartido;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -49,6 +52,7 @@ import postventa.integracion.eventos.EventoPedidoService;
 import postventa.devolucion.DevolucionService;
 import postventa.devolucion.EvidenciaService;
 import postventa.devolucion.RecepcionService;
+import postventa.devolucion.Solicitante;
 import postventa.reembolso.ConsultaReembolsosService;
 import postventa.reembolso.ReembolsoService;
 import postventa.reclamo.ReclamoService;
@@ -241,6 +245,17 @@ class SeguridadPostventaTest {
                 .andExpect(status().isForbidden());
         mvc.perform(get("/api/v2/dashboard/metricas").header("Authorization", canal))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void laRespuestaDeUnReclamoLlevaElSubDelGestorAutenticadoNoElDelCuerpo() throws Exception {
+        mvc.perform(patch("/api/v2/reclamos/REC-2026-0001/respuesta")
+                        .header("Authorization", "Bearer " + usuario("ADMIN_VENTAS"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nuevoEstado\":\"ATENDIDO\",\"respuestaVisibleCliente\":\"ok\",\"atendidoPor\":\"OTRO-GESTOR\"}"))
+                .andExpect(status().isOk());
+        verify(reclamoService).responder(eq("REC-2026-0001"), any(),
+                eq(Solicitante.gestor(UUID.fromString("11111111-1111-1111-1111-111111111111"))));
     }
 
     @Test
