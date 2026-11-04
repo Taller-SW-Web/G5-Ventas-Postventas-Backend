@@ -6,10 +6,12 @@ import static org.mockito.Mockito.*;
 
 import java.math.BigDecimal;
 import java.util.Optional;
+import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -81,7 +83,7 @@ class AnulacionServiceTest {
     @Test
     @DisplayName("Anulación directa en CREADO responde 200 sin autorizacion")
     void testAnulacionDirectaCreado() {
-        when(pedidos.findByCodigo("PED-2026-00101")).thenReturn(Optional.of(pedidoCreado));
+        when(pedidos.bloquearPorCodigo("PED-2026-00101")).thenReturn(Optional.of(pedidoCreado));
         when(anulaciones.findByIdPedido(101L)).thenReturn(Optional.empty());
         when(anulaciones.saveAndFlush(any(Anulacion.class))).thenAnswer(i -> {
             Anulacion a = i.getArgument(0);
@@ -102,7 +104,7 @@ class AnulacionServiceTest {
     @Test
     @DisplayName("Anulación en EN_PREPARACION responde 202 con codigo de solicitud ANUL-NNNN")
     void testAnulacionEnPreparacionPendiente() {
-        when(pedidos.findByCodigo("PED-2026-00103")).thenReturn(Optional.of(pedidoEnPrep));
+        when(pedidos.bloquearPorCodigo("PED-2026-00103")).thenReturn(Optional.of(pedidoEnPrep));
         when(anulaciones.findByIdPedido(103L)).thenReturn(Optional.empty());
         when(anulaciones.saveAndFlush(any(Anulacion.class))).thenAnswer(i -> {
             Anulacion a = i.getArgument(0);
@@ -135,7 +137,7 @@ class AnulacionServiceTest {
         despachado.setCodigo("PED-2026-00104");
         despachado.setEstado(EstadoPedido.DESPACHADO);
 
-        when(pedidos.findByCodigo("PED-2026-00104")).thenReturn(Optional.of(despachado));
+        when(pedidos.bloquearPorCodigo("PED-2026-00104")).thenReturn(Optional.of(despachado));
         SolicitarAnulacionRequest req = new SolicitarAnulacionRequest("SOLICITUD_CLIENTE", "Comentario");
 
         assertThrows(ConflictoException.class, () ->
@@ -145,7 +147,7 @@ class AnulacionServiceTest {
     @Test
     @DisplayName("Anulación directa en PAGADO registra reembolso hacia M2 (F4)")
     void testAnulacionDirectaPagadoRegistraReembolso() {
-        when(pedidos.findByCodigo("PED-2026-00102")).thenReturn(Optional.of(pedidoPagado));
+        when(pedidos.bloquearPorCodigo("PED-2026-00102")).thenReturn(Optional.of(pedidoPagado));
         when(anulaciones.findByIdPedido(102L)).thenReturn(Optional.empty());
         when(anulaciones.saveAndFlush(any(Anulacion.class))).thenAnswer(i -> {
             Anulacion a = i.getArgument(0);
@@ -175,8 +177,9 @@ class AnulacionServiceTest {
 
         pedidoEnPrep.setEstado(EstadoPedido.DESPACHADO);
 
-        when(anulaciones.findById(12L)).thenReturn(Optional.of(pendiente));
-        when(pedidos.findById(103L)).thenReturn(Optional.of(pedidoEnPrep));
+        when(anulaciones.idPedidoDe(12L)).thenReturn(Optional.of(103L));
+        when(anulaciones.bloquear(12L)).thenReturn(Optional.of(pendiente));
+        when(pedidos.bloquear(103L)).thenReturn(Optional.of(pedidoEnPrep));
 
         ResolverAnulacionRequest req = new ResolverAnulacionRequest("APROBADA", "ADMIN_VENTAS", "Aprobando tarde");
 
@@ -195,8 +198,9 @@ class AnulacionServiceTest {
         a.setIdPedido(pedido.getId());
         a.setEstado(EstadoAnulacion.PENDIENTE_AUTORIZACION);
         a.setMotivo("SOLICITUD_CLIENTE");
-        when(anulaciones.findById(13L)).thenReturn(Optional.of(a));
-        when(pedidos.findById(pedido.getId())).thenReturn(Optional.of(pedido));
+        when(anulaciones.idPedidoDe(13L)).thenReturn(Optional.of(pedido.getId()));
+        when(anulaciones.bloquear(13L)).thenReturn(Optional.of(a));
+        when(pedidos.bloquear(pedido.getId())).thenReturn(Optional.of(pedido));
         return a;
     }
 
@@ -259,5 +263,48 @@ class AnulacionServiceTest {
                 new ResolverAnulacionRequest("APROBADA", null, "ok"));
 
         verifyNoInteractions(despacho);
+    }
+
+    @Test
+    @DisplayName("1.9 bloquea el pedido antes de leer la anulación vigente (orden pedido -> anulación)")
+    void resolverBloqueaElPedidoAntesDeLeerLaAnulacion() {
+        pendienteDe(pedidoEnPrep);
+        when(despacho.cancelar(any(), any())).thenReturn(Cancelacion.CANCELADO);
+
+        anulacionService.resolverAnulacion("PED-2026-00103", "ANUL-0013",
+                new ResolverAnulacionRequest("APROBADA", null, "ok"));
+
+        InOrder orden = inOrder(anulaciones, pedidos);
+        orden.verify(anulaciones).idPedidoDe(13L);
+        orden.verify(pedidos).bloquear(103L);
+        orden.verify(anulaciones).bloquear(13L);
+        verify(anulaciones, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("Una decisión que llega cuando otra ya ejecutó la anulación recibe 409 y no cambia nada")
+    void decisionConcurrenteSobreAnulacionYaEjecutadaNoLaModifica() {
+        UUID ganador = UUID.fromString("22222222-2222-4222-8222-222222222222");
+        Anulacion ejecutada = new Anulacion();
+        ejecutada.setId(13L);
+        ejecutada.setIdPedido(103L);
+        ejecutada.setEstado(EstadoAnulacion.EJECUTADA);
+        ejecutada.setIdAutorizador(ganador);
+        ejecutada.setMotivo("SOLICITUD_CLIENTE");
+        pedidoEnPrep.setEstado(EstadoPedido.ANULADO);   // lo dejó así la decisión que ganó
+        when(anulaciones.idPedidoDe(13L)).thenReturn(Optional.of(103L));
+        when(pedidos.bloquear(103L)).thenReturn(Optional.of(pedidoEnPrep));
+        when(anulaciones.bloquear(13L)).thenReturn(Optional.of(ejecutada));
+
+        for (String decision : new String[] {"APROBADA", "RECHAZADA"}) {
+            ConflictoException ex = assertThrows(ConflictoException.class, () ->
+                    anulacionService.resolverAnulacion("PED-2026-00103", "ANUL-0013",
+                            new ResolverAnulacionRequest(decision, "33333333-3333-4333-8333-333333333333", "tarde")));
+            assertEquals("ANULACION_NO_PENDIENTE", ex.getCodigo());
+        }
+        assertEquals(EstadoAnulacion.EJECUTADA, ejecutada.getEstado());
+        assertEquals(ganador, ejecutada.getIdAutorizador());
+        verify(anulaciones, never()).saveAndFlush(any());
+        verifyNoInteractions(despacho, reembolsos, productos, maquinaEstados);
     }
 }

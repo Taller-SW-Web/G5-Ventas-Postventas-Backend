@@ -88,7 +88,7 @@ public class MensajesProductosService {
      * se anula y se devuelve el dinero (decisión 1 del equipo, 2026-10-12).
      */
     public void reservaExpiradaTrasPago(String pedidoId) {
-        ejecutar(transaccion.execute(estado -> pedidos.findByCodigo(pedidoId)
+        ejecutar(transaccion.execute(estado -> pedidos.bloquearPorCodigo(pedidoId)
                 .filter(p -> p.getEstado() == EstadoPedido.PAGADO)
                 .map(p -> anularPagado(p, MOTIVO_RESERVA_EXPIRADA))
                 .orElse(Paso.solo(Desenlace.IGNORADO))));
@@ -99,7 +99,7 @@ public class MensajesProductosService {
      * se anula sin reembolso y M2 devuelve la devolución a evaluación para pedir otro con una reserva nueva.
      */
     public void reservaExpiradaReemplazo(String pedidoId) {
-        transaccion.executeWithoutResult(estado -> pedidos.findByCodigo(pedidoId)
+        transaccion.executeWithoutResult(estado -> pedidos.bloquearPorCodigo(pedidoId)
                 .filter(p -> p.esReemplazo() && p.getEstado() == EstadoPedido.EN_PREPARACION)
                 .ifPresent(p -> anular(p, MOTIVO_RESERVA_EXPIRADA)));
     }
@@ -112,7 +112,8 @@ public class MensajesProductosService {
             log.warn("Mensaje {} ({}) sin order_id: se ignora", m.messageId(), m.name());
             return Paso.solo(Desenlace.IGNORADO);
         }
-        Pedido pedido = pedidos.findByCodigo(m.pedidoId()).orElse(null);
+        // Con bloqueo: se serializa con la notificación de pago (1.2) y la anulación (1.7)
+        Pedido pedido = pedidos.bloquearPorCodigo(m.pedidoId()).orElse(null);
         if (pedido == null) {
             return Paso.solo(Desenlace.PEDIDO_NO_ENCONTRADO);
         }

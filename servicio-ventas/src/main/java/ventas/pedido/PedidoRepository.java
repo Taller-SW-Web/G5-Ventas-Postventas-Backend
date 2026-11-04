@@ -10,10 +10,29 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import jakarta.persistence.LockModeType;
 
 public interface PedidoRepository extends JpaRepository<Pedido, Long>, JpaSpecificationExecutor<Pedido> {
 
     Optional<Pedido> findByCodigo(String codigo);
+
+    /**
+     * El pedido con SELECT ... FOR UPDATE, dentro de la transacción que va a cambiarlo. La notificación de pago
+     * (1.2), la anulación (1.7) y las anulaciones automáticas de Productos se esperan entre sí: la segunda ve el
+     * estado que dejó la primera y nunca se pisan (pago y anulación concurrentes terminan en un solo reembolso).
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Pedido p where p.id = :id")
+    Optional<Pedido> bloquear(@Param("id") Long id);
+
+    /** Igual que bloquear, por código público (PED-AAAA-NNNNN). */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Pedido p where p.codigo = :codigo")
+    Optional<Pedido> bloquearPorCodigo(@Param("codigo") String codigo);
 
     /** Para la idempotencia de 1.1: trae los ítems para comparar el payload. */
     @EntityGraph(attributePaths = "detalles")

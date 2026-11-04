@@ -65,7 +65,7 @@ class MensajesProductosServiceTest {
     }
 
     private void pedidoExiste() {
-        when(pedidos.findByCodigo(CODIGO)).thenReturn(Optional.of(pedido));
+        when(pedidos.bloquearPorCodigo(CODIGO)).thenReturn(Optional.of(pedido));
     }
 
     private static MensajeInventario mensaje(String nombre, String operacionId, Map<String, Object> extra) {
@@ -238,7 +238,7 @@ class MensajesProductosServiceTest {
 
     @Test
     void sinPedidoTodaviaPideReintentar() {
-        when(pedidos.findByCodigo(CODIGO)).thenReturn(Optional.empty());
+        when(pedidos.bloquearPorCodigo(CODIGO)).thenReturn(Optional.empty());
 
         assertThat(servicio.procesar(creada())).isEqualTo(Desenlace.PEDIDO_NO_ENCONTRADO);
         verify(recibidos, never()).saveAndFlush(any());
@@ -255,7 +255,7 @@ class MensajesProductosServiceTest {
     void confirmarRechazadoAlInstantePorReservaExpiradaAnulaYReembolsa() {
         pedido.setCanal(CanalVenta.CHATBOT);
         pedido.setEstado(EstadoPedido.PAGADO);
-        when(pedidos.findByCodigo(CODIGO)).thenReturn(Optional.of(pedido));
+        when(pedidos.bloquearPorCodigo(CODIGO)).thenReturn(Optional.of(pedido));
         when(productos.confirmar(CODIGO, "RES-778")).thenReturn(ResultadoConfirmacion.RESERVA_EXPIRADA);
         when(anulaciones.registrarEjecutada(981L, MensajesProductosService.MOTIVO_RESERVA_EXPIRADA)).thenReturn("ANUL-0009");
 

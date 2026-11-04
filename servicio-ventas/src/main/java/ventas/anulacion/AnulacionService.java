@@ -54,7 +54,7 @@ public class AnulacionService {
         }
 
         // 2. Buscar pedido
-        Pedido pedido = pedidos.findByCodigo(pedidoCodigo)
+        Pedido pedido = pedidos.bloquearPorCodigo(pedidoCodigo)   // espera a una notificación de pago en curso (1.2)
                 .orElseThrow(() -> new RecursoNoEncontradoException("PEDIDO_NO_ENCONTRADO", "No se encontró el pedido " + pedidoCodigo));
 
         EstadoPedido estadoActual = pedido.getEstado();
@@ -212,15 +212,23 @@ public class AnulacionService {
 
     /**
      * Endpoint 1.9: PATCH /api/v1/pedidos/{pedidoId}/anulaciones/{anulacionId}
+     * <p>
+     * Concurrencia: primero se bloquea el pedido y recién después se lee la anulación, también con bloqueo (mismo
+     * orden que 1.2, 1.7 y Productos: pedido -> anulación). Antes de bloquear solo se consulta su id_pedido, sin cargar
+     * la entidad, para que la anulación que se valida sea la vigente y no una copia leída antes de esperar el turno.
+     * Así una sola decisión gana; las siguientes ven que ya no está PENDIENTE_AUTORIZACION y reciben 409 sin tocar
+     * nada (noRollbackFor solo conserva el RECHAZADA que esta misma petición decidió por el estado del pedido).
      */
     @Transactional(noRollbackFor = ConflictoException.class)
     public ResolverAnulacionResponse resolverAnulacion(String pedidoCodigo, String anulacionCodigo, ResolverAnulacionRequest req) {
         Long idAnulacion = CodigoPublico.id(anulacionCodigo);
-        Anulacion a = anulaciones.findById(idAnulacion)
+        Long idPedido = anulaciones.idPedidoDe(idAnulacion)
                 .orElseThrow(() -> new RecursoNoEncontradoException("ANULACION_NO_ENCONTRADA", "No se encontró la solicitud " + anulacionCodigo));
 
-        Pedido pedido = pedidos.findById(a.getIdPedido())
+        Pedido pedido = pedidos.bloquear(idPedido)
                 .orElseThrow(() -> new RecursoNoEncontradoException("PEDIDO_NO_ENCONTRADO", "No se encontró el pedido asociado a la anulación"));
+        Anulacion a = anulaciones.bloquear(idAnulacion)
+                .orElseThrow(() -> new RecursoNoEncontradoException("ANULACION_NO_ENCONTRADA", "No se encontró la solicitud " + anulacionCodigo));
 
         if (!pedido.getCodigo().equalsIgnoreCase(pedidoCodigo)) {
             throw new SolicitudInvalidaException("DATOS_INCONSISTENTES", "La anulación indicada no pertenece al pedido " + pedidoCodigo);

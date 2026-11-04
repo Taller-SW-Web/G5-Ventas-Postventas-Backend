@@ -40,13 +40,14 @@ public class ConsultarPedidoService {
         List<PedidoDetalle.Historial> hist = historial.findByPedidoIdOrderByFechaHoraAsc(p.getId()).stream()
                 .map(h -> new PedidoDetalle.Historial(h.getEstadoNuevo(), h.getFechaHora(), h.getActor(), h.getMotivo()))
                 .toList();
-        String metodo = pagos.findByPedidoId(p.getId()).map(Pago::getMetodo).orElse(null);
+        Optional<Pago> pago = pagos.findByPedidoId(p.getId());
 
         return new PedidoDetalle(
                 p.getCodigo(), p.getCanal(), p.getEstado(),
                 new PedidoDetalle.Contacto(p.getIdCliente(), p.getNombreContacto(), p.getTipoDocumento(),
                         p.getNumeroDocumento(), p.getEmail(), p.getTelefono()),
-                new PedidoDetalle.Pago(p.getTotal(), p.getMoneda().trim(), metodo),
+                new PedidoDetalle.Pago(p.getTotal(), p.getMoneda().trim(), pago.map(Pago::getMetodo).orElse(null),
+                        pago.map(Pago::getEstado).orElse(null)),
                 new PedidoDetalle.Envio(p.getModalidadEnvio(), p.getDireccion(), p.getDistrito(), p.getTiendaId(),
                         p.getDepartamento(), p.getProvincia(), p.getReferenciaEnvio(), p.getFechaEstimadaEntrega()),
                 p.getDetalles().stream()

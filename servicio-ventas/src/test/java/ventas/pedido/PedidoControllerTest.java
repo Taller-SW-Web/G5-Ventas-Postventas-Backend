@@ -143,7 +143,7 @@ class PedidoControllerTest {
                 "PED-2026-00981", CanalVenta.CHATBOT, EstadoPedido.ENTREGADO,
                 new PedidoDetalle.Contacto(java.util.UUID.fromString("11111111-1111-1111-1111-111111111111"),
                         "Juan", "DNI", "72458912", "j@x.com", null),
-                new PedidoDetalle.Pago(new BigDecimal("129.90"), "PEN", "TARJETA_CREDITO"),
+                new PedidoDetalle.Pago(new BigDecimal("129.90"), "PEN", "TARJETA_CREDITO", EstadoPago.CONFIRMADO),
                 new PedidoDetalle.Envio("DELIVERY", "Av. La Marina 1234", "San Miguel", null, "Lima", "Lima", null, null),
                 java.util.List.of(new PedidoDetalle.Item("PROD-101", "SKU-AUR-01", "Audífonos", 1, new BigDecimal("129.90"))),
                 OffsetDateTime.parse("2026-09-23T00:05:00Z"), OffsetDateTime.parse("2026-09-25T10:00:00Z"),
