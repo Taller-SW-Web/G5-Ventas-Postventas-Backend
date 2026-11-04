@@ -1,6 +1,8 @@
 package postventa.integracion;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -16,8 +18,9 @@ import postventa.compartido.DependenciaNoDisponibleException;
 
 /**
  * Módulo F (Productos, G6) para F3:
- * - Disponibilidad para un cambio (ESP-08 flujo B). La ruta todavía no está acordada con Productos:
- *   en modo real responde 503 hasta que se acuerde.
+ * - Disponibilidad para un cambio (ESP-08 flujo B): GET /api/v1/inventario/disponibilidad?skus=... (acordado con
+ *   G6 el 2026-10-16, issue #100; scope inventario:disponibilidad:leer). Informativa, no reserva nada: hay stock si
+ *   el available de cada sku cubre las unidades pedidas. Sin location_id (un solo almacén). Si no responde, 503.
  * - Reintegro de las unidades devueltas: POST /api/v1/inventario/reintegros (ACUERDO_G6_PRODUCTOS, 2026-10-13).
  *   Solo después de confirmar la recepción física (2.5b, issue G6 #51 P-02) y solo por las unidades aptas.
  *   Cuerpo confirmado contra su OpenAPI: operation_id, order_id, source_ref, reason DEVOLUCION_ACEPTADA y
@@ -33,7 +36,13 @@ public class ProductosClient {
 
     public static final String PRODUCTO_SIN_STOCK_SIMULADO = "PROD-999";
 
-    public record ItemProducto(String productoId, int cantidad) {}
+    /** Un producto del cambio: su productoId, el sku con el que lo conoce Productos y cuántas unidades se piden. */
+    public record ItemProducto(String productoId, String sku, int cantidad) {}
+
+    /** Respuesta de /inventario/disponibilidad: solo se usan sku y available. */
+    record DisponibilidadResponse(List<DisponibilidadItem> items) {}
+
+    record DisponibilidadItem(String sku, Integer available) {}
 
     /** Una línea a reintegrar: el sku del pedido y las unidades aptas. */
     public record LineaReintegro(String sku, int cantidad) {}
@@ -75,9 +84,29 @@ public class ProductosClient {
             log.info("[simulado] disponibilidad de {} -> {}", items, hay);
             return hay;
         }
-        // Pendiente: ruta de consulta de disponibilidad con Productos (no está en ACUERDO_G6_PRODUCTOS)
-        throw new DependenciaNoDisponibleException("PRODUCTOS_NO_DISPONIBLE",
-                "La consulta de disponibilidad con Productos todavía no está habilitada");
+        Map<String, Integer> pedidas = new LinkedHashMap<>();
+        items.forEach(i -> pedidas.merge(i.sku(), i.cantidad(), Integer::sum));
+        DisponibilidadResponse r;
+        try {
+            r = http.get().uri(u -> u.path("/api/v1/inventario/disponibilidad")
+                            .queryParam("skus", String.join(",", pedidas.keySet())).build())
+                    .headers(h -> tokenServicio.authorization().ifPresent(t -> h.set(HttpHeaders.AUTHORIZATION, t)))
+                    .retrieve()
+                    .body(DisponibilidadResponse.class);
+        } catch (RestClientException e) {
+            throw new DependenciaNoDisponibleException("PRODUCTOS_NO_DISPONIBLE",
+                    "Productos no respondió la consulta de disponibilidad; intente nuevamente", e);
+        }
+        Map<String, Integer> disponibles = new LinkedHashMap<>();
+        if (r != null && r.items() != null) {
+            r.items().stream().filter(i -> i.sku() != null && i.available() != null)
+                    .forEach(i -> disponibles.merge(i.sku(), i.available(), Integer::sum));
+        }
+        // Un sku que Productos no devuelve cuenta como sin stock
+        boolean hay = pedidas.entrySet().stream()
+                .allMatch(e -> disponibles.getOrDefault(e.getKey(), 0) >= e.getValue());
+        log.info("Disponibilidad en Productos de {} -> {} ({})", pedidas, hay, disponibles);
+        return hay;
     }
 
     /**

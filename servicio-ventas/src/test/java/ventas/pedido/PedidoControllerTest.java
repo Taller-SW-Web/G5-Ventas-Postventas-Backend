@@ -140,7 +140,7 @@ class PedidoControllerTest {
     @Test
     void consultarPedidoResponde200ConElContrato() throws Exception {
         when(consultarPedidoService.consultar(eq("PED-2026-00981"), any())).thenReturn(new PedidoDetalle(
-                "PED-2026-00981", CanalVenta.CHATBOT, EstadoPedido.ENTREGADO,
+                "PED-2026-00981", CanalVenta.CHATBOT, EstadoPedido.ENTREGADO, ventas.pedido.TipoPedido.VENTA,
                 new PedidoDetalle.Contacto(java.util.UUID.fromString("11111111-1111-1111-1111-111111111111"),
                         "Juan", "DNI", "72458912", "j@x.com", null),
                 new PedidoDetalle.Pago(new BigDecimal("129.90"), "PEN", "TARJETA_CREDITO", EstadoPago.CONFIRMADO),
@@ -154,6 +154,7 @@ class PedidoControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.pedidoId").value("PED-2026-00981"))
                 .andExpect(jsonPath("$.estado").value("ENTREGADO"))
+                .andExpect(jsonPath("$.tipo").value("VENTA"))
                 .andExpect(jsonPath("$.contacto.clienteId").value("11111111-1111-1111-1111-111111111111"))
                 .andExpect(jsonPath("$.pago.metodoPago").value("TARJETA_CREDITO"))
                 .andExpect(jsonPath("$.items[0].productoId").value("PROD-101"))

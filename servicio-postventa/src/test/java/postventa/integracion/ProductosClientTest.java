@@ -81,9 +81,59 @@ class ProductosClientTest {
 
         cliente.reintegrar(OPERACION, "PED-2026-00981", "DEV-2026-0042", LINEAS);
 
-        assertThat(cliente.hayDisponibilidad(List.of(new ProductosClient.ItemProducto("PROD-101", 1)))).isTrue();
-        assertThat(cliente.hayDisponibilidad(List.of(new ProductosClient.ItemProducto("PROD-999", 1)))).isFalse();
+        assertThat(cliente.hayDisponibilidad(List.of(new ProductosClient.ItemProducto("PROD-101", "SKU-101", 1)))).isTrue();
+        assertThat(cliente.hayDisponibilidad(List.of(new ProductosClient.ItemProducto("PROD-999", "SKU-999", 1)))).isFalse();
         g6.verify();
+    }
+
+    @Test
+    void enModoRealConsultaLaDisponibilidadPorSkuConElTokenDeM2() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://productos");
+        MockRestServiceServer g6 = MockRestServiceServer.bindTo(builder).build();
+        g6.expect(requestTo("http://productos/api/v1/inventario/disponibilidad?skus=SKU-101,SKU-102"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("Authorization", "Bearer token-m2"))
+                .andRespond(withSuccess("""
+                        {"items":[{"sku":"SKU-101","location_id":"L1","on_hand":5,"reserved":1,"blocked":0,
+                                   "available":4,"status":"DISPONIBLE","threshold":2},
+                                  {"sku":"SKU-102","available":1,"status":"STOCK_BAJO"}]}
+                        """, MediaType.APPLICATION_JSON));
+        ProductosClient cliente = new ProductosClient(false, "", token(), builder);
+
+        assertThat(cliente.hayDisponibilidad(List.of(new ProductosClient.ItemProducto("PROD-101", "SKU-101", 2),
+                new ProductosClient.ItemProducto("PROD-102", "SKU-102", 1)))).isTrue();
+        g6.verify();
+    }
+
+    @Test
+    void enModoRealSinUnidadesSuficientesOSkuDesconocidoNoHayStock() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://productos");
+        MockRestServiceServer g6 = MockRestServiceServer.bindTo(builder).build();
+        g6.expect(requestTo("http://productos/api/v1/inventario/disponibilidad?skus=SKU-101"))
+                .andRespond(withSuccess("""
+                        {"items":[{"sku":"SKU-101","available":1,"status":"STOCK_BAJO"}]}
+                        """, MediaType.APPLICATION_JSON));
+        g6.expect(requestTo("http://productos/api/v1/inventario/disponibilidad?skus=SKU-404"))
+                .andRespond(withSuccess("""
+                        {"items":[]}
+                        """, MediaType.APPLICATION_JSON));
+        ProductosClient cliente = new ProductosClient(false, "", token(), builder);
+
+        assertThat(cliente.hayDisponibilidad(List.of(new ProductosClient.ItemProducto("PROD-101", "SKU-101", 2)))).isFalse();
+        assertThat(cliente.hayDisponibilidad(List.of(new ProductosClient.ItemProducto("PROD-404", "SKU-404", 1)))).isFalse();
+        g6.verify();
+    }
+
+    @Test
+    void siLaDisponibilidadNoRespondeEs503() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://productos");
+        MockRestServiceServer g6 = MockRestServiceServer.bindTo(builder).build();
+        g6.expect(requestTo("http://productos/api/v1/inventario/disponibilidad?skus=SKU-101")).andRespond(withServerError());
+        ProductosClient cliente = new ProductosClient(false, "", token(), builder);
+
+        assertThatThrownBy(() -> cliente.hayDisponibilidad(List.of(new ProductosClient.ItemProducto("PROD-101", "SKU-101", 1))))
+                .isInstanceOf(DependenciaNoDisponibleException.class)
+                .extracting("codigo").isEqualTo("PRODUCTOS_NO_DISPONIBLE");
     }
 
     private static TokenServicio token() {
