@@ -3,15 +3,21 @@ package ventas.pedido;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +29,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.support.TransactionOperations;
 
+import ventas.anulacion.AnulacionSistemaService;
+import ventas.anulacion.ReembolsoAnulacionService;
 import ventas.compartido.ConflictoException;
 import ventas.compartido.RecursoNoEncontradoException;
 import ventas.compartido.SolicitudInvalidaException;
@@ -46,6 +54,9 @@ class NotificacionPagoServiceTest {
     @Mock MaquinaEstados maquina;
     @Mock ProductosClient productos;
     @Mock MensajesProductosService mensajesProductos;
+    @Mock HistorialEstadoRepository historial;
+    @Mock AnulacionSistemaService anulaciones;
+    @Mock ReembolsoAnulacionService reembolsos;
 
     NotificacionPagoService servicio;
     Pedido pedido;
@@ -53,7 +64,8 @@ class NotificacionPagoServiceTest {
 
     @BeforeEach
     void armar() {
-        servicio = new NotificacionPagoService(pedidos, pagos, recibidos, maquina, productos, mensajesProductos, TransactionOperations.withoutTransaction());
+        servicio = new NotificacionPagoService(pedidos, pagos, recibidos, maquina, productos, mensajesProductos,
+                historial, anulaciones, reembolsos, TransactionOperations.withoutTransaction());
         pedido = new Pedido();
         pedido.setId(981L);
         pedido.setCodigo(CODIGO);
@@ -68,8 +80,10 @@ class NotificacionPagoServiceTest {
         pago.setEstado(EstadoPago.PENDIENTE);
     }
 
+    /** aplicar() lo lee con bloqueo; el reintento tras una carrera de la misma clave, sin bloqueo. */
     private void pedidoExiste() {
-        when(pedidos.findById(981L)).thenReturn(Optional.of(pedido));
+        lenient().when(pedidos.bloquear(981L)).thenReturn(Optional.of(pedido));
+        lenient().when(pedidos.findById(981L)).thenReturn(Optional.of(pedido));
     }
 
     // ---------- CA-01 / CA-02 de ESP-03 ----------
@@ -177,6 +191,7 @@ class NotificacionPagoServiceTest {
     void reintentoNoVuelveAConfirmar() {
         pedido.setEstado(EstadoPedido.PAGADO);
         pedido.setReservaId("RES-778");
+        pago.setEstado(EstadoPago.CONFIRMADO);
         pago.setReferencia(TX);
         pago.setFechaProceso(FECHA_PAGO);
         pedidoExiste();
@@ -193,6 +208,7 @@ class NotificacionPagoServiceTest {
     @Test
     void reintentoDeLaMismaTransaccionNoCambiaNada() {
         pedido.setEstado(EstadoPedido.PAGADO);
+        pago.setEstado(EstadoPago.CONFIRMADO);
         pago.setReferencia(TX);
         pago.setFechaProceso(FECHA_PAGO);
         pedidoExiste();
@@ -226,6 +242,7 @@ class NotificacionPagoServiceTest {
         when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
         when(recibidos.saveAndFlush(any())).thenAnswer(inv -> {
             // la otra petición ya guardó la clave y el pago
+            pago.setEstado(EstadoPago.CONFIRMADO);
             pago.setReferencia(TX);
             pago.setFechaProceso(FECHA_PAGO);
             throw new DataIntegrityViolationException("evento_recibido_pkey");
@@ -241,7 +258,7 @@ class NotificacionPagoServiceTest {
 
     @Test
     void pedidoInexistenteDa404() {
-        when(pedidos.findById(981L)).thenReturn(Optional.empty());
+        when(pedidos.bloquear(981L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> servicio.procesar(CODIGO, notificacion(ResultadoPasarela.APROBADO, "129.90")))
                 .isInstanceOf(RecursoNoEncontradoException.class)
@@ -276,6 +293,171 @@ class NotificacionPagoServiceTest {
                 .isInstanceOf(SolicitudInvalidaException.class)
                 .extracting("codigo").isEqualTo("MONTOS_INCONSISTENTES");
         verifyNoInteractions(maquina);
+    }
+
+    // ---------- Cobro confirmado de un pedido ya ANULADO (ESP-03 7.4 C, decisión 2026-11-04) ----------
+
+    private void anuladoPor(String motivo) {
+        pedido.setEstado(EstadoPedido.ANULADO);
+        pedido.setReservaId("RES-778");
+        HistorialEstado creado = historial(EstadoPedido.CREADO, null, "2026-09-22T23:58:00Z");
+        HistorialEstado anulado = historial(EstadoPedido.ANULADO, motivo, "2026-09-23T00:05:00Z");
+        lenient().when(historial.findByPedidoIdOrderByFechaHoraAsc(981L)).thenReturn(List.of(creado, anulado));
+        lenient().when(anulaciones.asegurarEjecutada(eq(981L), anyString(), any())).thenReturn("ANUL-0007");
+    }
+
+    private static HistorialEstado historial(EstadoPedido estado, String motivo, String fecha) {
+        HistorialEstado h = new HistorialEstado();
+        h.setEstadoNuevo(estado);
+        h.setMotivo(motivo);
+        h.setFechaHora(OffsetDateTime.parse(fecha));
+        return h;
+    }
+
+    @Test
+    void cobroAprobadoSobreUnPedidoAnuladoRegistraElPagoYUnReembolsoSinReactivarlo() {
+        anuladoPor("SOLICITUD_CLIENTE");
+        pedidoExiste();
+        when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
+
+        NotificacionPagoResponse r = servicio.procesar(CODIGO, notificacion(ResultadoPasarela.APROBADO, "129.90"));
+
+        assertThat(r.nuevoEstado()).isEqualTo(EstadoPedido.ANULADO);
+        assertThat(r.transaccionId()).isEqualTo(TX);
+        assertThat(pago.getEstado()).isEqualTo(EstadoPago.CONFIRMADO);
+        assertThat(pago.getReferencia()).isEqualTo(TX);
+        verify(recibidos).saveAndFlush(any());
+        verify(anulaciones).asegurarEjecutada(981L, "SOLICITUD_CLIENTE", LocalDate.parse("2026-09-23"));
+        verify(reembolsos).registrar(eq("ANUL-0007"), eq(981L), eq(new BigDecimal("129.90")), eq("PEN"),
+                contains(NotificacionPagoService.MOTIVO_COBRO_TRAS_ANULACION));
+        verify(reembolsos).enviar("ANUL-0007");
+        // ni PAGADO, ni evento, ni stock, ni Despacho
+        verifyNoInteractions(maquina, productos, mensajesProductos);
+    }
+
+    @Test
+    void anulacionAutomaticaSinFilaUsaElMotivoDelHistorial() {
+        anuladoPor("STOCK_NO_DISPONIBLE");
+        pedidoExiste();
+        when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
+
+        servicio.procesar(CODIGO, notificacion(ResultadoPasarela.APROBADO, "129.90"));
+
+        verify(anulaciones).asegurarEjecutada(981L, "STOCK_NO_DISPONIBLE", LocalDate.parse("2026-09-23"));
+    }
+
+    @Test
+    void siM2NoRespondeLaNotificacionSeReconoceIgual() {
+        anuladoPor("SOLICITUD_CLIENTE");
+        pedidoExiste();
+        when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
+        doThrow(new IllegalStateException("M2 caído")).when(reembolsos).enviar("ANUL-0007");
+
+        NotificacionPagoResponse r = servicio.procesar(CODIGO, notificacion(ResultadoPasarela.APROBADO, "129.90"));
+
+        assertThat(r.nuevoEstado()).isEqualTo(EstadoPedido.ANULADO);
+        verify(reembolsos).registrar(eq("ANUL-0007"), eq(981L), any(), eq("PEN"), anyString());
+    }
+
+    @Test
+    void cobroTardioConOtroMontoNoTieneEfectos() {
+        anuladoPor("SOLICITUD_CLIENTE");
+        pedidoExiste();
+
+        assertThatThrownBy(() -> servicio.procesar(CODIGO, notificacion(ResultadoPasarela.APROBADO, "100.00")))
+                .isInstanceOf(SolicitudInvalidaException.class)
+                .extracting("codigo").isEqualTo("MONTOS_INCONSISTENTES");
+        verify(recibidos, never()).saveAndFlush(any());
+        verify(pagos, never()).save(any());
+        verifyNoInteractions(anulaciones, reembolsos);
+    }
+
+    @Test
+    void cobroTardioConOtraMonedaNoTieneEfectos() {
+        anuladoPor("SOLICITUD_CLIENTE");
+        pedidoExiste();
+        NotificacionPagoRequest enDolares = new NotificacionPagoRequest(TX, ResultadoPasarela.APROBADO,
+                new BigDecimal("129.90"), "USD", "TARJETA_CREDITO", "VISA", "4321", FECHA_PAGO, "AUTH-99021");
+
+        assertThatThrownBy(() -> servicio.procesar(CODIGO, enDolares))
+                .isInstanceOf(SolicitudInvalidaException.class);
+        verify(recibidos, never()).saveAndFlush(any());
+        verifyNoInteractions(anulaciones, reembolsos);
+    }
+
+    @Test
+    void otraTransaccionNoSobrescribeUnCobroYaConfirmado() {
+        anuladoPor("SOLICITUD_CLIENTE");
+        pago.setEstado(EstadoPago.CONFIRMADO);
+        pago.setReferencia("TX-ANTERIOR");
+        pedidoExiste();
+        when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
+
+        assertThatThrownBy(() -> servicio.procesar(CODIGO, notificacion(ResultadoPasarela.APROBADO, "129.90")))
+                .isInstanceOf(ConflictoException.class)
+                .extracting("codigo").isEqualTo("PAGO_YA_CONFIRMADO");
+        assertThat(pago.getReferencia()).isEqualTo("TX-ANTERIOR");
+        verify(recibidos, never()).saveAndFlush(any());
+        verifyNoInteractions(anulaciones, reembolsos);
+    }
+
+    @Test
+    void repetirElCobroTardioNoDuplicaElReembolso() {
+        anuladoPor("SOLICITUD_CLIENTE");
+        pago.setEstado(EstadoPago.CONFIRMADO);
+        pago.setReferencia(TX);
+        pago.setFechaProceso(FECHA_PAGO);
+        pedidoExiste();
+        when(recibidos.existsByIdEventoAndOrigen(TX, OrigenEvento.PASARELA_PAGOS)).thenReturn(true);
+        when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
+
+        NotificacionPagoResponse r = servicio.procesar(CODIGO, notificacion(ResultadoPasarela.APROBADO, "129.90"));
+
+        assertThat(r.nuevoEstado()).isEqualTo(EstadoPedido.ANULADO);
+        verify(recibidos, never()).saveAndFlush(any());
+        verifyNoInteractions(anulaciones, reembolsos, maquina, productos);
+    }
+
+    @Test
+    void repetirLaTransaccionConOtroResultadoOMontoDa409() {
+        pedido.setEstado(EstadoPedido.PAGADO);
+        pago.setEstado(EstadoPago.CONFIRMADO);
+        pago.setReferencia(TX);
+        pedidoExiste();
+        when(recibidos.existsByIdEventoAndOrigen(TX, OrigenEvento.PASARELA_PAGOS)).thenReturn(true);
+        when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
+
+        assertThatThrownBy(() -> servicio.procesar(CODIGO, notificacion(ResultadoPasarela.RECHAZADO, "129.90")))
+                .isInstanceOf(ConflictoException.class)
+                .extracting("codigo").isEqualTo("NOTIFICACION_INCOMPATIBLE");
+        assertThatThrownBy(() -> servicio.procesar(CODIGO, notificacion(ResultadoPasarela.APROBADO, "1.00")))
+                .isInstanceOf(ConflictoException.class)
+                .extracting("codigo").isEqualTo("NOTIFICACION_INCOMPATIBLE");
+        assertThat(pago.getEstado()).isEqualTo(EstadoPago.CONFIRMADO);
+        verifyNoInteractions(maquina);
+    }
+
+    @Test
+    void rechazoSobreUnPedidoAnuladoNoDevuelveDinero() {
+        anuladoPor("SOLICITUD_CLIENTE");
+        pedidoExiste();
+
+        assertThatThrownBy(() -> servicio.procesar(CODIGO, notificacion(ResultadoPasarela.RECHAZADO, "129.90")))
+                .isInstanceOf(ConflictoException.class)
+                .extracting("codigo").isEqualTo("ESTADO_NO_PERMITE_PAGO");
+        verify(recibidos, never()).saveAndFlush(any());
+        verifyNoInteractions(anulaciones, reembolsos);
+    }
+
+    @Test
+    void rechazoSobreUnPedidoPagadoConservaSuTratamiento() {
+        pedido.setEstado(EstadoPedido.PAGADO);
+        pedidoExiste();
+
+        assertThatThrownBy(() -> servicio.procesar(CODIGO, notificacion(ResultadoPasarela.RECHAZADO, "129.90")))
+                .isInstanceOf(ConflictoException.class)
+                .extracting("codigo").isEqualTo("ESTADO_NO_PERMITE_PAGO");
+        verifyNoInteractions(maquina, anulaciones, reembolsos);
     }
 
     /** Ejemplo de api-ventas.md 1.2. */

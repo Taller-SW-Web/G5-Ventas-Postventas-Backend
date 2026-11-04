@@ -70,6 +70,61 @@ class VentasClientTest {
         assertThat(p.items()).isEmpty();
     }
 
+    // ---------- pago.estado de 1.3 (cobro confirmado después de la anulación, 2026-11-04) ----------
+
+    private static VentasClient.PedidoM1 anulado(String estadoPago, List<VentasClient.HistorialM1> historial) {
+        return new VentasClient.PedidoM1("PED-2026-00002", "ANULADO", new VentasClient.ContactoM1(CLIENTE),
+                new VentasClient.PagoM1(new BigDecimal("60.00"), "PEN", "TARJETA_CREDITO", estadoPago),
+                List.of(), OffsetDateTime.parse("2026-11-04T05:22:58Z"), historial, "MARKETPLACE");
+    }
+
+    private static final List<VentasClient.HistorialM1> CREADO_ANULADO = List.of(
+            new VentasClient.HistorialM1("CREADO", OffsetDateTime.parse("2026-11-04T05:22:58Z")),
+            new VentasClient.HistorialM1("ANULADO", OffsetDateTime.parse("2026-11-04T05:22:59Z")));
+
+    @Test
+    void unAnuladoConElCobroConfirmadoTienePagoConfirmadoSinHaberPasadoPorPagado() {
+        assertThat(VentasClient.convertir(anulado("CONFIRMADO", CREADO_ANULADO)).pagoConfirmado()).isTrue();
+    }
+
+    @Test
+    void unAnuladoSinCobroConfirmadoNoTienePagoConfirmado() {
+        assertThat(VentasClient.convertir(anulado("PENDIENTE", CREADO_ANULADO)).pagoConfirmado()).isFalse();
+        assertThat(VentasClient.convertir(anulado("RECHAZADO", CREADO_ANULADO)).pagoConfirmado()).isFalse();
+    }
+
+    @Test
+    void elEstadoDelPagoMandaSobreElHistorial() {
+        List<VentasClient.HistorialM1> conPagado = List.of(
+                new VentasClient.HistorialM1("CREADO", OffsetDateTime.parse("2026-11-04T05:22:58Z")),
+                new VentasClient.HistorialM1("PAGADO", OffsetDateTime.parse("2026-11-04T05:23:00Z")),
+                new VentasClient.HistorialM1("ANULADO", OffsetDateTime.parse("2026-11-04T05:24:00Z")));
+        assertThat(VentasClient.convertir(anulado("`RECHAZADO`", conPagado)).pagoConfirmado()).isFalse();
+    }
+
+    @Test
+    void sinElCampoEstadoSeDeduceComoAntes() {
+        List<VentasClient.HistorialM1> conPagado = List.of(
+                new VentasClient.HistorialM1("CREADO", OffsetDateTime.parse("2026-11-04T05:22:58Z")),
+                new VentasClient.HistorialM1("PAGADO", OffsetDateTime.parse("2026-11-04T05:23:00Z")),
+                new VentasClient.HistorialM1("ANULADO", OffsetDateTime.parse("2026-11-04T05:24:00Z")));
+        assertThat(VentasClient.convertir(anulado(null, conPagado)).pagoConfirmado()).isTrue();
+        assertThat(VentasClient.convertir(anulado(null, CREADO_ANULADO)).pagoConfirmado()).isFalse();
+    }
+
+    @Test
+    void unaRespuestaDeUnM1AnteriorSinEstadoDelPagoSeLeeIgual() throws Exception {
+        String json = """
+                {"pedidoId":"PED-2026-00981","estado":"ENTREGADO","canal":"MARKETPLACE",
+                 "pago":{"total":129.90,"moneda":"PEN","metodoPago":"TARJETA_CREDITO"},
+                 "items":[],"historialEstados":[]}""";
+        VentasClient.PedidoM1 m1 = new com.fasterxml.jackson.databind.ObjectMapper()
+                .findAndRegisterModules().readValue(json, VentasClient.PedidoM1.class);
+
+        assertThat(m1.pago().estado()).isNull();
+        assertThat(VentasClient.convertir(m1).pagoConfirmado()).isTrue();
+    }
+
     @Test
     void elModoSimuladoTieneCodigosParaProbarErrores() {
         VentasClient cliente = new VentasClient(true, CLIENTE, null, Clock.fixed(AHORA, ZoneOffset.UTC), RestClient.builder());

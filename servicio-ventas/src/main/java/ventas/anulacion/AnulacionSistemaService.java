@@ -38,6 +38,30 @@ public class AnulacionSistemaService {
         return CodigoPublico.anulacion(a.getId());
     }
 
+    /**
+     * Anulación EJECUTADA de un pedido que ya está ANULADO, para colgarle el reembolso de un cobro que la pasarela
+     * confirmó después (1.2). Las anulaciones automáticas desde CREADO (pago rechazado, sin stock, cupón, reserva
+     * vencida) no dejan fila en ventas.anulacion. Si ya hay una EJECUTADA se reutiliza sin tocarla; si falta (o la
+     * fila es una solicitud que no se ejecutó) se guarda con el motivo y la fecha con que se anuló el pedido, que
+     * vienen de su historial. La deja un sistema: sin solicitante ni autorizador.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public String asegurarEjecutada(Long idPedido, String motivo, LocalDate fecha) {
+        Optional<Anulacion> previa = anulaciones.findByIdPedido(idPedido);
+        if (previa.isPresent() && previa.get().getEstado() == EstadoAnulacion.EJECUTADA) {
+            return CodigoPublico.anulacion(previa.get().getId());
+        }
+        Anulacion a = previa.orElseGet(Anulacion::new);
+        a.setIdPedido(idPedido);
+        a.setMotivo(motivo);
+        a.setEstado(EstadoAnulacion.EJECUTADA);
+        a.setIdSolicitante(null);
+        a.setIdAutorizador(null);
+        a.setFecha(fecha);
+        anulaciones.saveAndFlush(a);
+        return CodigoPublico.anulacion(a.getId());
+    }
+
     /** Código ANUL-NNNN de la anulación EJECUTADA del pedido, si existe (para responder un reintento). */
     @Transactional(readOnly = true)
     public Optional<String> ejecutadaDe(Long idPedido) {

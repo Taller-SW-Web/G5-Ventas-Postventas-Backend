@@ -55,8 +55,10 @@ public class VentasClient {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record PagoM1(BigDecimal total, String moneda, String metodoPago) {
-        PagoM1(BigDecimal total, String moneda) { this(total, moneda, null); }
+    /** estado: pago.estado de 1.3 (PENDIENTE, CONFIRMADO o RECHAZADO), agregado 2026-11-04; null en un M1 anterior. */
+    record PagoM1(BigDecimal total, String moneda, String metodoPago, String estado) {
+        PagoM1(BigDecimal total, String moneda) { this(total, moneda, null, null); }
+        PagoM1(BigDecimal total, String moneda, String metodoPago) { this(total, moneda, metodoPago, null); }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -169,6 +171,22 @@ public class VentasClient {
         }
     }
 
+    /**
+     * Con pago.estado (M1 desde 2026-11-04) manda el estado real del cobro: un pedido ANULADO puede tener el cobro
+     * CONFIRMADO si la pasarela lo confirmó después de la anulación, y nunca pasó por PAGADO. Sin el campo (M1
+     * anterior) se deduce como antes: ENTREGADO, PAGADO o un PAGADO en el historial.
+     */
+    static boolean pagoConfirmado(PedidoM1 p, String estado) {
+        String estadoPago = p.pago() == null ? null : limpiar(p.pago().estado());
+        if (estadoPago != null && !estadoPago.isEmpty()) {
+            return "CONFIRMADO".equals(estadoPago);
+        }
+        return PedidoResumen.ENTREGADO.equals(estado)
+                || "PAGADO".equals(estado)
+                || (p.historialEstados() != null && p.historialEstados().stream()
+                .anyMatch(h -> "PAGADO".equals(limpiar(h.estado()))));
+    }
+
     static PedidoResumen convertir(PedidoM1 p) {
         List<PedidoResumen.Item> items = p.items() == null ? List.of() : p.items().stream()
                 .map(i -> new PedidoResumen.Item(i.productoId(), i.cantidad(), i.precioUnitario(), i.sku()))
@@ -185,10 +203,7 @@ public class VentasClient {
                 fechaEntrega = p.ultimaActualizacion();
             }
         }
-        boolean pagoConfirmado = PedidoResumen.ENTREGADO.equals(estado)
-                || "PAGADO".equals(estado)
-                || (p.historialEstados() != null && p.historialEstados().stream()
-                .anyMatch(h -> "PAGADO".equals(limpiar(h.estado()))));
+        boolean pagoConfirmado = pagoConfirmado(p, estado);
         return new PedidoResumen(p.pedidoId(), estado,
                 p.contacto() == null ? null : p.contacto().clienteId(),
                 p.pago() == null ? null : p.pago().total(),

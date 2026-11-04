@@ -35,6 +35,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionOperations;
 
@@ -420,6 +421,58 @@ class ReembolsoServiceTest {
                 .isInstanceOf(SolicitudInvalidaException.class)
                 .extracting("codigo").isEqualTo("CLAVE_IDEMPOTENCIA_REQUERIDA");
         verifyNoInteractions(repositorio, ventas, pasarela);
+    }
+
+    // ---------- reintento del Gestor (2.6c punto 3): continuar un reembolso, nunca crear otro ----------
+
+    @Test
+    void esContinuacionSoloConLaMismaClaveYLosMismosDatos() {
+        when(repositorio.findByIdempotencyKey("clave-001")).thenReturn(Optional.of(reembolso(EstadoReembolso.FALLIDO)));
+
+        assertThat(servicio.esContinuacion("clave-001", solicitud())).isTrue();
+        // Otra clave: sería un reembolso nuevo
+        assertThat(servicio.esContinuacion("clave-nueva", solicitud())).isFalse();
+        // Misma clave con otro monto u otro origen: tampoco es el mismo reembolso
+        assertThat(servicio.esContinuacion("clave-001", new ProcesarReembolsoRequest(OrigenReembolso.ANULACION,
+                "ANUL-00012", "PED-2026-00981", new BigDecimal("500.00"), "PEN", null, null))).isFalse();
+        assertThat(servicio.esContinuacion("clave-001", new ProcesarReembolsoRequest(OrigenReembolso.ANULACION,
+                "ANUL-00099", "PED-2026-00981", new BigDecimal("129.90"), "PEN", null, null))).isFalse();
+        // Sin clave o con un código mal formado
+        assertThat(servicio.esContinuacion(" ", solicitud())).isFalse();
+        assertThat(servicio.esContinuacion("clave-001", new ProcesarReembolsoRequest(OrigenReembolso.ANULACION,
+                "ANUL-xx", "PED-2026-00981", new BigDecimal("129.90"), "PEN", null, null))).isFalse();
+    }
+
+    @Test
+    void codigoMalFormadoEsDatoInvalidoYNoConsultaLaBase() {
+        assertThat(servicio.esContinuacion("clave-001", new ProcesarReembolsoRequest(OrigenReembolso.ANULACION,
+                "ANUL-00012", "PED-sin-numero", new BigDecimal("129.90"), "PEN", null, null))).isFalse();
+        verify(repositorio, never()).findByIdempotencyKey(any());
+    }
+
+    @Test
+    void siLaBaseNoEstaDisponibleElErrorSePropagaEnVezDeResponderFalse() {
+        when(repositorio.findByIdempotencyKey("clave-001"))
+                .thenThrow(new DataAccessResourceFailureException("Sin conexión a PostgreSQL"));
+
+        // Mismos datos válidos que en el caso que sí corresponde: la diferencia es solo la base caída
+        assertThatThrownBy(() -> servicio.esContinuacion("clave-001", solicitud()))
+                .isInstanceOf(DataAccessResourceFailureException.class);
+    }
+
+    @Test
+    void reintentarUnReembolsoExitosoNoVuelveAPagarNiSumaAlDashboard() {
+        Reembolso existente = reembolso(EstadoReembolso.EXITOSO);
+        existente.agregarIntento(EstadoReembolso.EXITOSO, "TX-001", "Extorno confirmado");
+        when(repositorio.findByIdempotencyKey("clave-001")).thenReturn(Optional.of(existente));
+
+        ProcesarReembolsoResponse primera = servicio.procesar("clave-001", solicitud());
+        ProcesarReembolsoResponse segunda = servicio.procesar("clave-001", solicitud());
+
+        assertThat(primera).isEqualTo(segunda);
+        assertThat(existente.getIntentos()).hasSize(1);
+        verifyNoInteractions(pasarela, proyecciones);
+        verify(repositorio, never()).save(any());
     }
 
     private static ProcesarReembolsoRequest solicitud() {
