@@ -3,8 +3,11 @@ package postventa.compartido;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -29,7 +32,9 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
@@ -181,6 +186,90 @@ class SeguridadPostventaTest {
                         .content("{\"origen\":\"ANULACION\",\"origenId\":\"ANUL-2026-12\",\"referenciaId\":\"PED-2026-981\",\"monto\":129.90,\"moneda\":\"PEN\"}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.codigo").value("ACCESO_DENEGADO"));
+        verify(reembolsoService, never()).procesar(any(), any());
+    }
+
+    private static final String REINTENTO_ANULACION =
+            "{\"origen\":\"ANULACION\",\"origenId\":\"ANUL-0012\",\"referenciaId\":\"PED-2026-00981\",\"monto\":129.90,\"moneda\":\"PEN\"}";
+
+    @Test
+    void elGestorPuedeReintentarElReembolsoExistenteDeUnaAnulacionConLaMismaClave() throws Exception {
+        when(reembolsoService.esContinuacion(eq("clave-existente"), any())).thenReturn(true);
+
+        mvc.perform(post("/api/v2/reembolsos")
+                        .header("Authorization", "Bearer " + usuario("ADMIN_VENTAS"))
+                        .header("X-Idempotency-Key", "clave-existente")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(REINTENTO_ANULACION))
+                .andExpect(status().isCreated());
+        verify(reembolsoService).procesar(eq("clave-existente"), any());
+    }
+
+    @Test
+    void elClienteNoPuedeReintentarUnReembolsoAunqueConozcaLaClave() throws Exception {
+        when(reembolsoService.esContinuacion(any(), any())).thenReturn(true);
+
+        mvc.perform(post("/api/v2/reembolsos")
+                        .header("Authorization", "Bearer " + usuario("CLIENTE"))
+                        .header("X-Idempotency-Key", "clave-existente")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(REINTENTO_ANULACION))
+                .andExpect(status().isForbidden());
+        verify(reembolsoService, never()).procesar(any(), any());
+    }
+
+    @Test
+    void siLaBaseFallaAlVerificarElReintentoRespondeErrorDelServidorYNoAccesoDenegado() throws Exception {
+        when(reembolsoService.esContinuacion(eq("clave-existente"), any()))
+                .thenThrow(new DataAccessResourceFailureException("Sin conexión a PostgreSQL"));
+
+        mvc.perform(post("/api/v2/reembolsos")
+                        .header("Authorization", "Bearer " + usuario("ADMIN_VENTAS"))
+                        .header("X-Idempotency-Key", "clave-existente")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(REINTENTO_ANULACION))
+                .andExpect(status().isInternalServerError())
+                .andExpect(res -> assertThat(res.getResponse().getContentAsString()).doesNotContain("ACCESO_DENEGADO"));
+        verify(reembolsoService, never()).procesar(any(), any());
+    }
+
+    @Test
+    void detalleDeUnReembolsoSoloParaElGestor() throws Exception {
+        pasa(mvc.perform(get("/api/v2/reembolsos/REEM-00042").header("Authorization", "Bearer " + usuario("ADMIN_VENTAS"))));
+        mvc.perform(get("/api/v2/reembolsos/REEM-00042").header("Authorization", "Bearer " + usuario("CLIENTE")))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v2/reembolsos/REEM-00042").header("Authorization", "Bearer " + servicio("postventa:reembolsos:procesar")))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v2/reembolsos/REEM-00042")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void elGestorPuedeSubirLaEvidenciaDeLaRecepcionPeroNoRegistrarDevoluciones() throws Exception {
+        String gestor = "Bearer " + usuario("ADMIN_VENTAS");
+        pasa(mvc.perform(multipart("/api/v2/devoluciones/evidencias/upload").file(archivo()).header("Authorization", gestor)));
+        pasa(mvc.perform(multipart("/api/v2/devoluciones/evidencias/upload").file(archivo())
+                .header("Authorization", "Bearer " + usuario("CLIENTE"))));
+        pasa(mvc.perform(multipart("/api/v2/devoluciones/evidencias/upload").file(archivo())
+                .header("Authorization", "Bearer " + servicio("postventa:devoluciones:escribir"))));
+        // El permiso es solo para la subida: el Gestor sigue sin registrar devoluciones a nombre de un cliente
+        mvc.perform(post("/api/v2/devoluciones").header("Authorization", gestor)).andExpect(status().isForbidden());
+        // Otro módulo o sin token, no
+        mvc.perform(multipart("/api/v2/devoluciones/evidencias/upload").file(archivo())
+                        .header("Authorization", "Bearer " + servicio("postventa:reclamos:escribir")))
+                .andExpect(status().isForbidden());
+        mvc.perform(multipart("/api/v2/devoluciones/evidencias/upload").file(archivo()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void losArchivosDelAlmacenLocalSeLeenSinToken() throws Exception {
+        // Como la URL pública del bucket: el nombre es un UUID. Solo GET; subir sigue exigiendo token.
+        pasa(mvc.perform(get("/uploads/evidencias/00000000-0000-0000-0000-000000000000.png")));
+        mvc.perform(post("/uploads/evidencias/x.png")).andExpect(status().isUnauthorized());
+    }
+
+    private static MockMultipartFile archivo() {
+        return new MockMultipartFile("file", "recepcion.png", "image/png", new byte[] {(byte) 0x89, 'P', 'N', 'G'});
     }
 
     @Test

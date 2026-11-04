@@ -73,10 +73,17 @@ public class SecurityConfig {
         http.authorizeHttpRequests(a -> a
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/actuator/health").permitAll()
+                // Archivos de evidencia del almacén local (EvidenciasLocalesConfig, solo evidencias.almacen=local):
+                // lectura pública por nombre UUID no adivinable, igual que la URL pública del bucket de Supabase
+                .requestMatchers(HttpMethod.GET, "/uploads/evidencias/*").permitAll()
                 // Token del cliente, filtrado por sub (patrón de /pedidos/me)
                 .requestMatchers(HttpMethod.GET, "/api/v2/devoluciones/me").hasRole("CLIENTE")
                 .requestMatchers(HttpMethod.GET, "/api/v2/reclamos/me").hasRole("CLIENTE")
                 .requestMatchers(HttpMethod.POST, "/api/v2/csat").hasRole("CLIENTE")
+                // 2.1 Subir evidencia: el canal y el cliente (al registrar) y el Gestor (foto de la recepción, 2.5b).
+                // Va antes de la regla general de POST /devoluciones/**, que no incluye al Gestor.
+                .requestMatchers(HttpMethod.POST, "/api/v2/devoluciones/evidencias/upload")
+                    .hasAnyAuthority("SCOPE_postventa:devoluciones:escribir", "ROLE_CLIENTE", "ROLE_ADMIN_VENTAS")
                 // Registro por el canal (token de servicio) o por el propio cliente
                 .requestMatchers(HttpMethod.POST, "/api/v2/devoluciones/**")
                     .hasAnyAuthority("SCOPE_postventa:devoluciones:escribir", "ROLE_CLIENTE")
@@ -95,6 +102,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.PATCH, "/api/v2/reclamos/*/respuesta").hasRole("ADMIN_VENTAS")
                 .requestMatchers(HttpMethod.GET, "/api/v2/dashboard/**").hasRole("ADMIN_VENTAS")
                 .requestMatchers(HttpMethod.GET, "/api/v2/reembolsos").hasRole("ADMIN_VENTAS")
+                // 2.6c detalle de un reembolso (panel "Ver" del mockup 08): solo el Gestor
+                .requestMatchers(HttpMethod.GET, "/api/v2/reembolsos/*").hasRole("ADMIN_VENTAS")
                 .requestMatchers(HttpMethod.GET, "/api/v2/csat").hasRole("ADMIN_VENTAS")
                 // Consulta de un expediente o reclamo: su titular (el service valida el sub) o el Gestor
                 .requestMatchers(HttpMethod.GET, "/api/v2/devoluciones/*").hasAnyRole("CLIENTE", "ADMIN_VENTAS")

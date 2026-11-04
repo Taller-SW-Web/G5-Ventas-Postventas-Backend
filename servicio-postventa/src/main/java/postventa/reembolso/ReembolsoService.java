@@ -36,6 +36,32 @@ public class ReembolsoService {
     public java.util.Optional<ProcesarReembolsoResponse> consultarPorOrigen(OrigenReembolso origen, long origenId) {
         return repositorio.findByTipoOrigenAndIdOrigen(origen, origenId).map(this::respuesta);
     }
+    /**
+     * true si la clave ya pertenece a un reembolso con estos mismos datos: el POST continuaría ese reembolso
+     * (reintento, 2.6c punto 3) y no crearía otro. Lo usa el controller para dejar reintentar al Gestor.
+     * Solo los datos que no pueden corresponder a ningún reembolso (sin clave, código mal formado) dan false sin
+     * consultar. Un fallo de la base se propaga al manejo de errores (500), nunca se presenta como acceso denegado.
+     */
+    @Transactional(readOnly = true)
+    public boolean esContinuacion(String clave, ProcesarReembolsoRequest s) {
+        if (clave == null || clave.isBlank()) return false;
+        try {
+            CodigoPublico.id(s.origenId());
+            CodigoPublico.id(s.referenciaId());
+        } catch (SolicitudInvalidaException codigoInvalido) {
+            return false;
+        }
+        return repositorio.findByIdempotencyKey(clave)
+                .filter(e -> mismosDatos(e, s))
+                .isPresent();
+    }
+    private static boolean mismosDatos(Reembolso existente, ProcesarReembolsoRequest s) {
+        return existente.getTipoOrigen() == s.origen()
+                && existente.getIdOrigen().equals(CodigoPublico.id(s.origenId()))
+                && existente.getIdPedido().equals(CodigoPublico.id(s.referenciaId()))
+                && existente.getMonto().compareTo(s.monto()) == 0
+                && existente.getMoneda().equals(s.moneda());
+    }
     public ProcesarReembolsoResponse procesar(String clave, ProcesarReembolsoRequest s) {
         Preparacion preparacion = transacciones.execute(estado -> preparar(clave, s));
         if (preparacion.respuesta() != null) return preparacion.respuesta();
@@ -60,11 +86,7 @@ public class ReembolsoService {
         List<Reembolso> reembolsosPedido = repositorio.bloquearReembolsosDelPedido(pedidoId);
         Reembolso existente = repositorio.findByIdempotencyKey(clave).orElse(null);
         if (existente != null) {
-            if (existente.getTipoOrigen() != s.origen()
-                    || !existente.getIdOrigen().equals(CodigoPublico.id(s.origenId()))
-                    || !existente.getIdPedido().equals(CodigoPublico.id(s.referenciaId()))
-                    || existente.getMonto().compareTo(s.monto()) != 0
-                    || !existente.getMoneda().equals(s.moneda()))
+            if (!mismosDatos(existente, s))
                 throw new ConflictoException("CLAVE_IDEMPOTENCIA_EN_CONFLICTO", "La clave ya fue usada con datos distintos");
             if (existente.getEstado()==EstadoReembolso.EXITOSO)
                 return Preparacion.respondida(respuesta(existente));
