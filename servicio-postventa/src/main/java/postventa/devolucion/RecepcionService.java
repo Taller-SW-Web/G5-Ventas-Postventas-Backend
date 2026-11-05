@@ -82,6 +82,10 @@ public class RecepcionService {
         Devolucion d = devoluciones.buscar(devolucionId, true);
         boolean resolucionConProducto = d.getResolucion() == TipoResolucion.CAMBIO
                 || d.getResolucion() == TipoResolucion.REEMBOLSO;
+        if (d.getEstado() == EstadoDevolucion.COMPLETADA && resolucionConProducto && d.isRequiereDevolucionFisica()) {
+            throw new ConflictoException("RECEPCION_YA_CONFIRMADA",
+                    "La recepción de la devolución " + d.codigo() + " ya fue confirmada y el expediente está completado.");
+        }
         if (d.getEstado() != EstadoDevolucion.APROBADA || !resolucionConProducto || !d.isRequiereDevolucionFisica()) {
             throw new ConflictoException("RESOLUCION_NO_APROBADA",
                     "La devolución " + d.codigo() + " no está aprobada con devolución física del producto.");

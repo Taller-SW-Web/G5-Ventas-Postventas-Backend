@@ -99,6 +99,13 @@ class MisPedidosSeguridadTest {
     }
 
     @Test
+    void elDisenoDeLaApiEsPublicoPeroLosDatosNo() throws Exception {
+        mvc.perform(get("/openapi/ventas.yaml")).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/pedidos")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/v3/api-docs")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void sinTokenResponde401ConElFormatoDelContrato() throws Exception {
         mvc.perform(get("/api/v1/pedidos/me"))
                 .andExpect(status().isUnauthorized())

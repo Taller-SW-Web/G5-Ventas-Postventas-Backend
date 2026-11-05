@@ -76,6 +76,13 @@ integracion:
   reembolsos:
     intervalo-ms: 60000         # reintento de reembolsos pendientes (solicitud_reembolso)
 
+# Diseño de la API en Swagger UI (/swagger-ui.html). El contrato es el archivo escrito a mano, no uno generado
+springdoc:
+  swagger-ui:
+    url: /openapi/ventas.yaml
+    disable-swagger-default-url: true
+    operations-sorter: method
+
 management:
   health:
     rabbit:

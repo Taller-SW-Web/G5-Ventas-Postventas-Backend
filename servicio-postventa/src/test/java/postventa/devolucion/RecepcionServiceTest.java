@@ -246,6 +246,16 @@ class RecepcionServiceTest {
     }
 
     @Test
+    void repetirLaRecepcionDeUnExpedienteCompletadoResponde409YaConfirmada() {
+        devolucion.setEstado(EstadoDevolucion.COMPLETADA);
+
+        assertThatThrownBy(() -> servicio.confirmar("DEV-2026-0042", recepcion("SKU-101", 3, 3), Solicitante.gestor(GESTOR)))
+                .isInstanceOf(ConflictoException.class)
+                .extracting("codigo").isEqualTo("RECEPCION_YA_CONFIRMADA");
+        verifyNoInteractions(productos, recepciones);
+    }
+
+    @Test
     void lineasRepetidasDelMismoSkuSeSuman() {
         servicio.confirmar("DEV-2026-0042", new ConfirmarRecepcionRequest(List.of(
                 new ConfirmarRecepcionRequest.Linea("SKU-101", 1, 1),

@@ -64,6 +64,13 @@ evidencias:
   supabase-clave: ${SUPABASE_SERVICE_KEY:}
   bucket: ${EVIDENCIAS_BUCKET:evidencias}
 
+# Diseño de la API en Swagger UI (/swagger-ui.html). El contrato es el archivo escrito a mano, no uno generado
+springdoc:
+  swagger-ui:
+    url: /openapi/postventa.yaml
+    disable-swagger-default-url: true
+    operations-sorter: method
+
 management:
   endpoints:
     web:

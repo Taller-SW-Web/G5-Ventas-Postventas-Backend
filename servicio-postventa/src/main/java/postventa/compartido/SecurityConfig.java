@@ -73,6 +73,9 @@ public class SecurityConfig {
         http.authorizeHttpRequests(a -> a
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/actuator/health").permitAll()
+                // Diseño de la API (Swagger UI): solo documentación, sin datos del negocio
+                .requestMatchers(HttpMethod.GET, "/swagger-ui.html", "/swagger-ui/**", "/openapi/**",
+                        "/v3/api-docs/swagger-config").permitAll()
                 // Archivos de evidencia del almacén local (EvidenciasLocalesConfig, solo evidencias.almacen=local):
                 // lectura pública por nombre UUID no adivinable, igual que la URL pública del bucket de Supabase
                 .requestMatchers(HttpMethod.GET, "/uploads/evidencias/*").permitAll()
