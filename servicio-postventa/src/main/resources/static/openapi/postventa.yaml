@@ -48,7 +48,7 @@ info:
     - **Paginación:** `pagina` desde 0 y `tamano`. **Fechas:** ISO-8601 en UTC.
     - **Errores:** siempre el mismo formato, con un `codigo` estable.
 
-    Cualquier operación protegida puede responder `401 TOKEN_INVALIDO` y `403 ACCESO_DENEGADO`, además de `500 ERROR_INTERNO`.
+    Además de los errores de cada operación, cualquiera puede responder `500 ERROR_INTERNO`.
 
 servers:
   - url: /
@@ -111,6 +111,10 @@ paths:
         '503':
           description: '`ALMACEN_NO_DISPONIBLE`: el almacenamiento no responde.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v2/devoluciones:
     post:
@@ -159,6 +163,8 @@ paths:
         '503':
           description: '`VENTAS_NO_DISPONIBLE`: M1 no responde.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
     get:
       tags: [F3 Devoluciones y cambios]
       operationId: listarDevoluciones
@@ -189,6 +195,10 @@ paths:
         '400':
           description: '`PAGINACION_INVALIDA` o `FORMATO_INVALIDO`.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v2/devoluciones/me:
     get:
@@ -218,6 +228,10 @@ paths:
         '400':
           description: '`PAGINACION_INVALIDA`.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v2/devoluciones/{devolucionId}:
     get:
@@ -248,6 +262,8 @@ paths:
         '404':
           description: '`DEVOLUCION_NO_ENCONTRADA`.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
 
   /api/v2/devoluciones/{devolucionId}/resolucion:
     patch:
@@ -318,6 +334,10 @@ paths:
         '503':
           description: '`PRODUCTOS_NO_DISPONIBLE` o `VENTAS_NO_DISPONIBLE`: un módulo no respondió; reintenta la misma aprobación.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v2/devoluciones/{devolucionId}/recepcion:
     patch:
@@ -365,6 +385,10 @@ paths:
         '503':
           description: '`PRODUCTOS_NO_DISPONIBLE`: la recepción queda pendiente; repite la misma petición.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v2/reembolsos:
     post:
@@ -426,6 +450,8 @@ paths:
         '503':
           description: '`VENTAS_NO_DISPONIBLE`: M1 no responde.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
     get:
       tags: [F4 Reembolsos]
       operationId: listarReembolsos
@@ -472,6 +498,10 @@ paths:
         '400':
           description: '`PAGINACION_INVALIDA` o `RANGO_FECHAS_INVALIDO`.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v2/reembolsos/{reembolsoId}:
     get:
@@ -501,6 +531,10 @@ paths:
         '404':
           description: '`REEMBOLSO_NO_ENCONTRADO` o `PEDIDO_NO_ENCONTRADO`.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v2/csat:
     post:
@@ -537,6 +571,8 @@ paths:
         '422':
           description: '`ORDER_NOT_DELIVERED`: el pedido no está `ENTREGADO` (código y estado acordados con Marketplace en H-04).'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
     get:
       tags: [F5 Calificaciones]
       operationId: listarCalificaciones
@@ -572,6 +608,10 @@ paths:
         '400':
           description: '`PAGINACION_INVALIDA`, `PUNTAJE_INVALIDO` o `RANGO_FECHAS_INVALIDO`.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v2/reclamos:
     post:
@@ -601,6 +641,10 @@ paths:
         '400':
           description: '`DATOS_INVALIDOS` o `FORMATO_INVALIDO`: datos incompletos o motivo fuera de catálogo.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
     get:
       tags: [F6 Reclamos]
       operationId: listarReclamos
@@ -651,6 +695,10 @@ paths:
         '400':
           description: '`PAGINACION_INVALIDA`, `RANGO_FECHAS_INVALIDO` o `FORMATO_INVALIDO`.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v2/reclamos/me:
     get:
@@ -677,6 +725,10 @@ paths:
         '400':
           description: '`PAGINACION_INVALIDA`.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v2/reclamos/{codigoSeguimiento}:
     get:
@@ -708,6 +760,10 @@ paths:
         '404':
           description: '`RECLAMO_NO_ENCONTRADO`.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v2/reclamos/{reclamoId}/respuesta:
     patch:
@@ -752,6 +808,10 @@ paths:
         '409':
           description: '`RECLAMO_YA_ATENDIDO` o `RECLAMO_NO_RESPONDIBLE` (transición inválida, o dos Gestores a la vez).'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v2/dashboard/metricas:
     get:
@@ -791,6 +851,10 @@ paths:
         '400':
           description: '`PARAMETRO_FALTANTE`, `RANGO_FECHAS_INVALIDO` o `FORMATO_INVALIDO`.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v2/eventos:
     post:
@@ -827,8 +891,20 @@ paths:
         '400':
           description: '`DATOS_INVALIDOS` o `FORMATO_INVALIDO`: `tipo` desconocido o estructura inválida.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
 components:
+  responses:
+    NoAutenticado:
+      description: '`TOKEN_INVALIDO`: token ausente, vencido o inválido.'
+      content: *error
+    SinPermiso:
+      description: '`ACCESO_DENEGADO`: el token no tiene el rol o scope que exige esta operación.'
+      content: *error
+
   securitySchemes:
     TokenServicio:
       type: http
