@@ -348,6 +348,13 @@ class SeguridadPostventaTest {
     }
 
     @Test
+    void elDisenoDeLaApiEsPublicoPeroLosDatosNo() throws Exception {
+        mvc.perform(get("/openapi/postventa.yaml")).andExpect(status().isOk());
+        mvc.perform(get("/api/v2/reembolsos")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/v3/api-docs")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void sinTokenResponde401() throws Exception {
         mvc.perform(get("/api/v2/devoluciones/me"))
                 .andExpect(status().isUnauthorized())

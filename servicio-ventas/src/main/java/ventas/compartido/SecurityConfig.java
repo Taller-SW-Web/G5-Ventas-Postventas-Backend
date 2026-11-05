@@ -73,6 +73,9 @@ public class SecurityConfig {
         http.authorizeHttpRequests(a -> a
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/actuator/health").permitAll()
+                // Diseño de la API (Swagger UI): solo documentación, sin datos del negocio
+                .requestMatchers(HttpMethod.GET, "/swagger-ui.html", "/swagger-ui/**", "/openapi/**",
+                        "/v3/api-docs/swagger-config").permitAll()
                 // 1.4b: historial del cliente autenticado (acuerdo H-03), token de usuario
                 .requestMatchers(HttpMethod.GET, "/api/v1/pedidos/me").hasRole("CLIENTE")
                 // Bandeja del Gestor (F2)
