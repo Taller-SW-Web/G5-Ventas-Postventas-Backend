@@ -47,6 +47,8 @@ seguridad:
 
 integracion:
   simulado: ${INTEGRACION_SIMULADA:true}
+  # false: M2 consulta los pedidos reales de M1 aunque Productos siga simulado. Si falta, usa INTEGRACION_SIMULADA
+  ventas-simulado: ${VENTAS_SIMULADO:${integracion.simulado}}
   ventas-url: ${VENTAS_URL:http://localhost:8081}
   pasarela-url: ${PASARELA_URL:http://localhost:8083}
   pasarela-simulada: ${PASARELA_SIMULADA:true}
