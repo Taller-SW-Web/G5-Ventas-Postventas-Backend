@@ -30,7 +30,9 @@ Detener la aplicación con Ctrl+C en la terminal donde se ejecuta.
 |---|---|---|
 | `server.port` | `8083` | Puerto HTTP del simulador. |
 | `pasarela.ventas-url` | `http://localhost:8081` | Dirección de M1; también acepta `VENTAS_URL`. |
-| `pasarela.token-m1` | Vacío | Token para avisar a M1; también acepta `PASARELA_TOKEN_M1`. |
+| `pasarela.token-url` | `http://localhost:8080/api/v1/auth/token` | Dónde pedir el token de servicio; también acepta `SECURITY_TOKEN_URL`. |
+| `pasarela.client-id` | `simulador-pasarela` | Cliente de Seguridad; también acepta `PASARELA_CLIENT_ID`. |
+| `pasarela.client-secret` | Vacío | Secreto del cliente; también acepta `PASARELA_CLIENT_SECRET`. Sin secreto, el aviso a M1 sale sin token. |
 | `pasarela.demora-ms` | `2000` | Demora antes de resolver el cobro. |
 | `pasarela.reintentos` | `3` | Reintentos adicionales después del envío inicial. |
 | `pasarela.reintento-ms` | `1000` | Espera entre los intentos de notificación. |
