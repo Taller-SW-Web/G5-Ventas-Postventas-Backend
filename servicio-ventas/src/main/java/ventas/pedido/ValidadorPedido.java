@@ -102,7 +102,8 @@ public class ValidadorPedido {
         if (!METODOS_RETAIL.contains(metodo)) {
             throw invalido("pago.metodoPago", "Para RETAIL debe ser EFECTIVO, TARJETA_POS o MIXTO");
         }
-        if (!metodo.equals("EFECTIVO") && vacio(pago.referenciaOperacion())) {
+        boolean tieneReferencia = !vacio(pago.referenciaOperacion()) || !vacio(pago.comprobanteReferencia());
+        if (!metodo.equals("EFECTIVO") && !tieneReferencia) {
             throw invalido("pago.referenciaOperacion", "Es obligatorio con TARJETA_POS o MIXTO");
         }
         if (metodo.equals("MIXTO")) {

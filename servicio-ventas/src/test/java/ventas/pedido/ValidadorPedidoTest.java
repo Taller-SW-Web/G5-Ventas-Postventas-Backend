@@ -147,6 +147,15 @@ class ValidadorPedidoTest {
                 .extracting("codigo").isEqualTo("FECHA_VENTA_FUERA_DE_RANGO");
     }
 
+    @Test
+    void tarjetaPosConComprobanteReferenciaEsValido() {
+        Pago p = new Pago("TARJETA_POS", "PEN", new BigDecimal("129.90"), BigDecimal.ZERO, BigDecimal.ZERO,
+                new BigDecimal("129.90"), null, "B001-00042", null, null, null);
+        Envio tienda = new Envio(null, null, null, null, null, null, null, null, "TIENDA-MIRAFLORES");
+        CrearPedidoRequest req = new CrearPedidoRequest(CanalVenta.RETAIL, contacto(TipoDocumento.DNI, "72458912"), items(), null, tienda, p);
+        assertThatCode(() -> validador.validar(req)).doesNotThrowAnyException();
+    }
+
     // ---------- datos de prueba (ejemplo de api-ventas.md 1.1) ----------
 
     static Contacto contacto(TipoDocumento tipo, String numero) {

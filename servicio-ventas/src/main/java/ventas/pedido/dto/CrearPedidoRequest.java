@@ -66,7 +66,17 @@ public record CrearPedidoRequest(
             @PositiveOrZero BigDecimal costoEnvio,
             @NotNull @PositiveOrZero BigDecimal total,
             @Size(max = 100) String referenciaOperacion,   // RETAIL con TARJETA_POS o MIXTO
+            @Size(max = 100) String comprobanteReferencia, // RETAIL boleta/factura térmica
             @PositiveOrZero BigDecimal montoEfectivo,      // RETAIL con MIXTO
             @PositiveOrZero BigDecimal montoTarjeta,       // RETAIL con MIXTO
-            OffsetDateTime fechaVenta) {}                  // RETAIL sin conexión, máx. 72 h
+            OffsetDateTime fechaVenta) {
+
+        /** Constructor de compatibilidad (10 parámetros, sin comprobanteReferencia). */
+        public Pago(String metodoPago, String moneda, BigDecimal subtotal, BigDecimal descuentoCupon,
+                    BigDecimal costoEnvio, BigDecimal total, String referenciaOperacion,
+                    BigDecimal montoEfectivo, BigDecimal montoTarjeta, OffsetDateTime fechaVenta) {
+            this(metodoPago, moneda, subtotal, descuentoCupon, costoEnvio, total, referenciaOperacion,
+                 null, montoEfectivo, montoTarjeta, fechaVenta);
+        }
+    }
 }
