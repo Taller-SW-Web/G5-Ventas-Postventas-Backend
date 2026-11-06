@@ -1,5 +1,6 @@
 package ventas.pedido;
 
+import static java.util.Map.entry;
 import static ventas.pedido.ActorHistorial.CANAL_CHATBOT;
 import static ventas.pedido.ActorHistorial.CLIENTE;
 import static ventas.pedido.ActorHistorial.GESTOR;
@@ -42,17 +43,18 @@ public class MaquinaEstados {
     private record Transicion(EstadoPedido origen, EstadoPedido destino) {}
 
     /** Matriz de ESP-03 sección 7.2: transición -> actores permitidos. */
-    private static final Map<Transicion, Set<ActorHistorial>> PERMITIDAS = Map.of(
-            new Transicion(CREADO, PAGADO),             Set.of(PASARELA_PAGOS),
-            new Transicion(CREADO, ANULADO),            Set.of(PASARELA_PAGOS, CANAL_CHATBOT, CLIENTE, GESTOR, SISTEMA_PRODUCTOS),
-            new Transicion(PAGADO, EN_PREPARACION),     Set.of(SISTEMA_LOGISTICA),
-            new Transicion(CREADO, EN_PREPARACION),     Set.of(SISTEMA_PRODUCTOS),   // solo REEMPLAZO: no se cobra (F3)
-            new Transicion(PAGADO, ENTREGADO),          Set.of(CLIENTE),   // solo RETAIL (acuerdo G4)
-            new Transicion(PAGADO, ANULADO),            Set.of(CLIENTE, GESTOR, SISTEMA_PRODUCTOS),   // Productos: Chatbot ya cobró sin stock
-            new Transicion(EN_PREPARACION, DESPACHADO), Set.of(SISTEMA_LOGISTICA),
-            new Transicion(EN_PREPARACION, ANULADO),    Set.of(GESTOR, SISTEMA_PRODUCTOS),   // Productos: solo REEMPLAZO
-            new Transicion(DESPACHADO, ENTREGADO),      Set.of(SISTEMA_LOGISTICA),
-            new Transicion(DESPACHADO, ANULADO),        Set.of(SISTEMA_LOGISTICA));
+    private static final Map<Transicion, Set<ActorHistorial>> PERMITIDAS = Map.ofEntries(
+            entry(new Transicion(CREADO, PAGADO),             Set.of(PASARELA_PAGOS)),
+            entry(new Transicion(CREADO, ANULADO),            Set.of(PASARELA_PAGOS, CANAL_CHATBOT, CLIENTE, GESTOR, SISTEMA_PRODUCTOS)),
+            entry(new Transicion(PAGADO, EN_PREPARACION),     Set.of(SISTEMA_LOGISTICA)),
+            entry(new Transicion(CREADO, EN_PREPARACION),     Set.of(SISTEMA_PRODUCTOS)),   // solo REEMPLAZO: no se cobra (F3)
+            entry(new Transicion(PAGADO, ENTREGADO),          Set.of(CLIENTE, GESTOR)),    // RETAIL o retiro Pickup en tienda
+            entry(new Transicion(PAGADO, ANULADO),            Set.of(CLIENTE, GESTOR, SISTEMA_PRODUCTOS)),   // Productos: Chatbot ya cobró sin stock
+            entry(new Transicion(EN_PREPARACION, DESPACHADO), Set.of(SISTEMA_LOGISTICA)),
+            entry(new Transicion(EN_PREPARACION, ENTREGADO),  Set.of(CLIENTE, GESTOR)),    // retiro Pickup en tienda tras preparación
+            entry(new Transicion(EN_PREPARACION, ANULADO),    Set.of(GESTOR, SISTEMA_PRODUCTOS)),   // Productos: solo REEMPLAZO
+            entry(new Transicion(DESPACHADO, ENTREGADO),      Set.of(SISTEMA_LOGISTICA)),
+            entry(new Transicion(DESPACHADO, ANULADO),        Set.of(SISTEMA_LOGISTICA)));
 
     private final PedidoRepository pedidos;
     private final HistorialEstadoRepository historial;
@@ -73,10 +75,14 @@ public class MaquinaEstados {
             throw new ConflictoException("TRANSICION_NO_PERMITIDA",
                     "No se permite pasar de %s a %s con actor %s".formatted(pedido.getEstado(), destino, actor));
         }
-        // Entrega inmediata en tienda: el pedido no pasa por logística
-        if (pedido.getEstado() == PAGADO && destino == ENTREGADO && pedido.getCanal() != CanalVenta.RETAIL) {
+        // Entrega en tienda (inmediata RETAIL o retiro pickup): no pasa por despacho logístico a domicilio
+        boolean esEntregaEnTienda = pedido.getCanal() == CanalVenta.RETAIL
+                || "RECOJO_TIENDA".equalsIgnoreCase(pedido.getModalidadEnvio())
+                || "TIENDA".equalsIgnoreCase(pedido.getModalidadEnvio());
+        if ((pedido.getEstado() == PAGADO || pedido.getEstado() == EN_PREPARACION)
+                && destino == ENTREGADO && !esEntregaEnTienda) {
             throw new ConflictoException("TRANSICION_NO_PERMITIDA",
-                    "Solo los pedidos RETAIL pasan de PAGADO a ENTREGADO directamente");
+                    "Solo los pedidos RETAIL o con retiro en tienda pasan a ENTREGADO sin despacho");
         }
         // Orden de reemplazo de un CAMBIO (F3, acuerdo G6 #100): no pasa por PAGADO; si su reserva se rechaza o vence
         // ya en preparación, la anula Productos. Una venta normal nunca usa estas dos transiciones
