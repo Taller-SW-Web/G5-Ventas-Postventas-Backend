@@ -75,6 +75,7 @@ class MisPedidosSeguridadTest {
     @MockitoBean DespachoPedidoService despachoPedidoService;
     @MockitoBean EventoDespachoService eventoDespachoService;
     @MockitoBean ReemplazoService reemplazoService;
+    @MockitoBean PickupPedidoService pickupPedidoService;
 
     @TestConfiguration
     static class Claves {

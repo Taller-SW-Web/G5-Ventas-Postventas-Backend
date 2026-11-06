@@ -2,6 +2,7 @@ package ventas.pedido;
 
 import java.net.URI;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -26,12 +27,15 @@ import org.springframework.web.bind.annotation.RestController;
 import ventas.pedido.dto.CrearPedidoRequest;
 import ventas.pedido.dto.CrearPedidoResponse;
 import ventas.pedido.dto.DespachoPedidoResponse;
+import ventas.pedido.dto.EntregaPickupRequest;
+import ventas.pedido.dto.EntregaPickupResponse;
 import ventas.pedido.dto.KpisVentasResponse;
 import ventas.pedido.dto.ListadoPedidosResponse;
 import ventas.pedido.dto.MisPedidosResponse;
 import ventas.pedido.dto.NotificacionPagoRequest;
 import ventas.pedido.dto.NotificacionPagoResponse;
 import ventas.pedido.dto.PedidoDetalle;
+import ventas.pedido.dto.PedidoPickupResponse;
 
 @RestController
 @RequestMapping("/api/v1/pedidos")
@@ -42,6 +46,7 @@ public class PedidoController {
     private final NotificacionPagoService notificacionPagoService;
     private final ConsultarPedidoService consultarPedidoService;
     private final DespachoPedidoService despachoPedidoService;
+    private final PickupPedidoService pickupPedidoService;
     private final boolean seguridadHabilitada;
     private final UUID clientePrueba;
 
@@ -50,6 +55,7 @@ public class PedidoController {
                             NotificacionPagoService notificacionPagoService,
                             ConsultarPedidoService consultarPedidoService,
                             DespachoPedidoService despachoPedidoService,
+                            PickupPedidoService pickupPedidoService,
                             @Value("${seguridad.habilitada:true}") boolean seguridadHabilitada,
                             @Value("${seguridad.cliente-prueba:11111111-1111-1111-1111-111111111111}") UUID clientePrueba) {
         this.pedidoService = pedidoService;
@@ -57,6 +63,7 @@ public class PedidoController {
         this.notificacionPagoService = notificacionPagoService;
         this.consultarPedidoService = consultarPedidoService;
         this.despachoPedidoService = despachoPedidoService;
+        this.pickupPedidoService = pickupPedidoService;
         this.seguridadHabilitada = seguridadHabilitada;
         this.clientePrueba = clientePrueba;
     }
@@ -139,6 +146,26 @@ public class PedidoController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,
             @RequestParam(required = false) CanalVenta canal) {
         return ResponseEntity.ok(pedidoService.kpis(desde, hasta, canal));
+    }
+
+    /**
+     * 1.15 Listar pedidos pickup para retiro en tienda física (Retail / Gestor).
+     * Requiere rol ADMIN_VENTAS o scope ventas:pedidos:consultar (SecurityConfig).
+     */
+    @GetMapping("/pickup")
+    public ResponseEntity<List<PedidoPickupResponse>> listarPickup(@RequestParam String tiendaId) {
+        return ResponseEntity.ok(pickupPedidoService.listarPendientes(tiendaId));
+    }
+
+    /**
+     * 1.16 Confirmar entrega física de pedido pickup en tienda física (RF-19).
+     * Requiere rol ADMIN_VENTAS o scope ventas:pedidos:estado (SecurityConfig).
+     */
+    @PostMapping("/{pedidoId}/entrega-pickup")
+    public ResponseEntity<EntregaPickupResponse> entregarPickup(
+            @PathVariable String pedidoId,
+            @Valid @RequestBody EntregaPickupRequest solicitud) {
+        return ResponseEntity.ok(pickupPedidoService.entregar(pedidoId, solicitud));
     }
 
     /** Botón del Gestor "Iniciar preparación": PAGADO -> EN_PREPARACION. Rol ADMIN_VENTAS (SecurityConfig). */

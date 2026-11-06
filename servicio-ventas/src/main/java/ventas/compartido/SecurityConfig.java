@@ -88,6 +88,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/v1/pedidos/reemplazos").hasAuthority("SCOPE_ventas:pedidos:reemplazar")
                 // 1.5: webhook de Despacho (acuerdo G2, D6 y D7: se reusa el scope ventas:pedidos:estado)
                 .requestMatchers(HttpMethod.POST, "/api/v1/integraciones/despachos/eventos").hasAuthority("SCOPE_ventas:pedidos:estado")
+                // 1.16: Confirmación de entrega física en mostrador (Retail con scope o Gestor con rol)
+                .requestMatchers(HttpMethod.POST, "/api/v1/pedidos/*/entrega-pickup")
+                    .hasAnyAuthority("ROLE_ADMIN_VENTAS", "SCOPE_ventas:pedidos:estado")
                 // Botones del Gestor: iniciar preparación y paquete sellado (crea el despacho en G2)
                 .requestMatchers(HttpMethod.POST, "/api/v1/pedidos/*/preparacion", "/api/v1/pedidos/*/despacho")
                     .hasRole("ADMIN_VENTAS")
@@ -97,6 +100,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/v1/pedidos").hasRole("ADMIN_VENTAS")
                 // 1.14: KPIs del Dashboard. Va antes de /pedidos/* para que "kpis" no se tome como un pedidoId
                 .requestMatchers(HttpMethod.GET, "/api/v1/pedidos/kpis").hasRole("ADMIN_VENTAS")
+                // 1.15: Bandeja pickup para retiro en tienda (Retail con scope o Gestor con rol)
+                .requestMatchers(HttpMethod.GET, "/api/v1/pedidos/pickup")
+                    .hasAnyAuthority("ROLE_ADMIN_VENTAS", "SCOPE_ventas:pedidos:consultar")
                 // 1.3: cliente (solo sus pedidos), Gestor o M2 (modulo-postventa) con su scope; el scope NO sirve para listar
                 .requestMatchers(HttpMethod.GET, "/api/v1/pedidos/*")
                     .hasAnyAuthority("ROLE_CLIENTE", "ROLE_ADMIN_VENTAS", "SCOPE_ventas:pedidos:consultar")

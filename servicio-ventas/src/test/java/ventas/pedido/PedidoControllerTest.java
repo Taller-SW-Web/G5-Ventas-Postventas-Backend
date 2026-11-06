@@ -63,6 +63,9 @@ class PedidoControllerTest {
     @MockitoBean
     DespachoPedidoService despachoPedidoService;
 
+    @MockitoBean
+    PickupPedidoService pickupPedidoService;
+
     @Test
     void crearPedidoNuevoResponde201ConLocation() throws Exception {
         when(crearPedidoService.crear(eq(CLAVE), any())).thenReturn(new CrearPedidoService.Resultado(respuesta(), true));

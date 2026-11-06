@@ -53,4 +53,9 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long>, JpaSpecif
     /** 1.14: igual que el anterior, de un solo canal. */
     List<FilaKpi> findByTipoAndCanalAndCreadoEnGreaterThanEqualAndCreadoEnLessThan(
             TipoPedido tipo, CanalVenta canal, OffsetDateTime inicio, OffsetDateTime fin);
+
+    /** 1.15: Pedidos asignados a una tienda física listos para retiro (Pickup). */
+    @EntityGraph(attributePaths = "detalles")
+    @Query("select p from Pedido p where p.tiendaId = :tiendaId and (p.modalidadEnvio = 'RECOJO_TIENDA' or p.modalidadEnvio = 'TIENDA' or p.modalidadEnvio is null) and p.estado in :estados order by p.creadoEn desc")
+    List<Pedido> buscarParaPickup(@Param("tiendaId") String tiendaId, @Param("estados") List<EstadoPedido> estados);
 }

@@ -101,7 +101,10 @@ public class CrearPedidoService {
         pago.setPedido(pedido);
         pago.setMetodo(p.metodoPago());
         pago.setMonto(p.total());
-        pago.setReferencia(p.referenciaOperacion());
+        String referencia = (p.referenciaOperacion() != null && !p.referenciaOperacion().isBlank())
+                ? p.referenciaOperacion()
+                : p.comprobanteReferencia();
+        pago.setReferencia(referencia);
         pago.setMontoEfectivo(p.montoEfectivo());
         pago.setMontoTarjeta(p.montoTarjeta());
         pago.setFechaVenta(p.fechaVenta());
