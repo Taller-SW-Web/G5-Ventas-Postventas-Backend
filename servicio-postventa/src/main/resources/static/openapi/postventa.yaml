@@ -8,20 +8,20 @@ x-anclas:
         $ref: '#/components/schemas/Error'
 
 info:
-  title: API de Postventa (M2) — Devoluciones, Reembolsos, CSAT y Reclamos
+  title: 'API de Postventa (M2): Devoluciones, Reembolsos, CSAT y Reclamos'
   version: 1.6.0
   description: |
-    **Módulo D — Ventas y Postventa (G5).** Atiende lo que ocurre después de la venta.
+    **Módulo D, Ventas y Postventa (G5).** Atiende lo que ocurre después de la venta.
     El pedido pertenece a M1: M2 nunca escribe sobre él y lo consulta siempre por API.
 
     ## Cómo encaja con los demás módulos
 
     | Módulo | Qué hace con esta API | Qué le pide M2 |
     |---|---|---|
-    | **G1 Marketplace, G3 Chatbot, G4 Retail** | Registran devoluciones, reclamos y calificaciones | — |
+    | **G1 Marketplace, G3 Chatbot, G4 Retail** | Registran devoluciones, reclamos y calificaciones | - |
     | **M1 Ventas** | Pide reembolsos de anulaciones (2.6) y envía eventos del pedido (2.13) | Consulta pedidos (1.3) y pide reemplazos (1.11) |
-    | **Pasarela de pagos (simulador)** | — | Ejecuta el extorno de un reembolso |
-    | **G6 Productos** | — | Consulta disponibilidad y reintegra stock |
+    | **Pasarela de pagos (simulador)** | - | Ejecuta el extorno de un reembolso |
+    | **G6 Productos** | - | Consulta disponibilidad y reintegra stock |
     | **G7 Seguridad** | Emite y firma los tokens | M2 valida cada token con el JWKS de G7 |
 
     ## Recorrido de una devolución

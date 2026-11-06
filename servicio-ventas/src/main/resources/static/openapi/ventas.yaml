@@ -8,10 +8,10 @@ x-anclas:
         $ref: '#/components/schemas/Error'
 
 info:
-  title: API de Ventas (M1) — Pedidos y Anulaciones
+  title: 'API de Ventas (M1): Pedidos y Anulaciones'
   version: 1.10.0
   description: |
-    **Módulo D — Ventas y Postventa (G5).** Este servicio es el único dueño del estado del pedido.
+    **Módulo D, Ventas y Postventa (G5).** Este servicio es el único dueño del estado del pedido.
     El detalle de Postventa (devoluciones, reembolsos, reclamos) está en la API de M2.
 
     ## Cómo encaja con los demás módulos
