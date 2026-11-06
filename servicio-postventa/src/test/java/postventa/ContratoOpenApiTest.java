@@ -47,7 +47,7 @@ class ContratoOpenApiTest {
                 String nombre = operacion.getKey() + " " + ruta.getKey();
                 assertThat(o.get("security")).as("security de " + nombre).isNotNull();
                 assertThat(o.get("description")).as("description de " + nombre).isNotNull();
-                assertThat(mapa(o.get("responses"))).as("responses de " + nombre).isNotEmpty();
+                assertThat(mapa(o.get("responses"))).as("responses de " + nombre).containsKeys("401", "403");
             }
         }
     }

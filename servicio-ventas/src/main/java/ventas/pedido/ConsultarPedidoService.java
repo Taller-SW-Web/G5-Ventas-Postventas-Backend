@@ -43,7 +43,7 @@ public class ConsultarPedidoService {
         Optional<Pago> pago = pagos.findByPedidoId(p.getId());
 
         return new PedidoDetalle(
-                p.getCodigo(), p.getCanal(), p.getEstado(),
+                p.getCodigo(), p.getCanal(), p.getEstado(), p.getTipo(),
                 new PedidoDetalle.Contacto(p.getIdCliente(), p.getNombreContacto(), p.getTipoDocumento(),
                         p.getNumeroDocumento(), p.getEmail(), p.getTelefono()),
                 new PedidoDetalle.Pago(p.getTotal(), p.getMoneda().trim(), pago.map(Pago::getMetodo).orElse(null),
