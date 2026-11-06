@@ -496,7 +496,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ListadoReembolsos'
         '400':
-          description: '`PAGINACION_INVALIDA` o `RANGO_FECHAS_INVALIDO`.'
+          description: '`PAGINACION_INVALIDA`, `RANGO_FECHAS_INVALIDO` o `CODIGO_INVALIDO` (código de pedido mal formado).'
           content: *error
         '401':
           $ref: '#/components/responses/NoAutenticado'

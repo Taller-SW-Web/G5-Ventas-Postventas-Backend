@@ -355,6 +355,41 @@ paths:
         '403':
           $ref: '#/components/responses/SinPermiso'
 
+  /api/v1/pedidos/pickup:
+    get:
+      tags: [F1 Pedidos]
+      operationId: listarPedidosPickup
+      summary: 1.15 Bandeja de pedidos para retiro en tienda (Pickup)
+      description: |
+        Lista de pedidos asignados a una tienda física listos para retiro presencial (RF-18 de Retail).
+
+        **Permiso:** token de servicio de Retail con scope `ventas:pedidos:consultar` o usuario con rol `ADMIN_VENTAS`.
+      security:
+        - TokenServicio: [ventas:pedidos:consultar]
+        - TokenUsuario: [ADMIN_VENTAS]
+      parameters:
+        - name: tiendaId
+          in: query
+          required: true
+          description: Código identificador de la tienda física (ej. `TIENDA-MIRAFLORES`).
+          schema: { type: string }
+      responses:
+        '200':
+          description: Lista de pedidos pickup listos para entrega.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PedidoPickup'
+        '400':
+          description: '`PARAMETRO_REQUERIDO` si falta tiendaId.'
+          content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+
   /api/v1/pedidos/{pedidoId}:
     get:
       tags: [F1 Pedidos]
@@ -448,6 +483,47 @@ paths:
         '403':
           $ref: '#/components/responses/SinPermiso'
 
+  /api/v1/pedidos/{pedidoId}/entrega-pickup:
+    post:
+      tags: [F1 Pedidos]
+      operationId: entregarPedidoPickup
+      summary: 1.16 Confirmación de entrega física en mostrador (Pickup)
+      description: |
+        Registra la entrega física del paquete en mostrador y transiciona a `ENTREGADO` (RF-19).
+
+        **Permiso:** token de servicio de Retail con scope `ventas:pedidos:estado` o usuario con rol `ADMIN_VENTAS`.
+      security:
+        - TokenServicio: [ventas:pedidos:estado]
+        - TokenUsuario: [ADMIN_VENTAS]
+      parameters:
+        - $ref: '#/components/parameters/PedidoId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EntregaPickupRequest'
+      responses:
+        '200':
+          description: Constancia digital de entrega emitida.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntregaPickupResponse'
+        '400':
+          description: '`DATOS_INVALIDOS` si los campos requeridos son inválidos.'
+          content: *error
+        '404':
+          description: '`PEDIDO_NO_ENCONTRADO` si no existe el pedido.'
+          content: *error
+        '409':
+          description: '`PEDIDO_NO_LISTO_PARA_RECOJO` si no está listo para entrega.'
+          content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+
   /api/v1/pedidos/{pedidoId}/preparacion:
     post:
       tags: [F1 Preparación y despacho]
@@ -470,6 +546,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DespachoPedidoResponse'
+        '400':
+          description: '`CODIGO_INVALIDO`: el código del pedido no termina en un número.'
+          content: *error
         '404':
           description: '`PEDIDO_NO_ENCONTRADO`.'
           content: *error
@@ -506,6 +585,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DespachoPedidoResponse'
+        '400':
+          description: '`CODIGO_INVALIDO`: el código del pedido no termina en un número.'
+          content: *error
         '404':
           description: '`PEDIDO_NO_ENCONTRADO`.'
           content: *error
@@ -1017,6 +1099,7 @@ components:
             costoEnvio: { type: number, minimum: 0 }
             total: { type: number, minimum: 0 }
             referenciaOperacion: { type: string, maxLength: 100, description: 'Retail con `TARJETA_POS` o `MIXTO`: número de voucher.' }
+            comprobanteReferencia: { type: string, maxLength: 100, description: 'Retail: correlativo de la boleta o factura. Solo informativo; el comprobante lo emite Retail. Sirve como referencia si no se envía `referenciaOperacion`.' }
             montoEfectivo: { type: number, minimum: 0, description: Retail con `MIXTO`. }
             montoTarjeta: { type: number, minimum: 0, description: Retail con `MIXTO`. }
             fechaVenta: { type: string, format: date-time, description: Retail sin conexión. No futura y hasta 72 horas antes. }
@@ -1291,3 +1374,41 @@ components:
             publicStatus: { type: string, examples: [DESPACHADO] }
             trackingNumber: { type: string, description: Código del despacho en G2. }
             estimatedDeliveryDate: { type: [string, 'null'], format: date }
+
+    PedidoPickup:
+      type: object
+      required: [pedidoId, clienteNombre, clienteDni, anaquelUbicacion, fechaArriboTienda, estado, articulos]
+      properties:
+        pedidoId: { type: string }
+        clienteNombre: { type: string }
+        clienteDni: { type: string }
+        anaquelUbicacion: { type: string }
+        fechaArriboTienda: { type: string }
+        estado: { type: string, example: LISTO_PARA_RECOJO }
+        articulos:
+          type: array
+          items:
+            type: object
+            properties:
+              sku: { type: string }
+              nombre: { type: string }
+              talla: { type: string }
+              color: { type: string }
+              cantidad: { type: integer }
+
+    EntregaPickupRequest:
+      type: object
+      required: [dniRecoge, nombreRecoge]
+      properties:
+        dniRecoge: { type: string, pattern: '^\d{8}$' }
+        nombreRecoge: { type: string }
+        esTerceroAutorizado: { type: boolean }
+        codigoRetiro: { type: string }
+
+    EntregaPickupResponse:
+      type: object
+      required: [constanciaId, fechaHoraEntrega, estado]
+      properties:
+        constanciaId: { type: string }
+        fechaHoraEntrega: { type: string }
+        estado: { type: string, example: ENTREGADO }
