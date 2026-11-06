@@ -33,7 +33,7 @@ import postventa.compartido.DependenciaNoDisponibleException;
  * La titularidad del cliente la revisa F3, no M1. Hasta que Seguridad registre ese scope para modulo-postventa,
  * M1 responde 403 con la seguridad prendida; con SEGURIDAD_HABILITADA=false no se manda token.
  *
- * Con integracion.simulado=true no llama a M1 y responde un pedido ENTREGADO hace 2 días, del cliente
+ * Con integracion.ventas-simulado=true no llama a M1 y responde un pedido ENTREGADO hace 2 días, del cliente
  * de prueba, por 129.90 PEN (PROD-101/SKU-101 x1 a 99.90 y PROD-999/SKU-999 x1 a 30.00). Para probar errores:
  * PED-AAAA-00404 no existe, PED-AAAA-00409 está DESPACHADO y PED-AAAA-00030 se entregó hace 30 días.
  *
@@ -87,7 +87,7 @@ public class VentasClient {
     private final RestClient http;
 
     @Autowired
-    public VentasClient(@Value("${integracion.simulado:true}") boolean simulado,
+    public VentasClient(@Value("${integracion.ventas-simulado:${integracion.simulado:true}}") boolean simulado,
                         @Value("${integracion.ventas-url:http://localhost:8081}") String url,
                         @Value("${seguridad.cliente-prueba:11111111-1111-1111-1111-111111111111}") UUID clientePrueba,
                         TokenServicio tokenServicio) {
