@@ -10,6 +10,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -64,6 +65,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> formatoInvalido(Exception e) {
         return responder(HttpStatus.BAD_REQUEST,
                 ErrorResponse.de("FORMATO_INVALIDO", "El cuerpo o un parámetro no tiene el formato esperado"));
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> parametroFaltante(MissingServletRequestParameterException e) {
+        return responder(HttpStatus.BAD_REQUEST,
+                ErrorResponse.de("PARAMETRO_REQUERIDO", "Falta el parámetro obligatorio: " + e.getParameterName()));
     }
 
     @ExceptionHandler(MissingRequestHeaderException.class)

@@ -156,6 +156,24 @@ class ValidadorPedidoTest {
         assertThatCode(() -> validador.validar(req)).doesNotThrowAnyException();
     }
 
+    @Test
+    void marketplaceConRecojoEnTiendaEsValidoSinDireccion() {
+        Envio recojo = new Envio("RECOJO_TIENDA", BigDecimal.ZERO, null, null, null, null, null, null, "TIENDA-MIRAFLORES");
+        CrearPedidoRequest req = new CrearPedidoRequest(CanalVenta.MARKETPLACE, contacto(TipoDocumento.DNI, "72458912"),
+                items(), null, recojo, pago("TARJETA_CREDITO", "129.90", "0.00", "0.00", "129.90"));
+        assertThatCode(() -> validador.validar(req)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void marketplaceConRecojoEnTiendaSinTiendaIdDaError() {
+        Envio recojo = new Envio("RECOJO_TIENDA", BigDecimal.ZERO, null, null, null, null, null, null, null);
+        CrearPedidoRequest req = new CrearPedidoRequest(CanalVenta.MARKETPLACE, contacto(TipoDocumento.DNI, "72458912"),
+                items(), null, recojo, pago("TARJETA_CREDITO", "129.90", "0.00", "0.00", "129.90"));
+        assertThatThrownBy(() -> validador.validar(req))
+                .isInstanceOf(SolicitudInvalidaException.class)
+                .extracting("codigo").isEqualTo("DATOS_INVALIDOS");
+    }
+
     // ---------- datos de prueba (ejemplo de api-ventas.md 1.1) ----------
 
     static Contacto contacto(TipoDocumento tipo, String numero) {

@@ -152,6 +152,7 @@ public class CrearPedidoService {
             pedido.setTiendaId(e.tiendaId());
         } else {
             pedido.setModalidadEnvio(e.modalidad());
+            pedido.setTiendaId(e.tiendaId());
             pedido.setDestinatario(e.destinatario());
             pedido.setDistrito(e.distrito());
             pedido.setDireccion(e.direccion());
