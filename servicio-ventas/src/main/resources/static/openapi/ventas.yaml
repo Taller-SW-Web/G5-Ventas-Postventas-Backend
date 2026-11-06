@@ -1077,9 +1077,9 @@ components:
             aplicado: { type: boolean }
         envio:
           type: object
-          description: 'Obligatorio. Retail y `modalidad: RECOJO_TIENDA` envían `tiendaId` en vez de dirección; el resto exige `destinatario`, `distrito` y `direccion`.'
+          description: Obligatorio salvo Retail, donde solo se envía `tiendaId`.
           properties:
-            modalidad: { type: string, maxLength: 30, description: '`DELIVERY` o `RECOJO_TIENDA`.', examples: [DELIVERY] }
+            modalidad: { type: string, maxLength: 30, examples: [DELIVERY] }
             costo: { type: number, minimum: 0 }
             destinatario: { type: string, maxLength: 150 }
             departamento: { type: string, maxLength: 80 }
@@ -1087,7 +1087,7 @@ components:
             distrito: { type: string, maxLength: 80 }
             direccion: { type: string, maxLength: 255 }
             referencia: { type: string, maxLength: 255 }
-            tiendaId: { type: string, maxLength: 60, description: Tienda de la venta (Retail) o del recojo. }
+            tiendaId: { type: string, maxLength: 60, description: Solo Retail. }
         pago:
           type: object
           required: [metodoPago, moneda, subtotal, total]
@@ -1169,7 +1169,7 @@ components:
             modalidad: { type: [string, 'null'] }
             direccion: { type: [string, 'null'] }
             distrito: { type: [string, 'null'] }
-            tiendaId: { type: [string, 'null'], description: Tienda de Retail o del recojo. }
+            tiendaId: { type: [string, 'null'], description: Solo en Retail. }
             departamento: { type: [string, 'null'] }
             provincia: { type: [string, 'null'] }
             referencia: { type: [string, 'null'] }

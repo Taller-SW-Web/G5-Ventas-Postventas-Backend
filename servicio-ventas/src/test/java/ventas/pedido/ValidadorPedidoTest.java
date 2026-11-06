@@ -177,17 +177,6 @@ class ValidadorPedidoTest {
                 new BigDecimal(total), null, null, null, null);
     }
 
-    @Test
-    void recojoEnTiendaExigeLaTienda() {
-        CrearPedidoRequest base = chatbot(new Contacto(UUID.randomUUID(), "Ana", TipoDocumento.DNI, "40123456", null, "ana@example.com"));
-        CrearPedidoRequest sinTienda = new CrearPedidoRequest(base.canal(), base.contacto(), base.items(), base.cupon(),
-                new Envio("RECOJO_TIENDA", null, null, null, null, null, null, null, null), base.pago());
-
-        assertThatThrownBy(() -> validador.validar(sinTienda))
-                .isInstanceOf(ventas.compartido.SolicitudInvalidaException.class)
-                .extracting("codigo").isEqualTo("DATOS_INVALIDOS");
-    }
-
     static CrearPedidoRequest chatbot(Contacto c) {
         return new CrearPedidoRequest(CanalVenta.CHATBOT, c, items(), null, envio(),
                 pago("TARJETA_CREDITO", "129.90", "10.00", "10.00", "129.90"));
