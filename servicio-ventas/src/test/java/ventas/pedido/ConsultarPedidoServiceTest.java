@@ -85,6 +85,7 @@ class ConsultarPedidoServiceTest {
 
         assertThat(r.pedidoId()).isEqualTo(CODIGO);
         assertThat(r.estado()).isEqualTo(EstadoPedido.PAGADO);
+        assertThat(r.tipo()).isEqualTo(TipoPedido.VENTA);
         assertThat(r.contacto().clienteId()).isEqualTo(CLIENTE);
         assertThat(r.pago().metodoPago()).isEqualTo("TARJETA_CREDITO");
         assertThat(r.pago().moneda()).isEqualTo("PEN");
@@ -97,6 +98,24 @@ class ConsultarPedidoServiceTest {
                 .containsExactly(EstadoPedido.CREADO, EstadoPedido.PAGADO);
         assertThat(r.fechaCreacion()).isEqualTo(CREADO);
         assertThat(r.ultimaActualizacion()).isEqualTo(OffsetDateTime.parse("2026-09-23T00:06:00Z"));
+    }
+
+    @Test
+    void unReemplazoSeIdentificaPorSuTipoYSinPago() {
+        pedido.setTipo(TipoPedido.REEMPLAZO);
+        pedido.setEstado(EstadoPedido.EN_PREPARACION);
+        pedido.setTotal(BigDecimal.ZERO);
+        when(pedidos.findByCodigo(CODIGO)).thenReturn(Optional.of(pedido));
+        when(historial.findByPedidoIdOrderByFechaHoraAsc(981L)).thenReturn(List.of(
+                h(EstadoPedido.CREADO, ActorHistorial.GESTOR, "Reemplazo de PED-2026-00001 por la devolución DEV-2026-0001", "2026-09-23T00:05:00Z"),
+                h(EstadoPedido.EN_PREPARACION, ActorHistorial.SISTEMA_PRODUCTOS, "Reserva del reemplazo confirmada por Productos", "2026-09-23T00:06:00Z")));
+
+        PedidoDetalle r = servicio.consultar(CODIGO, Optional.empty());
+
+        assertThat(r.tipo()).isEqualTo(TipoPedido.REEMPLAZO);
+        assertThat(r.pago().estado()).isNull();
+        assertThat(r.historialEstados()).extracting(PedidoDetalle.Historial::estado)
+                .containsExactly(EstadoPedido.CREADO, EstadoPedido.EN_PREPARACION);
     }
 
     @Test

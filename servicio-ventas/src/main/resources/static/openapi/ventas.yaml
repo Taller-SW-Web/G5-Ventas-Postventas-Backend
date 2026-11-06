@@ -8,10 +8,10 @@ x-anclas:
         $ref: '#/components/schemas/Error'
 
 info:
-  title: API de Ventas (M1) — Pedidos y Anulaciones
-  version: 1.9.0
+  title: 'API de Ventas (M1): Pedidos y Anulaciones'
+  version: 1.10.0
   description: |
-    **Módulo D — Ventas y Postventa (G5).** Este servicio es el único dueño del estado del pedido.
+    **Módulo D, Ventas y Postventa (G5).** Este servicio es el único dueño del estado del pedido.
     El detalle de Postventa (devoluciones, reembolsos, reclamos) está en la API de M2.
 
     ## Cómo encaja con los demás módulos
@@ -47,7 +47,7 @@ info:
     - **Paginación:** `pagina` desde 0 y `tamano`. Excepción acordada con Marketplace: 1.4b usa `page` desde 1 y `pageSize`.
     - **Errores:** siempre el mismo formato, con un `codigo` estable para que el consumidor decida sin leer el texto.
 
-    Cualquier operación protegida puede responder `401 TOKEN_INVALIDO` y `403 ACCESO_DENEGADO`, además de `500 ERROR_INTERNO`.
+    Además de los errores de cada operación, cualquiera puede responder `500 ERROR_INTERNO`.
 
 servers:
   - url: /
@@ -203,6 +203,10 @@ paths:
         '503':
           description: '`PRODUCTOS_NO_DISPONIBLE`: Productos no admitió la reserva. El pedido no se guarda y la clave no se consume.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
     get:
       tags: [F1 Pedidos]
       operationId: listarPedidos
@@ -254,6 +258,10 @@ paths:
         '400':
           description: '`PAGINACION_INVALIDA`, `PARAMETRO_INVALIDO` (`desde` posterior a `hasta`) o `FORMATO_INVALIDO`.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v1/pedidos/me:
     get:
@@ -299,6 +307,10 @@ paths:
         '400':
           description: '`PAGINACION_INVALIDA`, `RANGO_FECHAS_INVALIDO` o `FORMATO_INVALIDO`.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v1/pedidos/kpis:
     get:
@@ -338,6 +350,10 @@ paths:
         '400':
           description: '`PARAMETRO_INVALIDO` (falta una fecha, rango invertido o mayor a 366 días) o `FORMATO_INVALIDO`.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v1/pedidos/pickup:
     get:
@@ -369,6 +385,10 @@ paths:
         '400':
           description: '`PARAMETRO_REQUERIDO` si falta tiendaId.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v1/pedidos/{pedidoId}:
     get:
@@ -404,6 +424,8 @@ paths:
         '404':
           description: '`PEDIDO_NO_ENCONTRADO`.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
 
   /api/v1/pedidos/{pedidoId}/pagos/notificacion:
     post:
@@ -456,6 +478,10 @@ paths:
             `NOTIFICACION_INCOMPATIBLE`: la `transaccionId` ya existe con otros datos.
             `TRANSACCION_DE_OTRO_PEDIDO`: la `transaccionId` pertenece a otro pedido o a un pago reemplazado.
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v1/pedidos/{pedidoId}/entrega-pickup:
     post:
@@ -493,6 +519,10 @@ paths:
         '409':
           description: '`PEDIDO_NO_LISTO_PARA_RECOJO` si no está listo para entrega.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v1/pedidos/{pedidoId}/preparacion:
     post:
@@ -516,12 +546,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DespachoPedidoResponse'
+        '400':
+          description: '`CODIGO_INVALIDO`: el código del pedido no termina en un número.'
+          content: *error
         '404':
           description: '`PEDIDO_NO_ENCONTRADO`.'
           content: *error
         '409':
           description: '`TRANSICION_NO_PERMITIDA` (no está `PAGADO`) o `DESPACHO_NO_APLICA` (es `RETAIL`).'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v1/pedidos/{pedidoId}/despacho:
     post:
@@ -548,6 +585,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DespachoPedidoResponse'
+        '400':
+          description: '`CODIGO_INVALIDO`: el código del pedido no termina en un número.'
+          content: *error
         '404':
           description: '`PEDIDO_NO_ENCONTRADO`.'
           content: *error
@@ -565,6 +605,10 @@ paths:
         '503':
           description: '`DESPACHO_NO_DISPONIBLE` o `PRODUCTOS_NO_DISPONIBLE`: el pedido sigue `EN_PREPARACION` y se puede reintentar.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v1/integraciones/despachos/eventos:
     post:
@@ -616,6 +660,10 @@ paths:
         '409':
           description: '`TRANSICION_NO_PERMITIDA`: el pedido no está en el estado que exige el evento.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v1/pedidos/reemplazos:
     post:
@@ -675,6 +723,10 @@ paths:
         '503':
           description: '`PRODUCTOS_NO_DISPONIBLE`: Productos no admitió la reserva; el reemplazo no se guarda.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v1/pedidos/{pedidoId}/anulaciones:
     post:
@@ -724,6 +776,10 @@ paths:
         '409':
           description: '`PEDIDO_NO_ANULABLE` o `SOLICITUD_DUPLICADA` (ya hay una pendiente).'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v1/pedidos/anulaciones:
     get:
@@ -777,6 +833,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ListadoAnulaciones'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v1/pedidos/anulaciones/pendientes:
     get:
@@ -819,6 +879,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ListadoAnulaciones'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
   /api/v1/pedidos/{pedidoId}/anulaciones/{anulacionId}:
     patch:
@@ -864,6 +928,10 @@ paths:
         '409':
           description: '`ANULACION_NO_PENDIENTE`, `PEDIDO_YA_NO_EN_PREPARACION` o `PEDIDO_EN_CAMINO`.'
           content: *error
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
 
 webhooks:
   pedidos.envio.estado_actualizado:
@@ -894,6 +962,14 @@ webhooks:
           description: Marketplace recibió el aviso.
 
 components:
+  responses:
+    NoAutenticado:
+      description: '`TOKEN_INVALIDO`: token ausente, vencido o inválido.'
+      content: *error
+    SinPermiso:
+      description: '`ACCESO_DENEGADO`: el token no tiene el rol o scope que exige esta operación.'
+      content: *error
+
   securitySchemes:
     TokenServicio:
       type: http
@@ -1023,6 +1099,7 @@ components:
             costoEnvio: { type: number, minimum: 0 }
             total: { type: number, minimum: 0 }
             referenciaOperacion: { type: string, maxLength: 100, description: 'Retail con `TARJETA_POS` o `MIXTO`: número de voucher.' }
+            comprobanteReferencia: { type: string, maxLength: 100, description: 'Retail: correlativo de la boleta o factura. Solo informativo; el comprobante lo emite Retail. Sirve como referencia si no se envía `referenciaOperacion`.' }
             montoEfectivo: { type: number, minimum: 0, description: Retail con `MIXTO`. }
             montoTarjeta: { type: number, minimum: 0, description: Retail con `MIXTO`. }
             fechaVenta: { type: string, format: date-time, description: Retail sin conexión. No futura y hasta 72 horas antes. }
@@ -1065,6 +1142,7 @@ components:
         pedidoId: { type: string }
         canal: { $ref: '#/components/schemas/CanalVenta' }
         estado: { $ref: '#/components/schemas/EstadoPedido' }
+        tipo: { type: string, enum: [VENTA, REEMPLAZO], description: '`REEMPLAZO` es la orden sin cobro de un cambio de producto.' }
         contacto:
           type: object
           properties:

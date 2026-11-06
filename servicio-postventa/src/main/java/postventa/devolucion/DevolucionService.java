@@ -283,14 +283,16 @@ public class DevolucionService {
         }
         boolean requiereDevolucionFisica = reintento ? d.isRequiereDevolucionFisica()
                 : requiereDevolucionFisica(camino, solicitud.requiereDevolucionFisica());
-        List<ItemProducto> items = d.getItems().stream()
-                .map(i -> new ItemProducto(i.getIdProducto(), i.getCantidad()))
-                .toList();
-        // El pedido da el canal para la métrica del dashboard y el precio para el reembolso
+        // El pedido da el canal para la métrica del dashboard, el precio para el reembolso y el sku para Productos
         String pedidoId = codigoPedido(d);
         PedidoResumen pedido = ventas.consultarPedido(pedidoId)
                 .orElseThrow(() -> new ConflictoException("PEDIDO_INCONSISTENTE",
                         "Ventas ya no encuentra el pedido " + pedidoId + "; la devolución no se puede resolver."));
+        Map<String, String> skus = skus(pedido);
+        List<ItemProducto> items = d.getItems().stream()
+                .map(i -> new ItemProducto(i.getIdProducto(), skus.getOrDefault(i.getIdProducto(), i.getIdProducto()),
+                        i.getCantidad()))
+                .toList();
 
         if (!reintento) {
             OffsetDateTime ahora = ahora();
@@ -365,13 +367,19 @@ public class DevolucionService {
 
     /** M2 guarda el productoId; M1 repone por SKU, que se toma del pedido original. */
     private static List<VentasClient.LineaReemplazo> lineasReemplazo(Devolucion d, PedidoResumen pedido) {
+        Map<String, String> skus = skus(pedido);
+        return d.getItems().stream()
+                .map(i -> new VentasClient.LineaReemplazo(skus.getOrDefault(i.getIdProducto(), i.getIdProducto()), i.getCantidad()))
+                .toList();
+    }
+
+    /** productoId -> sku de la primera línea del pedido con ese producto. */
+    private static Map<String, String> skus(PedidoResumen pedido) {
         Map<String, String> skus = new LinkedHashMap<>();
         pedido.items().stream()
                 .filter(i -> i.productoId() != null && i.sku() != null)
                 .forEach(i -> skus.putIfAbsent(i.productoId(), i.sku()));
-        return d.getItems().stream()
-                .map(i -> new VentasClient.LineaReemplazo(skus.getOrDefault(i.getIdProducto(), i.getIdProducto()), i.getCantidad()))
-                .toList();
+        return skus;
     }
 
     // ---------------------------------------------------------------- Avisos de M1 sobre el reemplazo
