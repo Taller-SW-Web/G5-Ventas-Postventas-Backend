@@ -312,6 +312,13 @@ class PedidoControllerTest {
     }
 
     @Test
+    void listarPickupSinTiendaIdResponde400() throws Exception {
+        mvc.perform(get("/api/v1/pedidos/pickup"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.codigo").value("PARAMETRO_REQUERIDO"));
+    }
+
+    @Test
     void metodoNoPermitidoResponde405() throws Exception {
         mvc.perform(delete("/api/v1/pedidos/PED-2026-00001"))
                 .andExpect(status().isMethodNotAllowed())

@@ -78,15 +78,23 @@ public class ValidadorPedido {
         }
     }
 
-    /** Marketplace y Chatbot: envío a domicilio con dirección completa. */
+    /** Marketplace y Chatbot: envío a domicilio o recojo en tienda física. */
     private void validarEnvio(CrearPedidoRequest.Envio e) {
         if (e == null) {
             throw invalido("envio", "El bloque envio es obligatorio para este canal");
         }
         List<Detalle> faltan = new ArrayList<>();
-        if (vacio(e.direccion())) faltan.add(new Detalle("envio.direccion", "es obligatorio"));
-        if (vacio(e.distrito())) faltan.add(new Detalle("envio.distrito", "es obligatorio"));
-        if (vacio(e.destinatario())) faltan.add(new Detalle("envio.destinatario", "es obligatorio"));
+        boolean esRecojoTienda = "RECOJO_TIENDA".equalsIgnoreCase(e.modalidad())
+                || "TIENDA".equalsIgnoreCase(e.modalidad());
+        if (esRecojoTienda) {
+            if (vacio(e.tiendaId())) {
+                faltan.add(new Detalle("envio.tiendaId", "es obligatorio para recojo en tienda"));
+            }
+        } else {
+            if (vacio(e.direccion())) faltan.add(new Detalle("envio.direccion", "es obligatorio"));
+            if (vacio(e.distrito())) faltan.add(new Detalle("envio.distrito", "es obligatorio"));
+            if (vacio(e.destinatario())) faltan.add(new Detalle("envio.destinatario", "es obligatorio"));
+        }
         if (!faltan.isEmpty()) {
             throw new SolicitudInvalidaException("DATOS_INVALIDOS", "El bloque envio está incompleto", faltan);
         }
