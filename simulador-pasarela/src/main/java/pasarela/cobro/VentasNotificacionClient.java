@@ -2,6 +2,8 @@ package pasarela.cobro;
 
 import java.time.Duration;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,24 +35,29 @@ public class VentasNotificacionClient {
     private static final Duration TIEMPO_RESPUESTA = Duration.ofSeconds(3);
 
     private final RestClient http;
-    private final String token;
+    private final Supplier<Optional<String>> token;
+    private final Runnable descartarToken;
 
     @Autowired
     public VentasNotificacionClient(
             @Value("${pasarela.ventas-url:http://localhost:8081}")
             String ventasUrl,
-            @Value("${pasarela.token-m1:${PASARELA_TOKEN_M1:}}")
-            String token) {
+            TokenServicio tokens) {
 
-        this(crearCliente(ventasUrl), token);
+        this(crearCliente(ventasUrl), tokens::token, tokens::descartar);
     }
 
     /**
      * Permite probar el contrato HTTP con un cliente controlado.
      */
-    VentasNotificacionClient(RestClient http, String token) {
+    VentasNotificacionClient(
+            RestClient http,
+            Supplier<Optional<String>> token,
+            Runnable descartarToken) {
+
         this.http = Objects.requireNonNull(http);
-        this.token = Objects.requireNonNull(token).trim();
+        this.token = Objects.requireNonNull(token);
+        this.descartarToken = Objects.requireNonNull(descartarToken);
     }
 
     /**
@@ -83,11 +90,8 @@ public class VentasNotificacionClient {
                             "/api/v1/pedidos/{pedidoId}/pagos/notificacion",
                             transaccion.pedidoId())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .headers(cabeceras -> {
-                        if (!token.isBlank()) {
-                            cabeceras.setBearerAuth(token);
-                        }
-                    })
+                    .headers(cabeceras ->
+                            token.get().ifPresent(cabeceras::setBearerAuth))
                     .body(solicitud)
                     .exchange((peticion, respuesta) -> {
                         int estadoHttp = respuesta.getStatusCode().value();
@@ -98,6 +102,10 @@ public class VentasNotificacionClient {
                                             + "transacción {} con HTTP {}",
                                     transaccion.transaccionId(),
                                     estadoHttp);
+                        }
+
+                        if (estadoHttp == HttpStatus.UNAUTHORIZED.value()) {
+                            descartarToken.run();
                         }
 
                         return estadoHttp == HttpStatus.OK.value();

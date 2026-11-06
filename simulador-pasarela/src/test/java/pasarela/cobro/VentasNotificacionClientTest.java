@@ -14,6 +14,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.Optional;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +38,7 @@ class VentasNotificacionClientTest {
     private MockRestServiceServer servidor;
     private RestClient http;
     private VentasNotificacionClient cliente;
+    private int descartes;
 
     @BeforeEach
     void preparar() {
@@ -48,7 +50,8 @@ class VentasNotificacionClientTest {
 
         cliente = new VentasNotificacionClient(
                 http,
-                "token-ficticio-pruebas");
+                () -> Optional.of("token-ficticio-pruebas"),
+                () -> descartes++);
     }
 
     @AfterEach
@@ -81,7 +84,10 @@ class VentasNotificacionClientTest {
 
     @Test
     void enviaRechazoSinCabeceraDeAutorizacionCuandoNoHayToken() {
-        cliente = new VentasNotificacionClient(http, "");
+        cliente = new VentasNotificacionClient(
+                http,
+                Optional::empty,
+                () -> descartes++);
 
         servidor.expect(requestTo(URL))
                 .andExpect(method(HttpMethod.POST))
@@ -114,6 +120,7 @@ class VentasNotificacionClientTest {
 
         assertThat(cliente.notificar(transaccion(EstadoCobro.APROBADO)))
                 .isFalse();
+        assertThat(descartes).isEqualTo(1);
     }
 
     @Test

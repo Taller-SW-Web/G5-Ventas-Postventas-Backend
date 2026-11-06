@@ -14,6 +14,10 @@ spring:
 pasarela:
   # A quién avisa el resultado del cobro (endpoint 1.2 de M1)
   ventas-url: ${VENTAS_URL:http://localhost:8081}
+  # Token de servicio para avisar a M1 (scope ventas:pagos:webhook). Sin secreto el aviso sale sin token
+  token-url: ${SECURITY_TOKEN_URL:http://localhost:8080/api/v1/auth/token}
+  client-id: ${PASARELA_CLIENT_ID:simulador-pasarela}
+  client-secret: ${PASARELA_CLIENT_SECRET:}
   # Espera antes de avisar a M1, para simular el procesamiento
   demora-ms: 2000
   # Reintentos si M1 no responde 200
