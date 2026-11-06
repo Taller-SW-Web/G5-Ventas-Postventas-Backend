@@ -35,6 +35,7 @@ public class CrearPedidoService {
 
     static final String MOTIVO_INICIAL = "Registro inicial de compra";
     static final String MOTIVO_ENTREGA_TIENDA = "ENTREGA_INMEDIATA_EN_TIENDA";
+    static final String MODALIDAD_RECOJO = "RECOJO_TIENDA";
 
     /** creado = true si se registró ahora (201); false si es una repetición de la misma clave (200). */
     public record Resultado(CrearPedidoResponse pedido, boolean creado) {}
@@ -152,6 +153,9 @@ public class CrearPedidoService {
             pedido.setTiendaId(e.tiendaId());
         } else {
             pedido.setModalidadEnvio(e.modalidad());
+            if (MODALIDAD_RECOJO.equalsIgnoreCase(e.modalidad())) {
+                pedido.setTiendaId(e.tiendaId());   // aparece en la bandeja de esa tienda (1.15, acuerdo R12)
+            }
             pedido.setDestinatario(e.destinatario());
             pedido.setDistrito(e.distrito());
             pedido.setDireccion(e.direccion());

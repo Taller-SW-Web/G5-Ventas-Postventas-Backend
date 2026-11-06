@@ -78,10 +78,16 @@ public class ValidadorPedido {
         }
     }
 
-    /** Marketplace y Chatbot: envío a domicilio con dirección completa. */
+    /** Marketplace y Chatbot: envío a domicilio con dirección completa, o recojo en una tienda (R12) con su código. */
     private void validarEnvio(CrearPedidoRequest.Envio e) {
         if (e == null) {
             throw invalido("envio", "El bloque envio es obligatorio para este canal");
+        }
+        if (CrearPedidoService.MODALIDAD_RECOJO.equalsIgnoreCase(e.modalidad())) {
+            if (vacio(e.tiendaId())) {
+                throw invalido("envio.tiendaId", "Para RECOJO_TIENDA es obligatorio el código de la tienda");
+            }
+            return;
         }
         List<Detalle> faltan = new ArrayList<>();
         if (vacio(e.direccion())) faltan.add(new Detalle("envio.direccion", "es obligatorio"));

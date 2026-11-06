@@ -153,7 +153,7 @@ public class PedidoController {
      * Requiere rol ADMIN_VENTAS o scope ventas:pedidos:consultar (SecurityConfig).
      */
     @GetMapping("/pickup")
-    public ResponseEntity<List<PedidoPickupResponse>> listarPickup(@RequestParam String tiendaId) {
+    public ResponseEntity<List<PedidoPickupResponse>> listarPickup(@RequestParam(required = false) String tiendaId) {
         return ResponseEntity.ok(pickupPedidoService.listarPendientes(tiendaId));
     }
 

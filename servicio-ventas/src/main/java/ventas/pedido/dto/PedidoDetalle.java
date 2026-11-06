@@ -9,12 +9,18 @@ import ventas.pedido.ActorHistorial;
 import ventas.pedido.CanalVenta;
 import ventas.pedido.EstadoPago;
 import ventas.pedido.EstadoPedido;
+import ventas.pedido.TipoPedido;
 
-/** Respuesta 200 de 1.3 Consultar pedido (api-ventas.md 1.3). */
+/**
+ * Respuesta 200 de 1.3 Consultar pedido (api-ventas.md 1.3).
+ * tipo (agregado 2026-11-04, aditivo): VENTA o REEMPLAZO (ventas.pedido.tipo). Un REEMPLAZO es la orden sin cobro de
+ * un CAMBIO (F3, 1.11): nunca pasa por PAGADO.
+ */
 public record PedidoDetalle(
         String pedidoId,
         CanalVenta canal,
         EstadoPedido estado,
+        TipoPedido tipo,
         Contacto contacto,
         Pago pago,
         Envio envio,

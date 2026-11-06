@@ -157,6 +157,23 @@ class CrearPedidoServiceTest {
     }
 
     @Test
+    void recojoEnTiendaGuardaLaTiendaSinPedirDireccion() {
+        when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
+        conIdGenerado(982);
+        CrearPedidoRequest base = ValidadorPedidoTest.chatbot(contacto());
+        CrearPedidoRequest recojo = new CrearPedidoRequest(base.canal(), base.contacto(), base.items(), base.cupon(),
+                new CrearPedidoRequest.Envio("RECOJO_TIENDA", null, null, null, null, null, null, null, "TIENDA-MIRAFLORES"),
+                base.pago());
+
+        servicio.crear(CLAVE, recojo);
+
+        ArgumentCaptor<Pedido> captor = ArgumentCaptor.forClass(Pedido.class);
+        verify(pedidos).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getTiendaId()).isEqualTo("TIENDA-MIRAFLORES");
+        assertThat(captor.getValue().getModalidadEnvio()).isEqualTo("RECOJO_TIENDA");
+    }
+
+    @Test
     void retailNacePagadoSeEntregaEnTiendaYNoReservaStock() {
         when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
         conIdGenerado(12);
