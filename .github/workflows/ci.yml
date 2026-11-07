@@ -6,6 +6,11 @@
 #   de Render esté instalada en la organización.
 # Requiere los secrets RENDER_HOOK_VENTAS y RENDER_HOOK_POSTVENTA (Settings > Secrets and variables > Actions).
 # RENDER_HOOK_GATEWAY y RENDER_HOOK_PASARELA son opcionales: sin ellos se omite ese servicio.
+# - Ejecución manual (Actions > CI Backend > Run workflow), con la casilla simular_error:
+#   · desmarcada: compila, prueba y, desde main, despliega igual que un push.
+#   · marcada: compila y prueba igual (el código no se toca), luego un paso hace exit 1 a propósito;
+#     el build queda en rojo y el deploy NO se ejecuta (depende de needs: build). Sirve para demostrar
+#     que un fallo nunca llega a producción.
 
 name: CI Backend
 
@@ -14,6 +19,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      simular_error:
+        description: "Genera un fallo controlado para la demostración académica."
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -31,10 +42,18 @@ jobs:
       - name: Compilar y ejecutar tests (mvn verify)
         run: mvn -B verify
 
+      # Solo en ejecución manual con simular_error marcado; en push y PR inputs llega vacío y se salta
+      - name: Fallo controlado (simular_error)
+        if: ${{ inputs.simular_error == true }}
+        run: |
+          echo "::error title=Fallo simulado::Error forzado a propósito para la demostración; el código y las pruebas no se modificaron."
+          exit 1
+
   deploy:
     name: Deploy a Render
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # needs: build es la barrera: si el build falla (también el fallo simulado), no se despliega
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
       - name: Desplegar servicio-ventas (M1)
