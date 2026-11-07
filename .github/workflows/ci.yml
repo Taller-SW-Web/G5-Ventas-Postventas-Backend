@@ -1,16 +1,19 @@
-# CI/CD del backend (Hito 4): Build → Compile → Test → Deploy
-# - Corre en cada PR hacia main y en cada push a main.
-# - Compila los 4 módulos y ejecuta todos los tests con Maven.
-# - En un push a main, si los tests pasan, despliega servicio-ventas y servicio-postventa en Render
-#   llamando a sus Deploy Hooks (Render > servicio > Settings > Deploy Hook). No necesita que la app
-#   de Render esté instalada en la organización.
-# Requiere los secrets RENDER_HOOK_VENTAS y RENDER_HOOK_POSTVENTA (Settings > Secrets and variables > Actions).
-# RENDER_HOOK_GATEWAY y RENDER_HOOK_PASARELA son opcionales: sin ellos se omite ese servicio.
+# CI/CD del backend (Hito 4)
+#
+#   Pruebas (4 módulos, en paralelo) ─┐
+#                                     ├─> Imagen Docker (4, en paralelo) ─> CI backend verde ─> Deploy a Render (4)
+#   Calcular versión ─────────────────┘                                                         └─> Smoke test (M1, M2)
+#                                                                                                    └─> Versionado (tag + Release)
+#
+# - PR hacia main: pruebas, imágenes Docker y versión calculada (se comenta en el PR). No despliega ni crea versión.
+# - Push/merge a main: todo lo anterior y, si pasa, despliega en Render, verifica producción y publica la versión.
+# - Versionado semántico automático (Conventional Commits, ver .github/scripts/calcular-version.sh):
+#   feat -> minor, fix/perf/refactor -> patch, "!" o BREAKING CHANGE -> major, docs/ci/chore -> sin versión.
+#   La versión es el ÚLTIMO paso: si algo falla (pruebas, Docker, simular_error, deploy o smoke), no se crea.
 # - Ejecución manual (Actions > CI Backend > Run workflow), con la casilla simular_error:
-#   · desmarcada: compila, prueba y, desde main, despliega igual que un push.
-#   · marcada: compila y prueba igual (el código no se toca), luego un paso hace exit 1 a propósito;
-#     el build queda en rojo y el deploy NO se ejecuta (depende de needs: build). Sirve para demostrar
-#     que un fallo nunca llega a producción.
+#   · desmarcada: igual que un push (desde main despliega y versiona).
+#   · marcada: todo se prueba igual, pero la barrera "CI backend verde" falla a propósito; no hay deploy ni versión.
+# Secrets: RENDER_HOOK_VENTAS y RENDER_HOOK_POSTVENTA (obligatorios); RENDER_HOOK_GATEWAY y RENDER_HOOK_PASARELA (opcionales).
 
 name: CI Backend
 
@@ -26,10 +29,22 @@ on:
         type: boolean
         default: false
 
+# Dos ejecuciones seguidas de main esperan su turno (no se pisan al crear versiones)
+concurrency:
+  group: ci-backend-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
 jobs:
-  build:
-    name: Build, Compile y Test
+  pruebas:
+    name: Pruebas (${{ matrix.modulo }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        modulo: [servicio-ventas, servicio-postventa, api-gateway, simulador-pasarela]
     steps:
       - uses: actions/checkout@v5
 
@@ -40,7 +55,89 @@ jobs:
           cache: maven
 
       - name: Compilar y ejecutar tests (mvn verify)
-        run: mvn -B verify
+        run: mvn -B -pl ${{ matrix.modulo }} -am verify
+
+      - name: Guardar reportes de pruebas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reportes-${{ matrix.modulo }}
+          path: ${{ matrix.modulo }}/target/surefire-reports/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  calcular-version:
+    name: Calcular versión
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      anterior: ${{ steps.version.outputs.anterior }}
+      siguiente: ${{ steps.version.outputs.siguiente }}
+      tipo: ${{ steps.version.outputs.tipo }}
+      publicar: ${{ steps.version.outputs.publicar }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Calcular siguiente versión (SemVer)
+        id: version
+        run: bash .github/scripts/calcular-version.sh
+
+      - name: Comentar la versión en el PR
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          ANTERIOR: ${{ steps.version.outputs.anterior }}
+          SIGUIENTE: ${{ steps.version.outputs.siguiente }}
+          TIPO: ${{ steps.version.outputs.tipo }}
+          PUBLICAR: ${{ steps.version.outputs.publicar }}
+        run: |
+          if [ "$PUBLICAR" = "true" ]; then
+            cuerpo="**Versión del backend:** \`$ANTERIOR\` → \`$SIGUIENTE\` (cambio **$TIPO**). Se publicará al fusionar en \`main\` si el pipeline termina en verde."
+          else
+            cuerpo="**Versión del backend:** se mantiene en \`$ANTERIOR\` (solo hay cambios de docs/ci/chore/test)."
+          fi
+          gh pr comment "$PR" --edit-last --body "$cuerpo" 2>/dev/null || gh pr comment "$PR" --body "$cuerpo"
+
+  imagen-docker:
+    name: Imagen Docker (${{ matrix.modulo }})
+    needs: pruebas
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        modulo: [servicio-ventas, servicio-postventa, api-gateway, simulador-pasarela]
+    steps:
+      - uses: actions/checkout@v5
+
+      # Misma construcción que hace Render (Dockerfile Path = <módulo>/Dockerfile, contexto = raíz). No se publica.
+      - name: Construir imagen
+        run: docker build -f ${{ matrix.modulo }}/Dockerfile -t ${{ matrix.modulo }}:ci .
+
+  ci-verde:
+    name: CI backend verde
+    needs: [pruebas, imagen-docker, calcular-version]
+    # always(): este check SIEMPRE se reporta (rojo si algo falló). Un check "saltado" contaría como aprobado
+    # en la protección de rama, por eso no se deja saltar.
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar que todos los jobs pasaron
+        env:
+          PRUEBAS: ${{ needs.pruebas.result }}
+          DOCKER: ${{ needs.imagen-docker.result }}
+          VERSION: ${{ needs.calcular-version.result }}
+        run: |
+          echo "Pruebas: $PRUEBAS | Imágenes Docker: $DOCKER | Versión: $VERSION"
+          if [ "$PRUEBAS" != "success" ] || [ "$DOCKER" != "success" ] || [ "$VERSION" != "success" ]; then
+            echo "::error title=CI en rojo::Al menos un job falló; no se despliega ni se crea versión."
+            exit 1
+          fi
 
       # Solo en ejecución manual con simular_error marcado; en push y PR inputs llega vacío y se salta
       - name: Fallo controlado (simular_error)
@@ -50,37 +147,92 @@ jobs:
           exit 1
 
   deploy:
-    name: Deploy a Render
-    needs: build
-    # needs: build es la barrera: si el build falla (también el fallo simulado), no se despliega
+    name: Deploy a Render (${{ matrix.servicio }})
+    needs: ci-verde
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - servicio: servicio-ventas
+            hook: RENDER_HOOK_VENTAS
+            obligatorio: true
+          - servicio: servicio-postventa
+            hook: RENDER_HOOK_POSTVENTA
+            obligatorio: true
+          - servicio: api-gateway
+            hook: RENDER_HOOK_GATEWAY
+            obligatorio: false
+          - servicio: simulador-pasarela
+            hook: RENDER_HOOK_PASARELA
+            obligatorio: false
     steps:
-      - name: Desplegar servicio-ventas (M1)
+      - name: Solicitar deploy
         env:
-          HOOK: ${{ secrets.RENDER_HOOK_VENTAS }}
+          HOOK: ${{ secrets[matrix.hook] }}
+          SERVICIO: ${{ matrix.servicio }}
+          SECRET: ${{ matrix.hook }}
+          OBLIGATORIO: ${{ matrix.obligatorio }}
         run: |
-          if [ -z "$HOOK" ]; then echo "Falta el secret RENDER_HOOK_VENTAS"; exit 1; fi
-          curl -fsS -X POST "$HOOK" > /dev/null && echo "Deploy de servicio-ventas solicitado"
+          if [ -z "$HOOK" ]; then
+            if [ "$OBLIGATORIO" = "true" ]; then echo "::error::Falta el secret $SECRET"; exit 1; fi
+            echo "::notice::Sin $SECRET: se omite $SERVICIO"; exit 0
+          fi
+          curl -fsS -X POST "$HOOK" > /dev/null && echo "Deploy de $SERVICIO solicitado"
 
-      - name: Desplegar servicio-postventa (M2)
+  smoke:
+    name: Smoke test (${{ matrix.servicio }})
+    needs: deploy
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - servicio: servicio-ventas
+            url: https://g5-servicio-ventas.onrender.com
+            protegida: /api/v1/pedidos
+          - servicio: servicio-postventa
+            url: https://g5-ventas-postventas-backend.onrender.com
+            protegida: /api/v2/devoluciones
+    steps:
+      # Render (plan gratuito) puede tardar en despertar: se reintenta hasta ~10 minutos.
+      - name: Health check (/actuator/health = UP)
         env:
-          HOOK: ${{ secrets.RENDER_HOOK_POSTVENTA }}
+          URL: ${{ matrix.url }}
         run: |
-          if [ -z "$HOOK" ]; then echo "Falta el secret RENDER_HOOK_POSTVENTA"; exit 1; fi
-          curl -fsS -X POST "$HOOK" > /dev/null && echo "Deploy de servicio-postventa solicitado"
+          for intento in $(seq 1 40); do
+            if curl -fsS --max-time 20 "$URL/actuator/health" | grep -q '"status":"UP"'; then
+              echo "$URL responde UP (intento $intento)"; exit 0
+            fi
+            echo "Intento $intento: aún no responde, reintentando en 15 s..."; sleep 15
+          done
+          echo "::error::$URL no respondió UP"; exit 1
 
-      # api-gateway y simulador-pasarela: opcionales mientras no tengan su secret (se omiten con un aviso)
-      - name: Desplegar api-gateway
+      - name: Seguridad activa (ruta protegida sin token = 401)
         env:
-          HOOK: ${{ secrets.RENDER_HOOK_GATEWAY }}
+          URL: ${{ matrix.url }}
+          RUTA: ${{ matrix.protegida }}
         run: |
-          if [ -z "$HOOK" ]; then echo "::notice::Sin RENDER_HOOK_GATEWAY: se omite api-gateway"; exit 0; fi
-          curl -fsS -X POST "$HOOK" > /dev/null && echo "Deploy de api-gateway solicitado"
+          codigo="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$URL$RUTA")"
+          echo "GET $RUTA sin token -> $codigo"
+          [ "$codigo" = "401" ] || { echo "::error::Se esperaba 401 y se obtuvo $codigo"; exit 1; }
 
-      - name: Desplegar simulador-pasarela
+  versionado:
+    name: Versionado (tag + Release)
+    needs: [calcular-version, smoke]
+    if: needs.calcular-version.outputs.publicar == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Crear tag y GitHub Release
         env:
-          HOOK: ${{ secrets.RENDER_HOOK_PASARELA }}
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.calcular-version.outputs.siguiente }}
+          TIPO: ${{ needs.calcular-version.outputs.tipo }}
         run: |
-          if [ -z "$HOOK" ]; then echo "::notice::Sin RENDER_HOOK_PASARELA: se omite simulador-pasarela"; exit 0; fi
-          curl -fsS -X POST "$HOOK" > /dev/null && echo "Deploy de simulador-pasarela solicitado"
+          gh release create "$VERSION" --target "$GITHUB_SHA" --title "Backend $VERSION" --generate-notes
+          echo "### Versión publicada: \`$VERSION\` ($TIPO)" >> "$GITHUB_STEP_SUMMARY"
