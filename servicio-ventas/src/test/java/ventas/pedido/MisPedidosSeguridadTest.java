@@ -185,6 +185,32 @@ class MisPedidosSeguridadTest {
     }
 
     @Test
+    void marketplaceNoPuedeCrearUnPedidoDeRetail() throws Exception {
+        // El cuerpo es válido; lo único que cambia es el canal. Debe rechazarse antes de crear nada
+        String retail = PedidoControllerTest.CUERPO.replace("\"CHATBOT\"", "\"RETAIL\"");
+        mvc.perform(post("/api/v1/pedidos").header("Authorization", "Bearer " + servicio("ventas:pedidos:crear"))
+                        .contentType("application/json").content(retail))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.codigo").value("ACCESO_DENEGADO"));
+    }
+
+    @Test
+    void marketplacePuedeCrearUnPedidoDeMarketplace() throws Exception {
+        String marketplace = PedidoControllerTest.CUERPO.replace("\"CHATBOT\"", "\"MARKETPLACE\"");
+        mvc.perform(post("/api/v1/pedidos").header("Authorization", "Bearer " + servicio("ventas:pedidos:crear"))
+                        .contentType("application/json").content(marketplace))
+                .andExpect(result -> org.junit.jupiter.api.Assertions.assertNotEquals(
+                        403, result.getResponse().getStatus()));
+    }
+
+    @Test
+    void servicioSinCanalAsignadoNoPuedeCrearPedidos() throws Exception {
+        mvc.perform(post("/api/v1/pedidos").header("Authorization", "Bearer " + servicioDe("modulo-ventas", "ventas:pedidos:crear"))
+                        .contentType("application/json").content(PedidoControllerTest.CUERPO))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void notificacionDePagoExigeScopeWebhook() throws Exception {
         mvc.perform(post("/api/v1/pedidos/PED-2026-00001/pagos/notificacion")
                         .header("Authorization", "Bearer " + servicio("ventas:pedidos:crear")))
@@ -344,9 +370,13 @@ class MisPedidosSeguridadTest {
     }
 
     private String servicio(String scope) {
+        return servicioDe("modulo-marketplace", scope);
+    }
+
+    private String servicioDe(String clientId, String scope) {
         Instant ahora = Instant.now();
         return firmar(JwtClaimsSet.builder()
-                .issuer(ISSUER).subject("modulo-marketplace").audience(List.of("api-ventas"))
+                .issuer(ISSUER).subject(clientId).audience(List.of("api-ventas"))
                 .issuedAt(ahora).expiresAt(ahora.plusSeconds(3600))
                 .claim("tipo", "servicio").claim("scope", scope)
                 .build());
