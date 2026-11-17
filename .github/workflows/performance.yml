@@ -41,8 +41,12 @@ jobs:
           CLIENTE_ID: ${{ secrets.K6_CLIENTE_ID }}
           CANTIDAD: ${{ inputs.cantidad }}
           PRUEBA: ${{ inputs.prueba }}
+        # La prueba de performance MIDE e INFORMA: si una meta de tiempo no se cumple (código 99 de k6),
+        # el resultado queda en el resumen con ✗ pero el job sigue en verde. Si la prueba se rompe
+        # (error del script, arranque, etc.) el job sí falla.
         run: |
           mkdir -p resultados
+          set +e
           case "$PRUEBA" in
             carga-gateway)    k6 run performance/01-carga-gateway.js ;;
             rate-limit)       k6 run performance/02-rate-limit.js ;;
@@ -50,6 +54,12 @@ jobs:
             pedidos-creacion) k6 run -e ESCENARIO=creacion -e TOKEN_CANAL="$TOKEN_CANAL" -e CLIENTE_ID="$CLIENTE_ID" \
                                 -e CANTIDAD="$CANTIDAD" performance/03-pedidos.js ;;
           esac
+          codigo=$?
+          if [ "$codigo" = "99" ]; then
+            echo "::warning title=Meta de performance::Alguna meta de tiempo no se cumplió; ver el resumen del job."
+            exit 0
+          fi
+          exit "$codigo"
 
       - name: Resumen de resultados
         if: always()
@@ -67,8 +77,12 @@ jobs:
             "| Checks correctos | \(($m.checks.values.rate // 0) * 100 | floor) % |",
             (if $m.respuestas_401 then "| Respuestas 401 (sin token) | \($m.respuestas_401.values.count) |" else empty end),
             (if $m.respuestas_429 then "| Respuestas 429 (límite superado) | \($m.respuestas_429.values.count) |" else empty end),
+            "| Errores HTTP | \(($m.http_req_failed.values.rate // 0) * 100 | floor) % |",
             "",
-            "Umbrales y checks en detalle: log del paso \"Ejecutar k6\" (✓ cumple, ✗ no cumple)."
+            "**Metas (umbrales):**",
+            "",
+            ($m | to_entries[] | select(.value.thresholds) | .key as $k | .value.thresholds | to_entries[] |
+              "- \(if .value.ok then "✓ cumple" else "✗ no cumple" end): `\($k)` \(.key)")
           ' "$f" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Guardar resultados
