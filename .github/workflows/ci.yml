@@ -11,6 +11,7 @@
 #   - Dependencias (SCA): Trivy revisa las librerías Maven (pom.xml y transitivas). Bloquea CRITICAL con parche disponible;
 #     los HIGH quedan en el reporte (artefacto y resumen del job) para corregirlos en el siguiente sprint.
 #   - Imágenes Docker: Trivy revisa cada imagen (sistema operativo + jar) con el mismo criterio.
+#   - Integración: los tests *PostgresTest de M2 corren contra un PostgreSQL 16 desechable (service container).
 #   - Riesgos aceptados: los CVE analizados y no explotables en G5 se listan, justificados, en .trivyignore.
 #   - SAST: CodeQL analiza el código Java. Bloquea hallazgos de severidad alta o crítica (security-severity >= 7.0).
 #     Los resultados se publican en la pestaña Security > Code scanning del repositorio.
@@ -55,6 +56,20 @@ jobs:
       fail-fast: false
       matrix:
         modulo: [servicio-ventas, servicio-postventa, api-gateway, simulador-pasarela]
+    # Pruebas de integración (Hito 5): PostgreSQL real y desechable para los tests *PostgresTest de M2
+    # (CSAT, eventos recibidos e idempotencia). Base local de CI: no usa Supabase ni credenciales reales.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: f5_eventos_test
+          POSTGRES_USER: f5_test
+          POSTGRES_PASSWORD: f5_test_local   # gitleaks:allow (credencial de prueba, base efímera de CI)
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U f5_test -d f5_eventos_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v5
 
@@ -65,7 +80,20 @@ jobs:
           cache: maven
 
       - name: Compilar y ejecutar tests (mvn verify)
+        env:
+          F5_POSTGRES_TEST: "true"   # activa las pruebas de integración con PostgreSQL
         run: mvn -B -pl ${{ matrix.modulo }} -am verify
+
+      - name: Resumen de pruebas
+        if: always()
+        run: |
+          dir="${{ matrix.modulo }}/target/surefire-reports"
+          [ -d "$dir" ] || exit 0
+          sumar() { grep -ho "$1=\"[0-9]*\"" "$dir"/TEST-*.xml | grep -o '[0-9]*' | paste -sd+ - | bc; }
+          integ="$(ls "$dir" | grep -c 'TEST-.*PostgresTest.xml' || true)"
+          { echo "### Pruebas · ${{ matrix.modulo }}"
+            echo "Total: $(sumar tests) · Fallidas: $(sumar failures) · Errores: $(sumar errors) · Omitidas: $(sumar skipped)"
+            echo "Clases de integración con PostgreSQL ejecutadas: $integ"; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Guardar reportes de pruebas
         if: always()
