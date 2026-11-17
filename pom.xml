@@ -22,6 +22,10 @@
         <spring-cloud.version>2025.0.3</spring-cloud.version>
         <!-- Seguridad (Trivy): parche de Tomcat embebido por CVE-2026-68525 (corregido en 10.1.58). -->
         <tomcat.version>10.1.62</tomcat.version>
+        <!-- Seguridad (Trivy): parche de Netty (api-gateway) por CVE-2026-75595 (corregido en 4.1.137). -->
+        <netty.version>4.1.141.Final</netty.version>
+        <!-- Seguridad (Trivy): parche de Bouncy Castle (transitiva del gateway) por CVE-2026-8763 (corregido en 1.85). -->
+        <bouncycastle.version>1.87</bouncycastle.version>
     </properties>
 
     <modules>
@@ -33,6 +37,21 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-jdk18on</artifactId>
+                <version>${bouncycastle.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcpkix-jdk18on</artifactId>
+                <version>${bouncycastle.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcutil-jdk18on</artifactId>
+                <version>${bouncycastle.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.springframework.cloud</groupId>
                 <artifactId>spring-cloud-dependencies</artifactId>
