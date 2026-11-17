@@ -52,6 +52,10 @@ public class Anulacion {
     @Column(nullable = false)
     private LocalDate fecha;
 
+    /** client_id del canal que pidió la anulación (sub de su token de servicio), RNF-03. Null si la pidió un usuario. */
+    @Column(name = "client_id_canal")
+    private String clientIdCanal;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "id_pedido", insertable = false, updatable = false)
     private Pedido pedido;

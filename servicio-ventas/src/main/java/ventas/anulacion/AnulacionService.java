@@ -45,6 +45,11 @@ public class AnulacionService {
      */
     @Transactional
     public SolicitarAnulacionResponse solicitarAnulacion(String pedidoCodigo, SolicitarAnulacionRequest req, ActorHistorial actorSolicitante) {
+        return solicitarAnulacion(pedidoCodigo, req, actorSolicitante, null);
+    }
+
+    /** clientIdCanal: client_id del token de servicio que pide la anulación (RNF-03). Null si la pide un usuario. */
+    public SolicitarAnulacionResponse solicitarAnulacion(String pedidoCodigo, SolicitarAnulacionRequest req, ActorHistorial actorSolicitante, String clientIdCanal) {
         // 1. Validar motivo contra el catálogo cerrado
         MotivoAnulacion motivoEnum;
         try {
@@ -86,6 +91,7 @@ public class AnulacionService {
             a.setIdPedido(pedido.getId());
             a.setMotivo(motivoEnum.name());
             a.setIdSolicitante(pedido.getIdCliente());
+            a.setClientIdCanal(clientIdCanal);
             a.setEstado(EstadoAnulacion.EJECUTADA);
             a.setFecha(LocalDate.now(ZoneOffset.UTC));
             anulaciones.saveAndFlush(a);
@@ -122,6 +128,7 @@ public class AnulacionService {
                 previa.setMotivo(motivoEnum.name());
                 previa.setEstado(EstadoAnulacion.PENDIENTE_AUTORIZACION);
                 previa.setIdAutorizador(null);
+                previa.setClientIdCanal(clientIdCanal);
                 previa.setFecha(LocalDate.now(ZoneOffset.UTC));
                 anulaciones.saveAndFlush(previa);
                 String cod = CodigoPublico.anulacion(previa.getId());
@@ -133,6 +140,7 @@ public class AnulacionService {
             nueva.setIdPedido(pedido.getId());
             nueva.setMotivo(motivoEnum.name());
             nueva.setIdSolicitante(pedido.getIdCliente());
+            nueva.setClientIdCanal(clientIdCanal);
             nueva.setEstado(EstadoAnulacion.PENDIENTE_AUTORIZACION);
             nueva.setFecha(LocalDate.now(ZoneOffset.UTC));
             anulaciones.saveAndFlush(nueva);

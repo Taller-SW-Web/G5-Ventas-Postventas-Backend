@@ -79,7 +79,8 @@ public class AnulacionController {
             @AuthenticationPrincipal Jwt jwt) {
 
         ActorHistorial actor = resolverActor(jwt, req.motivo());
-        SolicitarAnulacionResponse resp = anulacionService.solicitarAnulacion(pedidoId, req, actor);
+        String clientIdCanal = jwt != null && "servicio".equals(jwt.getClaimAsString("tipo")) ? jwt.getSubject() : null;
+        SolicitarAnulacionResponse resp = anulacionService.solicitarAnulacion(pedidoId, req, actor, clientIdCanal);
 
         if (Boolean.TRUE.equals(resp.autorizacionRequerida())) {
             return ResponseEntity.status(HttpStatus.ACCEPTED).body(resp);
