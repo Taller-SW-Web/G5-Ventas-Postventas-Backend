@@ -15,7 +15,11 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.reactive.CorsConfigurationSource;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 
-/** El gateway solo exige un JWT válido; los scopes los revisa cada microservicio. */
+/**
+ * Autenticación centralizada del API Management: el gateway exige un JWT válido del emisor G7 (firma RS256
+ * contra el JWKS, emisor y vigencia) antes de enrutar. Los scopes, la audiencia y el canal los revisa cada
+ * microservicio. En Render: SEGURIDAD_HABILITADA=true, SECURITY_ISSUER y SECURITY_JWKS_URL.
+ */
 @Configuration
 @EnableWebFluxSecurity
 public class SecurityConfig {
@@ -39,6 +43,8 @@ public class SecurityConfig {
         http.authorizeExchange(a -> a
                 .pathMatchers(HttpMethod.OPTIONS).permitAll()
                 .pathMatchers("/actuator/health").permitAll()
+                // Catálogo de APIs (contratos OpenAPI de M1 y M2) publicado por el gateway
+                .pathMatchers(HttpMethod.GET, "/openapi/**").permitAll()
                 .anyExchange().authenticated())
             .oauth2ResourceServer(o -> o.jwt(Customizer.withDefaults()));
         return http.build();
@@ -55,6 +61,9 @@ public class SecurityConfig {
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);
+        // El front puede leer la correlación y la cuota restante (API Management)
+        config.setExposedHeaders(List.of("X-Correlation-Id", "X-RateLimit-Limit", "X-RateLimit-Remaining",
+                "Retry-After"));
         config.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

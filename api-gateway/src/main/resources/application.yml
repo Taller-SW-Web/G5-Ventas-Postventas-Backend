@@ -1,6 +1,14 @@
 server:
   port: ${PORT:8080}   # Render asigna PORT
 
+# API Gateway = punto único de entrada (API Management) de Ventas y Postventa:
+#   - enrutamiento y versionado por ruta (/api/v1 → M1, /api/v2 → M2)
+#   - autenticación centralizada con JWT de G7 (SecurityConfig)
+#   - cuota por consumidor / rate limiting con 429 (gestion/LimiteSolicitudesFilter)
+#   - trazabilidad: X-Correlation-Id y log de acceso (gestion/CorrelacionYAccesoFilter)
+#   - timeouts, reintento de GET ante caída temporal y límite de tamaño de solicitud
+#   - catálogo de contratos OpenAPI en /openapi/ventas.yaml y /openapi/postventa.yaml
+
 spring:
   application:
     name: api-gateway
@@ -20,11 +28,34 @@ spring:
               - DELETE
               - OPTIONS
             allowed-headers: "*"
+            exposed-headers:
+              - X-Correlation-Id
+              - X-RateLimit-Limit
+              - X-RateLimit-Remaining
+              - Retry-After
             allow-credentials: true
       server:
         webflux:
+          # Timeouts hacia M1/M2. La respuesta admite 60 s porque Render (plan gratuito) tarda en despertar.
+          httpclient:
+            connect-timeout: ${GATEWAY_CONNECT_TIMEOUT_MS:10000}
+            response-timeout: ${GATEWAY_RESPONSE_TIMEOUT:60s}
           default-filters:
             - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials Vary, RETAIN_FIRST
+            # Solo GET (idempotente): un reintento si el servicio responde 502/503 mientras despierta
+            - name: Retry
+              args:
+                retries: 1
+                methods: GET
+                statuses: BAD_GATEWAY, SERVICE_UNAVAILABLE
+                backoff:
+                  firstBackoff: 500ms
+                  maxBackoff: 2s
+                  factor: 2
+            # Evidencias de postventa incluidas; más de 10 MB se rechaza con 413 sin llegar al servicio
+            - name: RequestSize
+              args:
+                maxSize: 10MB
           routes:
             # M1: F1 Pedidos y F2 Anulaciones; webhook de Despacho (acuerdo G2, D6)
             - id: servicio-ventas
@@ -36,6 +67,17 @@ spring:
               uri: ${POSTVENTA_URL:http://localhost:8082}
               predicates:
                 - Path=/api/*/devoluciones/**,/api/*/reembolsos/**,/api/*/csat/**,/api/*/reclamos/**,/api/*/dashboard/**
+            # Catálogo de APIs: los contratos OpenAPI se consultan desde el gateway (público, solo GET)
+            - id: contrato-ventas
+              uri: ${VENTAS_URL:http://localhost:8081}
+              predicates:
+                - Path=/openapi/ventas.yaml
+                - Method=GET
+            - id: contrato-postventa
+              uri: ${POSTVENTA_URL:http://localhost:8082}
+              predicates:
+                - Path=/openapi/postventa.yaml
+                - Method=GET
   security:
     oauth2:
       resourceserver:
@@ -48,8 +90,21 @@ spring:
 seguridad:
   habilitada: ${SEGURIDAD_HABILITADA:true}
 
+# Cuotas por minuto (token bucket). Ver gestion/ApiManagementProperties.
+api-management:
+  rate-limit:
+    habilitado: ${RATE_LIMIT_HABILITADO:true}
+    servicio: ${RATE_LIMIT_SERVICIO:300}
+    usuario: ${RATE_LIMIT_USUARIO:120}
+    anonimo: ${RATE_LIMIT_ANONIMO:60}
+    max-clientes: 10000
+
 management:
   endpoints:
     web:
       exposure:
         include: health
+
+logging:
+  level:
+    gateway.acceso: INFO
