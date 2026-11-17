@@ -52,6 +52,10 @@ public class Pedido {
     @Column(name = "id_cliente")
     private UUID idCliente;
 
+    /** client_id del canal que creó el pedido (sub de su token de servicio), RNF-03. Null sin seguridad. */
+    @Column(name = "client_id_canal")
+    private String clientIdCanal;
+
     /** UUID de Seguridad del vendedor (Retail). */
     @Column(name = "id_vendedor")
     private UUID idVendedor;

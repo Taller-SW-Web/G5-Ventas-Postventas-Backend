@@ -81,7 +81,8 @@ public class PedidoController {
         if (seguridadHabilitada) {
             verificarCanal(jwt, solicitud.canal());
         }
-        CrearPedidoService.Resultado r = crearPedidoService.crear(idempotencyKey, solicitud);
+        String clientIdCanal = seguridadHabilitada ? jwt.getSubject() : null;
+        CrearPedidoService.Resultado r = crearPedidoService.crear(idempotencyKey, solicitud, clientIdCanal);
         if (!r.creado()) {
             return ResponseEntity.ok(r.pedido());
         }

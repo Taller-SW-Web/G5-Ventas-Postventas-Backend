@@ -68,7 +68,7 @@ class PedidoControllerTest {
 
     @Test
     void crearPedidoNuevoResponde201ConLocation() throws Exception {
-        when(crearPedidoService.crear(eq(CLAVE), any())).thenReturn(new CrearPedidoService.Resultado(respuesta(), true));
+        when(crearPedidoService.crear(eq(CLAVE), any(), any())).thenReturn(new CrearPedidoService.Resultado(respuesta(), true));
 
         mvc.perform(post("/api/v1/pedidos").header("Idempotency-Key", CLAVE)
                         .contentType(MediaType.APPLICATION_JSON).content(CUERPO))
@@ -82,7 +82,7 @@ class PedidoControllerTest {
 
     @Test
     void repeticionIdempotenteResponde200() throws Exception {
-        when(crearPedidoService.crear(eq(CLAVE), any())).thenReturn(new CrearPedidoService.Resultado(respuesta(), false));
+        when(crearPedidoService.crear(eq(CLAVE), any(), any())).thenReturn(new CrearPedidoService.Resultado(respuesta(), false));
 
         mvc.perform(post("/api/v1/pedidos").header("Idempotency-Key", CLAVE)
                         .contentType(MediaType.APPLICATION_JSON).content(CUERPO))
@@ -167,7 +167,7 @@ class PedidoControllerTest {
 
     @Test
     void productosNoDisponibleResponde503() throws Exception {
-        when(crearPedidoService.crear(eq(CLAVE), any())).thenThrow(new ventas.compartido.DependenciaNoDisponibleException(
+        when(crearPedidoService.crear(eq(CLAVE), any(), any())).thenThrow(new ventas.compartido.DependenciaNoDisponibleException(
                 "PRODUCTOS_NO_DISPONIBLE", "No se pudo reservar el stock en Productos; intente nuevamente"));
 
         mvc.perform(post("/api/v1/pedidos").header("Idempotency-Key", CLAVE)
