@@ -22,6 +22,10 @@ spring:
     properties:
       hibernate:
         default_schema: postventa
+  # RabbitMQ de eventos de pedido (CloudAMQP, acuerdos-mecanismo-asincrono.md). Solo se conecta con
+  # EVENTOS_ASINCRONOS=true. La URL amqps:// lleva usuario, clave y vhost: va solo en Render y en el .env
+  rabbitmq:
+    addresses: ${EVENTOS_RABBITMQ_URL:amqp://guest:guest@localhost:5672}
   jackson:
     time-zone: UTC
     serialization:
@@ -73,7 +77,15 @@ springdoc:
     disable-swagger-default-url: true
     operations-sorter: method
 
+# Eventos de pedido de M1. false: solo llegan por POST /api/v2/eventos (HTTP), como antes del Hito 5.
+# true: además se consumen de la cola postventa.eventos-pedido.q. El endpoint HTTP sigue activo como respaldo
+eventos:
+  asincronos: ${EVENTOS_ASINCRONOS:false}
+
 management:
+  health:
+    rabbit:
+      enabled: false   # si CloudAMQP falla, el health no cae: los endpoints HTTP siguen funcionando
   endpoints:
     web:
       exposure:
