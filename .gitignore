@@ -5,3 +5,6 @@ target/
 *.log
 .env
 uploads/
+
+# Resultados locales de k6
+resultados/

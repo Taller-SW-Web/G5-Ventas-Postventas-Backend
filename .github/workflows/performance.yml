@@ -1,0 +1,81 @@
+# Pruebas de performance con k6 (Hito 5). Se ejecutan a mano: Actions > Performance (k6) > Run workflow.
+# No corren en cada push porque cargan los servicios desplegados en Render.
+#
+#   carga-gateway    -> 20 usuarios por 1 minuto y pico de 100 sobre el API Gateway (sin token)
+#   rate-limit       -> 90 llamadas seguidas sin token: comprueba que el gateway responde 429 al pasar el límite
+#   pedidos-consulta -> 5000 consultas al listado de pedidos (secret K6_TOKEN_GESTOR)
+#   pedidos-creacion -> crea N pedidos de prueba "PRUEBA K6" (secrets K6_TOKEN_CANAL y K6_CLIENTE_ID)
+#
+# Los resultados quedan en el resumen del job y como artefacto (JSON completo de k6).
+
+name: Performance (k6)
+
+on:
+  workflow_dispatch:
+    inputs:
+      prueba:
+        description: "Prueba a ejecutar"
+        type: choice
+        options: [carga-gateway, rate-limit, pedidos-consulta, pedidos-creacion]
+        default: carga-gateway
+      cantidad:
+        description: "Solo pedidos-creacion: cuántos pedidos crear"
+        default: "100"
+
+permissions:
+  contents: read
+
+jobs:
+  k6:
+    name: k6 · ${{ inputs.prueba }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: grafana/setup-k6-action@v1
+
+      - name: Ejecutar k6
+        env:
+          TOKEN_GESTOR: ${{ secrets.K6_TOKEN_GESTOR }}
+          TOKEN_CANAL: ${{ secrets.K6_TOKEN_CANAL }}
+          CLIENTE_ID: ${{ secrets.K6_CLIENTE_ID }}
+          CANTIDAD: ${{ inputs.cantidad }}
+          PRUEBA: ${{ inputs.prueba }}
+        run: |
+          mkdir -p resultados
+          case "$PRUEBA" in
+            carga-gateway)    k6 run performance/01-carga-gateway.js ;;
+            rate-limit)       k6 run performance/02-rate-limit.js ;;
+            pedidos-consulta) k6 run -e ESCENARIO=consulta -e TOKEN_GESTOR="$TOKEN_GESTOR" performance/03-pedidos.js ;;
+            pedidos-creacion) k6 run -e ESCENARIO=creacion -e TOKEN_CANAL="$TOKEN_CANAL" -e CLIENTE_ID="$CLIENTE_ID" \
+                                -e CANTIDAD="$CANTIDAD" performance/03-pedidos.js ;;
+          esac
+
+      - name: Resumen de resultados
+        if: always()
+        run: |
+          f="$(ls resultados/*.json 2>/dev/null | head -1)"
+          [ -n "$f" ] || exit 0
+          jq -r --arg prueba "${{ inputs.prueba }}" '
+            .metrics as $m |
+            "### Performance (k6) · \($prueba)\n",
+            "| Métrica | Valor |", "|---|---|",
+            "| Solicitudes | \($m.http_reqs.values.count) (\($m.http_reqs.values.rate | floor) por segundo) |",
+            "| Tiempo promedio | \($m.http_req_duration.values.avg | floor) ms |",
+            "| p95 (95 % responde en menos de) | \($m.http_req_duration.values["p(95)"] | floor) ms |",
+            "| Máximo | \($m.http_req_duration.values.max | floor) ms |",
+            "| Checks correctos | \(($m.checks.values.rate // 0) * 100 | floor) % |",
+            (if $m.respuestas_401 then "| Respuestas 401 (sin token) | \($m.respuestas_401.values.count) |" else empty end),
+            (if $m.respuestas_429 then "| Respuestas 429 (límite superado) | \($m.respuestas_429.values.count) |" else empty end),
+            "",
+            "Umbrales y checks en detalle: log del paso \"Ejecutar k6\" (✓ cumple, ✗ no cumple)."
+          ' "$f" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-${{ inputs.prueba }}
+          path: resultados/
+          if-no-files-found: ignore
+          retention-days: 30
