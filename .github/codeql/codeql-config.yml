@@ -1,0 +1,12 @@
+# Configuración de CodeQL (SAST) del backend.
+name: "CodeQL backend Ventas y Postventa"
+
+# Se analiza solo el código de producción: el job compila con "mvn compile" (no compila src/test).
+
+# Exclusiones revisadas por el equipo (cada una con su justificación):
+query-filters:
+  # CSRF deshabilitado en SecurityConfig (gateway, M1 y M2): las APIs son stateless y se autentican con
+  # "Authorization: Bearer <JWT>" (G7), no con cookies de sesión. El navegador no adjunta ese token por su cuenta,
+  # así que un sitio externo no puede forjar solicitudes autenticadas: el ataque CSRF no aplica (OWASP CSRF Cheat Sheet).
+  - exclude:
+      id: java/spring-disabled-csrf-protection

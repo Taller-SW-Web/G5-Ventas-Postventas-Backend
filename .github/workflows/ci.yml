@@ -1,9 +1,19 @@
-# CI/CD del backend (Hito 4)
+# CI/CD del backend (Hito 4) + revisión de seguridad (Hito 5)
 #
-#   Pruebas (4 módulos, en paralelo) ─┐
-#                                     ├─> Imagen Docker (4, en paralelo) ─> CI backend verde ─> Deploy a Render (4)
-#   Calcular versión ─────────────────┘                                                         └─> Smoke test (M1, M2)
-#                                                                                                    └─> Versionado (tag + Release)
+#   Pruebas (4 módulos, en paralelo) ──> Imagen Docker + escaneo Trivy (4) ─┐
+#   Seguridad · Secretos (gitleaks) ────────────────────────────────────────┤
+#   Seguridad · Dependencias (Trivy SCA) ───────────────────────────────────┼─> CI backend verde ─> Deploy a Render (4)
+#   Seguridad · SAST (CodeQL) ──────────────────────────────────────────────┤                       └─> Smoke test (M1, M2)
+#   Calcular versión ───────────────────────────────────────────────────────┘                            └─> Versionado
+#
+# Revisión de seguridad (DevSecOps). Cualquiera de estos hallazgos pone el pipeline en rojo, así que no hay deploy ni versión:
+#   - Secretos: gitleaks revisa TODO el historial de git (contraseñas, tokens, llaves privadas).
+#   - Dependencias (SCA): Trivy revisa las librerías Maven (pom.xml y transitivas). Bloquea CRITICAL con parche disponible;
+#     los HIGH quedan en el reporte (artefacto y resumen del job) para corregirlos en el siguiente sprint.
+#   - Imágenes Docker: Trivy revisa cada imagen (sistema operativo + jar) con el mismo criterio.
+#   - Riesgos aceptados: los CVE analizados y no explotables en G5 se listan, justificados, en .trivyignore.
+#   - SAST: CodeQL analiza el código Java. Bloquea hallazgos de severidad alta o crítica (security-severity >= 7.0).
+#     Los resultados se publican en la pestaña Security > Code scanning del repositorio.
 #
 # - PR hacia main: pruebas, imágenes Docker y versión calculada (se comenta en el PR). No despliega ni crea versión.
 # - Push/merge a main: todo lo anterior y, si pasa, despliega en Render, verifica producción y publica la versión.
@@ -104,6 +114,127 @@ jobs:
           fi
           gh pr comment "$PR" --edit-last --body "$cuerpo" 2>/dev/null || gh pr comment "$PR" --body "$cuerpo"
 
+  seguridad-secretos:
+    name: Seguridad · Secretos (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # todo el historial: un secreto borrado en un commit posterior igual queda expuesto
+
+      - name: Instalar gitleaks
+        env:
+          VERSION: 8.21.2
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP" gitleaks
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/gitleaks" version
+
+      - name: Buscar secretos en el historial
+        run: gitleaks git . --redact --verbose --report-format json --report-path gitleaks.json
+
+      - name: Guardar reporte
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seguridad-secretos
+          path: gitleaks.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  seguridad-dependencias:
+    name: Seguridad · Dependencias (Trivy SCA)
+    runs-on: ubuntu-latest
+    env:
+      TRIVY: aquasec/trivy:0.58.1
+      TRIVY_DB_REPOSITORY: mirror.gcr.io/aquasec/trivy-db:2,ghcr.io/aquasecurity/trivy-db:2
+      TRIVY_JAVA_DB_REPOSITORY: mirror.gcr.io/aquasec/trivy-java-db:1,ghcr.io/aquasecurity/trivy-java-db:1
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Reporte de vulnerabilidades HIGH y CRITICAL (informativo)
+        run: |
+          docker run --rm -e TRIVY_DB_REPOSITORY -e TRIVY_JAVA_DB_REPOSITORY -v "$PWD:/src" -v trivy-cache:/root/.cache "$TRIVY" \
+            fs /src --scanners vuln --severity HIGH,CRITICAL --format table --output /src/trivy-dependencias.txt
+          { echo "### Trivy · dependencias Maven (HIGH y CRITICAL)"; echo '```'; cat trivy-dependencias.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bloquear vulnerabilidades CRITICAL con parche disponible
+        run: |
+          docker run --rm -e TRIVY_DB_REPOSITORY -e TRIVY_JAVA_DB_REPOSITORY -v "$PWD:/src" -v trivy-cache:/root/.cache "$TRIVY" \
+            fs /src --scanners vuln --severity CRITICAL --ignore-unfixed --ignorefile /src/.trivyignore --exit-code 1
+
+      - name: Guardar reporte
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seguridad-dependencias
+          path: trivy-dependencias.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+  seguridad-sast:
+    name: Seguridad · SAST (CodeQL)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # publicar resultados en Security > Code scanning
+      actions: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - name: Inicializar CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: java-kotlin
+          build-mode: manual
+          config-file: ./.github/codeql/codeql-config.yml
+
+      - name: Compilar (sin tests)
+        run: mvn -B -q compile -DskipTests
+
+      - name: Analizar
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:java
+          output: codeql-resultados
+
+      - name: Bloquear hallazgos de severidad alta o crítica
+        run: |
+          sarif="$(ls codeql-resultados/*.sarif | head -1)"
+          jq -r '
+            .runs[] as $run
+            | ($run.tool.driver.rules // []) as $reglas
+            | $run.results[]
+            | . as $r
+            | ([$reglas[] | select(.id == $r.ruleId)][0].properties["security-severity"] // "0" | tonumber) as $sev
+            | select($sev >= 7.0)
+            | "\($sev)\t\($r.ruleId)\t\($r.locations[0].physicalLocation.artifactLocation.uri):\($r.locations[0].physicalLocation.region.startLine)"
+          ' "$sarif" > altos.tsv
+          total="$(jq '[.runs[].results[]] | length' "$sarif")"
+          altos="$(wc -l < altos.tsv)"
+          { echo "### CodeQL · Java"; echo "Hallazgos totales: $total · Altos/críticos (bloquean): $altos"; } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$altos" -gt 0 ]; then
+            { echo '```'; cat altos.tsv; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=SAST::CodeQL encontró $altos hallazgo(s) de severidad alta o crítica (ver resumen y Security > Code scanning)."
+            exit 1
+          fi
+
+      - name: Guardar reporte SARIF
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seguridad-sast
+          path: codeql-resultados/
+          if-no-files-found: ignore
+          retention-days: 14
+
   imagen-docker:
     name: Imagen Docker (${{ matrix.modulo }})
     needs: pruebas
@@ -119,9 +250,34 @@ jobs:
       - name: Construir imagen
         run: docker build -f ${{ matrix.modulo }}/Dockerfile -t ${{ matrix.modulo }}:ci .
 
+      # Revisión de seguridad de la imagen: sistema operativo base + librerías dentro del jar
+      - name: Escanear imagen (Trivy)
+        env:
+          TRIVY: aquasec/trivy:0.58.1
+          TRIVY_DB_REPOSITORY: mirror.gcr.io/aquasec/trivy-db:2,ghcr.io/aquasecurity/trivy-db:2
+          TRIVY_JAVA_DB_REPOSITORY: mirror.gcr.io/aquasec/trivy-java-db:1,ghcr.io/aquasecurity/trivy-java-db:1
+          IMAGEN: ${{ matrix.modulo }}:ci
+        run: |
+          comun="--rm -e TRIVY_DB_REPOSITORY -e TRIVY_JAVA_DB_REPOSITORY -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache"
+          docker run $comun -v "$PWD:/out" "$TRIVY" image "$IMAGEN" --scanners vuln --severity HIGH,CRITICAL \
+            --format table --output /out/trivy-imagen.txt
+          { echo "### Trivy · imagen $IMAGEN (HIGH y CRITICAL)"; echo '```'; cat trivy-imagen.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          # Bloquea CRITICAL con parche, salvo los riesgos aceptados y justificados en .trivyignore
+          docker run $comun -v "$PWD:/out" "$TRIVY" image "$IMAGEN" --scanners vuln --severity CRITICAL --ignore-unfixed \
+            --ignorefile /out/.trivyignore --exit-code 1
+
+      - name: Guardar reporte de la imagen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seguridad-imagen-${{ matrix.modulo }}
+          path: trivy-imagen.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
   ci-verde:
     name: CI backend verde
-    needs: [pruebas, imagen-docker, calcular-version]
+    needs: [pruebas, imagen-docker, calcular-version, seguridad-secretos, seguridad-dependencias, seguridad-sast]
     # always(): este check SIEMPRE se reporta (rojo si algo falló). Un check "saltado" contaría como aprobado
     # en la protección de rama, por eso no se deja saltar.
     if: always()
@@ -132,12 +288,18 @@ jobs:
           PRUEBAS: ${{ needs.pruebas.result }}
           DOCKER: ${{ needs.imagen-docker.result }}
           VERSION: ${{ needs.calcular-version.result }}
+          SECRETOS: ${{ needs.seguridad-secretos.result }}
+          DEPENDENCIAS: ${{ needs.seguridad-dependencias.result }}
+          SAST: ${{ needs.seguridad-sast.result }}
         run: |
           echo "Pruebas: $PRUEBAS | Imágenes Docker: $DOCKER | Versión: $VERSION"
-          if [ "$PRUEBAS" != "success" ] || [ "$DOCKER" != "success" ] || [ "$VERSION" != "success" ]; then
-            echo "::error title=CI en rojo::Al menos un job falló; no se despliega ni se crea versión."
-            exit 1
-          fi
+          echo "Seguridad -> Secretos: $SECRETOS | Dependencias: $DEPENDENCIAS | SAST: $SAST"
+          for r in "$PRUEBAS" "$DOCKER" "$VERSION" "$SECRETOS" "$DEPENDENCIAS" "$SAST"; do
+            if [ "$r" != "success" ]; then
+              echo "::error title=CI en rojo::Al menos un job (pruebas, Docker o revisión de seguridad) falló; no se despliega ni se crea versión."
+              exit 1
+            fi
+          done
 
       # Solo en ejecución manual con simular_error marcado; en push y PR inputs llega vacío y se salta
       - name: Fallo controlado (simular_error)

@@ -1,0 +1,10 @@
+# Configuración de gitleaks (búsqueda de secretos en el CI). Usa las reglas por defecto
+# y solo agrega excepciones revisadas.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Plantillas sin secretos reales"
+paths = [
+  '''(^|/)\.env\.example$''',
+]
