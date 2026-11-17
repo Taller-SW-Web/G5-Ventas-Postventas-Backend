@@ -11,6 +11,7 @@ import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -75,12 +76,44 @@ public class PedidoController {
     @PostMapping
     public ResponseEntity<CrearPedidoResponse> crear(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody CrearPedidoRequest solicitud) {
-        CrearPedidoService.Resultado r = crearPedidoService.crear(idempotencyKey, solicitud);
+        if (seguridadHabilitada) {
+            verificarCanal(jwt, solicitud.canal());
+        }
+        String clientIdCanal = seguridadHabilitada ? jwt.getSubject() : null;
+        CrearPedidoService.Resultado r = crearPedidoService.crear(idempotencyKey, solicitud, clientIdCanal);
         if (!r.creado()) {
             return ResponseEntity.ok(r.pedido());
         }
         return ResponseEntity.created(URI.create("/api/v1/pedidos/" + r.pedido().pedidoId())).body(r.pedido());
+    }
+
+    /**
+     * El canal del pedido debe ser el del cliente que llama (su client_id, que llega como sub del token de servicio).
+     * Sin esto, un token de Marketplace podría crear un pedido RETAIL, que nace PAGADO sin cobro.
+     */
+    private void verificarCanal(Jwt jwt, CanalVenta canal) {
+        if (jwt == null || !"servicio".equals(jwt.getClaimAsString("tipo"))) {
+            throw new AccessDeniedException("Solo un token de servicio puede crear pedidos");
+        }
+        Optional<CanalVenta> permitido = canalDelServicio(jwt.getSubject());
+        if (permitido.isEmpty() || permitido.get() != canal) {
+            throw new AccessDeniedException("El cliente no puede crear pedidos de ese canal");
+        }
+    }
+
+    /** Canal que cada cliente de servicio puede usar al crear pedidos (acuerdo G7, A10). */
+    static Optional<CanalVenta> canalDelServicio(String clientId) {
+        if (clientId == null) {
+            return Optional.empty();
+        }
+        return switch (clientId) {
+            case "modulo-marketplace" -> Optional.of(CanalVenta.MARKETPLACE);
+            case "modulo-chatbot" -> Optional.of(CanalVenta.CHATBOT);
+            case "modulo-retail" -> Optional.of(CanalVenta.RETAIL);
+            default -> Optional.empty();
+        };
     }
 
     /**

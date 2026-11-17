@@ -50,6 +50,11 @@ public class CrearPedidoService {
     private final TransactionOperations transaccion;
 
     public Resultado crear(String clave, CrearPedidoRequest req) {
+        return crear(clave, req, null);
+    }
+
+    /** clientIdCanal: client_id del token de servicio que llama (RNF-03). Null sin seguridad. */
+    public Resultado crear(String clave, CrearPedidoRequest req, String clientIdCanal) {
         validador.validarClave(clave);
         validador.validar(req);
 
@@ -61,7 +66,7 @@ public class CrearPedidoService {
         Registro registro;
         try {
             registro = transaccion.execute(estado -> {
-                Pedido p = registrar(clave, req);
+                Pedido p = registrar(clave, req, clientIdCanal);
                 // Se reserva con el código ya asignado (order_id), dentro de la transacción: si Productos no admite
                 // el comando, el pedido no se guarda y la Idempotency-Key no se consume. Retail no reserva (G4, R9)
                 Optional<MensajeInventario> reserva = req.canal() == CanalVenta.RETAIL
@@ -88,12 +93,12 @@ public class CrearPedidoService {
         return new Resultado(respuesta(pedido), true);
     }
 
-    private Pedido registrar(String clave, CrearPedidoRequest req) {
+    private Pedido registrar(String clave, CrearPedidoRequest req, String clientIdCanal) {
         OffsetDateTime ahora = OffsetDateTime.now(ZoneOffset.UTC);
         CrearPedidoRequest.Pago p = req.pago();
         OffsetDateTime fechaHora = req.canal() == CanalVenta.RETAIL && p.fechaVenta() != null ? p.fechaVenta() : ahora;
 
-        Pedido pedido = nuevoPedido(clave, req, ahora, fechaHora);
+        Pedido pedido = nuevoPedido(clave, req, ahora, fechaHora, clientIdCanal);
         pedidos.saveAndFlush(pedido);
         pedido.setCodigo(CodigoPublico.pedido(pedido.getId(), fechaHora.getYear()));
 
@@ -127,7 +132,8 @@ public class CrearPedidoService {
         return pedido;
     }
 
-    private Pedido nuevoPedido(String clave, CrearPedidoRequest req, OffsetDateTime ahora, OffsetDateTime fechaHora) {
+    private Pedido nuevoPedido(String clave, CrearPedidoRequest req, OffsetDateTime ahora, OffsetDateTime fechaHora,
+                               String clientIdCanal) {
         CrearPedidoRequest.Contacto c = req.contacto();
         CrearPedidoRequest.Pago p = req.pago();
         CrearPedidoRequest.Envio e = req.envio();
@@ -136,6 +142,7 @@ public class CrearPedidoService {
         pedido.setCodigo(CodigoPublico.temporal());
         pedido.setIdempotencyKey(clave);
         pedido.setCanal(req.canal());
+        pedido.setClientIdCanal(clientIdCanal);
         // Retail nace pagado (el cobro ya pasó por el POS) y se entrega enseguida; los demás esperan la 1.2
         pedido.setEstado(req.canal() == CanalVenta.RETAIL ? EstadoPedido.PAGADO : EstadoPedido.CREADO);
         pedido.setFecha(fechaHora.toLocalDate());
