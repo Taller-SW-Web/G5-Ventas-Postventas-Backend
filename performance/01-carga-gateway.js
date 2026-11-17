@@ -9,6 +9,7 @@ import { check, sleep } from 'k6';
 import { GATEWAY, VENTAS, POSTVENTA, UMBRALES, resumen } from './comun.js';
 
 export const options = {
+  setupTimeout: '5m',   // Render gratis tarda hasta ~1 minuto por servicio en despertar
   scenarios: {
     // Carga normal: 20 usuarios durante 1 minuto
     carga_normal: {

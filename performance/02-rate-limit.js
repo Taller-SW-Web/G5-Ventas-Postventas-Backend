@@ -14,6 +14,7 @@ const respuestas401 = new Counter('respuestas_401');
 const respuestas429 = new Counter('respuestas_429');
 
 export const options = {
+  setupTimeout: '3m',   // Render gratis tarda hasta ~1 minuto en despertar
   scenarios: {
     rafaga: { executor: 'shared-iterations', vus: 10, iterations: 150, maxDuration: '50s' },
   },

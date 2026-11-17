@@ -31,6 +31,7 @@ const escenarios = {
 };
 
 export const options = {
+  setupTimeout: '3m',   // Render gratis tarda hasta ~1 minuto en despertar
   scenarios: { [ESCENARIO]: escenarios[ESCENARIO] },
   thresholds: {
     ...UMBRALES,
