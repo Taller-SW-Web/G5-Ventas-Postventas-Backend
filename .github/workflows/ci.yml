@@ -11,6 +11,7 @@
 #   - Dependencias (SCA): Trivy revisa las librerías Maven (pom.xml y transitivas). Bloquea CRITICAL con parche disponible;
 #     los HIGH quedan en el reporte (artefacto y resumen del job) para corregirlos en el siguiente sprint.
 #   - Imágenes Docker: Trivy revisa cada imagen (sistema operativo + jar) con el mismo criterio.
+#   - Riesgos aceptados: los CVE analizados y no explotables en G5 se listan, justificados, en .trivyignore.
 #   - SAST: CodeQL analiza el código Java. Bloquea hallazgos de severidad alta o crítica (security-severity >= 7.0).
 #     Los resultados se publican en la pestaña Security > Code scanning del repositorio.
 #
@@ -161,7 +162,7 @@ jobs:
       - name: Bloquear vulnerabilidades CRITICAL con parche disponible
         run: |
           docker run --rm -e TRIVY_DB_REPOSITORY -e TRIVY_JAVA_DB_REPOSITORY -v "$PWD:/src" -v trivy-cache:/root/.cache "$TRIVY" \
-            fs /src --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1
+            fs /src --scanners vuln --severity CRITICAL --ignore-unfixed --ignorefile /src/.trivyignore --exit-code 1
 
       - name: Guardar reporte
         if: always()
@@ -261,7 +262,9 @@ jobs:
           docker run $comun -v "$PWD:/out" "$TRIVY" image "$IMAGEN" --scanners vuln --severity HIGH,CRITICAL \
             --format table --output /out/trivy-imagen.txt
           { echo "### Trivy · imagen $IMAGEN (HIGH y CRITICAL)"; echo '```'; cat trivy-imagen.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          docker run $comun "$TRIVY" image "$IMAGEN" --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1
+          # Bloquea CRITICAL con parche, salvo los riesgos aceptados y justificados en .trivyignore
+          docker run $comun -v "$PWD:/out" "$TRIVY" image "$IMAGEN" --scanners vuln --severity CRITICAL --ignore-unfixed \
+            --ignorefile /out/.trivyignore --exit-code 1
 
       - name: Guardar reporte de la imagen
         if: always()

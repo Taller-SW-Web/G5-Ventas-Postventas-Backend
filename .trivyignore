@@ -1,0 +1,16 @@
+# Riesgos aceptados (revisión de seguridad, Hito 5).
+# Spring Framework 6.2.19 es la última versión libre de la rama 6.2 (la de Spring Boot 3.5).
+# Trivy solo da como corrección Spring Framework 7.0.9, que exige migrar a Spring Boot 4 (cambio mayor).
+# Se analizó cada CVE y ninguno es explotable en G5. Revisar al migrar a Spring Boot 4.
+
+# spring-webmvc: ejecución remota de código por limitación de rutas en XsltView.
+# No aplica: ningún servicio usa vistas XSLT (XsltView); todos son APIs REST que responden JSON.
+CVE-2026-47884
+
+# spring-webmvc / spring-webflux: corrupción de Server-Sent Events (SSE) con vistas.
+# No aplica: ningún endpoint usa SSE (SseEmitter / text/event-stream).
+CVE-2026-47890
+
+# spring-webflux: bypass de Header Predicate en Functional Endpoints.
+# No aplica: el gateway enruta con Spring Cloud Gateway y no usa RouterFunction con predicados de cabecera.
+CVE-2026-47892
