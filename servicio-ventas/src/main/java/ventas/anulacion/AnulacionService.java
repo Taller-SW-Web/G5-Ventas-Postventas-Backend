@@ -48,7 +48,12 @@ public class AnulacionService {
         return solicitarAnulacion(pedidoCodigo, req, actorSolicitante, null);
     }
 
-    /** clientIdCanal: client_id del token de servicio que pide la anulación (RNF-03). Null si la pide un usuario. */
+    /**
+     * clientIdCanal: client_id del token de servicio que pide la anulación (RNF-03). Null si la pide un usuario.
+     * Es la que llama el controlador, así que necesita su propia transacción: bloquearPorCodigo usa un
+     * bloqueo pesimista y sin transacción falla con 500.
+     */
+    @Transactional
     public SolicitarAnulacionResponse solicitarAnulacion(String pedidoCodigo, SolicitarAnulacionRequest req, ActorHistorial actorSolicitante, String clientIdCanal) {
         // 1. Validar motivo contra el catálogo cerrado
         MotivoAnulacion motivoEnum;
