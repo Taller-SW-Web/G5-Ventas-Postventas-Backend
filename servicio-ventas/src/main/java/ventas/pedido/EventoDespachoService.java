@@ -15,7 +15,6 @@ import org.springframework.transaction.support.TransactionOperations;
 import ventas.anulacion.AnulacionSistemaService;
 import ventas.anulacion.ReembolsoAnulacionService;
 import ventas.compartido.CodigoPublico;
-import ventas.compartido.ConflictoException;
 import ventas.compartido.RecursoNoEncontradoException;
 import ventas.compartido.SolicitudInvalidaException;
 import ventas.integracion.envios.NotificadorEnvios;
@@ -37,8 +36,13 @@ import ventas.pedido.dto.EventoDespachoResponse;
  * EN_CAMINO, ENTREGADO y REPROGRAMADO además avisan a Marketplace (1.10, acuerdo H-05) si el pedido es de ese canal.
  * Las órdenes de reemplazo (F3) no se avisan a Marketplace: M2 sigue el cambio con pedido.entregado / pedido.anulado,
  * y si vuelven a origen no hay reembolso (total 0).
- * Si el pedido ya está en el estado al que llevaría el evento (llegó repetido con otro idEvento o en desorden),
- * no se hace nada. Idempotencia por idEvento en evento_recibido (origen SISTEMA_LOGISTICA).
+ * Despacho reintenta todo lo que no sea 2xx (5 reintentos en ~16 min, luego ENVIO_FALLIDO), así que el webhook
+ * SIEMPRE responde 2xx salvo token o cuerpo inválidos (acuerdo G2, 18/11):
+ * - evento repetido (mismo idEvento): 200, sin cambios (idempotencia en evento_recibido, origen SISTEMA_LOGISTICA);
+ * - evento atrasado (el pedido ya está igual o más adelante, p. ej. EN_CAMINO tras ENTREGADO o tras un FALLIDO): 200,
+ *   no se retrocede el estado;
+ * - ENTREGADO antes que EN_CAMINO (desorden por reintentos): se aplican los dos pasos (DESPACHADO y ENTREGADO);
+ * - pedido desconocido, estado que no admite el evento o datos inválidos: 200 "ignorado" con log WARN para revisar.
  * Actor siempre SISTEMA_LOGISTICA (ESP-03).
  */
 @Slf4j
@@ -62,6 +66,11 @@ public class EventoDespachoService {
     private record Hecho(EventoDespachoResponse respuesta, String anulacionId) {}
 
     public EventoDespachoResponse procesar(EventoDespachoRequest ev) {
+        if (pedidos.findById(idOMenosUno(ev.idPedido())).filter(p -> p.getCodigo().equals(ev.idPedido())).isEmpty()) {
+            // 2xx para que Despacho no lo reintente 6 veces; queda en el log para revisarlo (pregunta N4 de G2)
+            log.warn("Evento {} {} de Despacho para un pedido desconocido ({}): ignorado", ev.tipo(), ev.idEvento(), ev.idPedido());
+            return new EventoDespachoResponse(ev.idEvento(), ev.idPedido(), null, false, "Pedido no reconocido; evento ignorado");
+        }
         Hecho hecho;
         try {
             hecho = transaccion.execute(estado -> aplicar(ev));
@@ -85,13 +94,15 @@ public class EventoDespachoService {
         OffsetDateTime cuando = ev.ocurridoEn() != null ? ev.ocurridoEn() : OffsetDateTime.now(ZoneOffset.UTC);
         String anulacionId = null;
         String mensaje = switch (ev.tipo()) {
-            case DESPACHO_EN_CAMINO -> avanzar(p, EstadoPedido.EN_PREPARACION, EstadoPedido.DESPACHADO, cuando, ev);
-            case DESPACHO_ENTREGADO -> avanzar(p, EstadoPedido.DESPACHADO, EstadoPedido.ENTREGADO, cuando, ev);
+            case DESPACHO_EN_CAMINO -> avanzar(p, EstadoPedido.DESPACHADO, cuando, ev);
+            case DESPACHO_ENTREGADO -> avanzar(p, EstadoPedido.ENTREGADO, cuando, ev);
             case DESPACHO_DEVUELTO_A_ORIGEN -> {
                 if (p.getEstado() == EstadoPedido.ANULADO) {
                     yield "El pedido ya estaba ANULADO";
                 }
-                exigir(p, EstadoPedido.DESPACHADO, ev.tipo());
+                if (p.getEstado() != EstadoPedido.DESPACHADO && p.getEstado() != EstadoPedido.EN_PREPARACION) {
+                    yield ignorado(p, ev);   // p. ej. ENTREGADO: no se anula un pedido entregado
+                }
                 anulacionId = anulaciones.registrarEjecutada(p.getId(), ENTREGA_FALLIDA);
                 reembolsos.registrar(anulacionId, p.getId(), p.getTotal(), p.getMoneda().trim(), motivoReembolso(ev));
                 maquina.cambiar(p, EstadoPedido.ANULADO, ActorHistorial.SISTEMA_LOGISTICA, ENTREGA_FALLIDA, cuando);
@@ -99,7 +110,14 @@ public class EventoDespachoService {
                         : "Pedido anulado e instrucción de reembolso generada hacia M2 con origen ANULACION";
             }
             case DESPACHO_REPROGRAMADO -> {
-                p.setFechaEstimadaEntrega(nuevaFecha(ev.datos()));
+                OffsetDateTime fecha;
+                try {
+                    fecha = nuevaFecha(ev.datos());
+                } catch (SolicitudInvalidaException e) {
+                    log.warn("Evento {} {} de {} con datos inválidos: {}", ev.tipo(), ev.idEvento(), p.getCodigo(), e.getMessage());
+                    yield "Datos inválidos; evento registrado sin cambios (" + e.getMessage() + ")";
+                }
+                p.setFechaEstimadaEntrega(fecha);
                 pedidos.save(p);
                 if (!p.esReemplazo()) {
                     envios.registrar(p, ev.idDespacho());   // 1.10: Marketplace muestra la nueva fecha
@@ -112,25 +130,40 @@ public class EventoDespachoService {
         return new Hecho(new EventoDespachoResponse(ev.idEvento(), p.getCodigo(), p.getEstado(), false, mensaje), anulacionId);
     }
 
-    /** Si ya está en el destino (evento duplicado con otro idEvento), no hace nada. */
-    private String avanzar(Pedido p, EstadoPedido origen, EstadoPedido destino, OffsetDateTime cuando,
-                           EventoDespachoRequest ev) {
-        if (p.getEstado() == destino) {
+    /**
+     * Avanza EN_PREPARACION -> DESPACHADO -> ENTREGADO sin retroceder nunca. Si el pedido ya está en el destino o más
+     * adelante (evento atrasado), no hace nada. ENTREGADO sobre EN_PREPARACION aplica los dos pasos.
+     */
+    private String avanzar(Pedido p, EstadoPedido destino, OffsetDateTime cuando, EventoDespachoRequest ev) {
+        EstadoPedido actual = p.getEstado();
+        if (actual == destino) {
             return "El pedido ya estaba " + destino;
         }
-        exigir(p, origen, null);
+        if (actual == EstadoPedido.ENTREGADO || actual == EstadoPedido.ANULADO
+                || (actual == EstadoPedido.DESPACHADO && destino == EstadoPedido.DESPACHADO)) {
+            return "Evento atrasado: el pedido ya está " + actual + "; no se retrocede";
+        }
+        if (actual != EstadoPedido.EN_PREPARACION && actual != EstadoPedido.DESPACHADO) {
+            return ignorado(p, ev);
+        }
+        if (actual == EstadoPedido.EN_PREPARACION && destino == EstadoPedido.ENTREGADO) {
+            cambiar(p, EstadoPedido.DESPACHADO, cuando, ev);   // EN_CAMINO llegó tarde o se perdió
+        }
+        cambiar(p, destino, cuando, ev);
+        return "Pedido " + destino;
+    }
+
+    private void cambiar(Pedido p, EstadoPedido destino, OffsetDateTime cuando, EventoDespachoRequest ev) {
         maquina.cambiar(p, destino, ActorHistorial.SISTEMA_LOGISTICA, null, cuando);
         if (!p.esReemplazo()) {
             envios.registrar(p, ev.idDespacho());   // 1.10: aviso público a Marketplace (DESPACHADO / ENTREGADO)
         }
-        return "Pedido " + destino;
     }
 
-    private static void exigir(Pedido p, EstadoPedido esperado, TipoEventoDespacho tipo) {
-        if (p.getEstado() != esperado) {
-            throw new ConflictoException("TRANSICION_NO_PERMITIDA",
-                    "El pedido %s está en %s; se esperaba %s".formatted(p.getCodigo(), p.getEstado(), esperado));
-        }
+    private static String ignorado(Pedido p, EventoDespachoRequest ev) {
+        log.warn("Evento {} {} de Despacho no aplica a {} en estado {}: ignorado", ev.tipo(), ev.idEvento(),
+                p.getCodigo(), p.getEstado());
+        return "El pedido está " + p.getEstado() + "; evento registrado sin cambios";
     }
 
     private EventoDespachoResponse repetido(EventoDespachoRequest ev, Pedido p) {
@@ -159,6 +192,15 @@ public class EventoDespachoService {
         Object cierre = ev.datos() == null ? null : ev.datos().get("motivoCierre");
         return "Devuelto a origen por Despacho" + (cierre != null ? " (" + cierre + ")" : "")
                 + (ev.idDespacho() != null ? ", " + ev.idDespacho() : "");
+    }
+
+    /** Id interno del código público; -1 si el código no tiene el formato esperado. */
+    private static long idOMenosUno(String pedidoId) {
+        try {
+            return CodigoPublico.id(pedidoId);
+        } catch (RuntimeException e) {
+            return -1L;
+        }
     }
 
     private Pedido buscar(String pedidoId) {

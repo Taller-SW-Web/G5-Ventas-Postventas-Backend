@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -95,11 +96,49 @@ class EventoDespachoServiceTest {
     }
 
     @Test
-    void eventoFueraDeOrdenResponde409() {
+    void eventoQueNoAplicaAlEstadoSeIgnoraCon2xx() {
         pedido.setEstado(EstadoPedido.PAGADO);
-        assertThatThrownBy(() -> servicio.procesar(evento(TipoEventoDespacho.DESPACHO_ENTREGADO, null)))
-                .isInstanceOf(ConflictoException.class).hasFieldOrPropertyWithValue("codigo", "TRANSICION_NO_PERMITIDA");
+        assertThat(servicio.procesar(evento(TipoEventoDespacho.DESPACHO_ENTREGADO, null)).mensaje()).contains("sin cambios");
         verifyNoInteractions(maquina);
+    }
+
+    @Test
+    void eventoAtrasadoNoRetrocedeElEstado() {
+        pedido.setEstado(EstadoPedido.ENTREGADO);
+        assertThat(servicio.procesar(evento(TipoEventoDespacho.DESPACHO_EN_CAMINO, null)).mensaje()).contains("atrasado");
+        verifyNoInteractions(maquina, envios);
+    }
+
+    @Test
+    void entregadoAntesQueEnCaminoAplicaLosDosPasos() {
+        pedido.setEstado(EstadoPedido.EN_PREPARACION);
+        doAnswer(inv -> { pedido.setEstado(inv.getArgument(1)); return null; })
+                .when(maquina).cambiar(eq(pedido), any(), any(), any(), any());
+
+        servicio.procesar(evento(TipoEventoDespacho.DESPACHO_ENTREGADO, null));
+
+        verify(maquina).cambiar(pedido, EstadoPedido.DESPACHADO, ActorHistorial.SISTEMA_LOGISTICA, null, CUANDO);
+        verify(maquina).cambiar(pedido, EstadoPedido.ENTREGADO, ActorHistorial.SISTEMA_LOGISTICA, null, CUANDO);
+    }
+
+    @Test
+    void trasUnFallidoLosAsignadoYEnCaminoRepetidosNoCambianNadaYLuegoEntrega() {
+        pedido.setEstado(EstadoPedido.DESPACHADO);
+        servicio.procesar(evento("e1", TipoEventoDespacho.DESPACHO_FALLIDO, null));
+        servicio.procesar(evento("e2", TipoEventoDespacho.DESPACHO_REPROGRAMADO, Map.of("nuevaFechaProgramada", "2026-11-20")));
+        servicio.procesar(evento("e3", TipoEventoDespacho.DESPACHO_ASIGNADO, null));
+        assertThat(servicio.procesar(evento("e4", TipoEventoDespacho.DESPACHO_EN_CAMINO, null)).mensaje()).contains("ya estaba");
+        verify(maquina, never()).cambiar(any(), any(), any(), any(), any());
+
+        servicio.procesar(evento("e5", TipoEventoDespacho.DESPACHO_ENTREGADO, null));
+        verify(maquina).cambiar(pedido, EstadoPedido.ENTREGADO, ActorHistorial.SISTEMA_LOGISTICA, null, CUANDO);
+    }
+
+    @Test
+    void devueltoAOrigenDeUnPedidoEntregadoNoLoAnula() {
+        pedido.setEstado(EstadoPedido.ENTREGADO);
+        servicio.procesar(evento(TipoEventoDespacho.DESPACHO_DEVUELTO_A_ORIGEN, null));
+        verifyNoInteractions(maquina, anulaciones, reembolsos);
     }
 
     @Test
@@ -135,12 +174,13 @@ class EventoDespachoServiceTest {
     }
 
     @Test
-    void reprogramadoSinFechaResponde400() {
+    void reprogramadoSinFechaValidaSeRegistraSinCambiosCon2xx() {
         pedido.setEstado(EstadoPedido.DESPACHADO);
-        assertThatThrownBy(() -> servicio.procesar(evento(TipoEventoDespacho.DESPACHO_REPROGRAMADO, Map.of())))
-                .isInstanceOf(SolicitudInvalidaException.class);
-        assertThatThrownBy(() -> servicio.procesar(evento(TipoEventoDespacho.DESPACHO_REPROGRAMADO, Map.of("nuevaFechaProgramada", "mañana"))))
-                .isInstanceOf(SolicitudInvalidaException.class);
+        assertThat(servicio.procesar(evento(TipoEventoDespacho.DESPACHO_REPROGRAMADO, Map.of())).mensaje()).contains("Datos inválidos");
+        assertThat(servicio.procesar(evento(TipoEventoDespacho.DESPACHO_REPROGRAMADO, Map.of("nuevaFechaProgramada", "mañana"))).mensaje())
+                .contains("Datos inválidos");
+        assertThat(pedido.getFechaEstimadaEntrega()).isNull();
+        verify(pedidos, never()).save(any());
     }
 
     @Test
@@ -166,14 +206,21 @@ class EventoDespachoServiceTest {
     }
 
     @Test
-    void pedidoInexistenteResponde404() {
+    void pedidoDesconocidoSeIgnoraCon2xx() {
         when(pedidos.findById(981L)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> servicio.procesar(evento(TipoEventoDespacho.DESPACHO_EN_CAMINO, null)))
-                .isInstanceOf(RecursoNoEncontradoException.class);
+        EventoDespachoResponse r = servicio.procesar(evento(TipoEventoDespacho.DESPACHO_EN_CAMINO, null));
+        assertThat(r.mensaje()).contains("no reconocido");
+        assertThat(servicio.procesar(new EventoDespachoRequest("evt-x", "OTRO-CODIGO", null,
+                TipoEventoDespacho.DESPACHO_ENTREGADO, null, null, CUANDO, null)).mensaje()).contains("no reconocido");
+        verifyNoInteractions(recibidos, maquina);
     }
 
     private static EventoDespachoRequest evento(TipoEventoDespacho tipo, Map<String, Object> datos) {
-        return new EventoDespachoRequest("evt-1", CODIGO, "DESP-00412", tipo, null, null, CUANDO, datos);
+        return evento("evt-1", tipo, datos);
+    }
+
+    private static EventoDespachoRequest evento(String id, TipoEventoDespacho tipo, Map<String, Object> datos) {
+        return new EventoDespachoRequest(id, CODIGO, "DESP-00412", tipo, null, null, CUANDO, datos);
     }
 
     // ---------- Orden de reemplazo (F3) ----------
