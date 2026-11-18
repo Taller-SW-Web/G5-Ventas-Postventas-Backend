@@ -25,6 +25,7 @@ import ventas.pedido.EstadoPedido;
 import ventas.pedido.MensajesProductosService;
 import ventas.pedido.Pedido;
 import ventas.pedido.PedidoRepository;
+import ventas.pedido.TipoPedido;
 
 /**
  * Contrato H5 con Productos (G6): reemplaza los mensajes que llegaban por RabbitMQ (po.sales.q) por consultas HTTP
@@ -43,6 +44,8 @@ import ventas.pedido.PedidoRepository;
  * datos y cada resultado aplicado queda en evento_recibido (id "H5:..."), así que tras un reinicio el siguiente
  * barrido continúa donde quedó y nunca aplica dos veces el mismo resultado. Un error de red solo deja la consulta
  * para el siguiente barrido; nunca se toma como éxito ni como rechazo (§9).
+ * Cadencia (contrato H5 D-02): los resultados de operaciones se consultan cada 5 s (dentro del máximo de 30 s del
+ * contrato) y la vigencia de las reservas, que cambia en minutos, cada 60 s.
  * Solo existe con integracion.simulado=false e integracion.productos-transporte=http.
  */
 @Slf4j
@@ -50,7 +53,8 @@ import ventas.pedido.PedidoRepository;
 @ConditionalOnExpression("'${integracion.simulado:true}' == 'false' and '${integracion.productos-transporte:http}' == 'http'")
 public class SeguimientoProductos {
 
-    static final List<EstadoPedido> ESTADOS = List.of(EstadoPedido.CREADO, EstadoPedido.PAGADO, EstadoPedido.EN_PREPARACION);
+    /** Estados con algo pendiente; además, las órdenes de reemplazo EN_PREPARACION (ver PedidoRepository). */
+    static final List<EstadoPedido> ESTADOS = List.of(EstadoPedido.CREADO, EstadoPedido.PAGADO);
 
     private final PedidoRepository pedidos;
     private final EventoRecibidoRepository recibidos;
@@ -60,17 +64,22 @@ public class SeguimientoProductos {
     private final Clock reloj;
     private final Duration ventana;
     private final int lote;
+    private final Duration cadaVencimiento;
+    private OffsetDateTime proximoVencimiento;
 
     @Autowired
     public SeguimientoProductos(PedidoRepository pedidos, EventoRecibidoRepository recibidos, ProductosClient productos,
                                 CuponesClient cupones, MensajesProductosService mensajes,
                                 @Value("${integracion.productos-seguimiento.ventana-horas:72}") long ventanaHoras,
-                                @Value("${integracion.productos-seguimiento.lote:100}") int lote) {
-        this(pedidos, recibidos, productos, cupones, mensajes, Clock.systemUTC(), Duration.ofHours(ventanaHoras), lote);
+                                @Value("${integracion.productos-seguimiento.lote:100}") int lote,
+                                @Value("${integracion.productos-seguimiento.vencimiento-ms:60000}") long vencimientoMs) {
+        this(pedidos, recibidos, productos, cupones, mensajes, Clock.systemUTC(), Duration.ofHours(ventanaHoras), lote,
+                Duration.ofMillis(vencimientoMs));
     }
 
     SeguimientoProductos(PedidoRepository pedidos, EventoRecibidoRepository recibidos, ProductosClient productos,
-                         CuponesClient cupones, MensajesProductosService mensajes, Clock reloj, Duration ventana, int lote) {
+                         CuponesClient cupones, MensajesProductosService mensajes, Clock reloj, Duration ventana, int lote,
+                         Duration cadaVencimiento) {
         this.pedidos = pedidos;
         this.recibidos = recibidos;
         this.productos = productos;
@@ -79,16 +88,22 @@ public class SeguimientoProductos {
         this.reloj = reloj;
         this.ventana = ventana;
         this.lote = lote;
+        this.cadaVencimiento = cadaVencimiento;
     }
 
-    @Scheduled(fixedDelayString = "${integracion.productos-seguimiento.intervalo-ms:15000}",
+    @Scheduled(fixedDelayString = "${integracion.productos-seguimiento.intervalo-ms:5000}",
                initialDelayString = "${integracion.productos-seguimiento.inicio-ms:20000}")
     public void barrer() {
-        OffsetDateTime desde = OffsetDateTime.now(reloj).minus(ventana);
-        List<Pedido> pendientes = pedidos.enSeguimientoProductos(ESTADOS, CanalVenta.RETAIL, desde, PageRequest.of(0, lote));
+        OffsetDateTime ahora = OffsetDateTime.now(reloj);
+        boolean revisarVencimientos = proximoVencimiento == null || !ahora.isBefore(proximoVencimiento);
+        if (revisarVencimientos) {
+            proximoVencimiento = ahora.plus(cadaVencimiento);
+        }
+        List<Pedido> pendientes = pedidos.enSeguimientoProductos(ESTADOS, EstadoPedido.EN_PREPARACION,
+                TipoPedido.REEMPLAZO, CanalVenta.RETAIL, ahora.minus(ventana), PageRequest.of(0, lote));
         for (Pedido p : pendientes) {
             try {
-                seguir(p);
+                seguir(p, revisarVencimientos);
             } catch (RuntimeException e) {
                 // Un pedido con problemas no detiene a los demás; se reintenta en el siguiente barrido
                 log.warn("Seguimiento H5 de {} falló: {}", p.getCodigo(), e.getMessage());
@@ -97,6 +112,10 @@ public class SeguimientoProductos {
     }
 
     void seguir(Pedido p) {
+        seguir(p, true);
+    }
+
+    void seguir(Pedido p, boolean revisarVencimiento) {
         String codigo = p.getCodigo();
         EstadoPedido estado = p.getEstado();
         boolean reemplazoEnPreparacion = p.esReemplazo() && estado == EstadoPedido.EN_PREPARACION;
@@ -110,7 +129,7 @@ public class SeguimientoProductos {
         if (estado == EstadoPedido.CREADO && tieneCupon(p)) {
             resultadoCupon(p);
         }
-        if (estado == EstadoPedido.CREADO || reemplazoEnPreparacion) {
+        if (revisarVencimiento && (estado == EstadoPedido.CREADO || reemplazoEnPreparacion)) {
             vencimiento(codigo, p.getReservaId());
         }
         if (estado == EstadoPedido.PAGADO || reemplazoEnPreparacion) {
@@ -153,7 +172,10 @@ public class SeguimientoProductos {
         });
     }
 
-    /** Consumo de cupón (§7.1 y §7.3). Si Productos no conoce la operación, se reenvía con la misma identidad. */
+    /**
+     * Consumo de cupón (§7.1 y §7.3). Si Productos responde 404 (no conoce la operación), se reenvía con la misma
+     * identidad; si no responde, solo se espera al siguiente barrido.
+     */
     private void resultadoCupon(Pedido p) {
         String codigo = p.getCodigo();
         String op = CuponesClient.operacionConsumo(codigo);
@@ -162,6 +184,9 @@ public class SeguimientoProductos {
         }
         var resultado = cupones.consultar(op, codigo);
         if (resultado.isEmpty()) {
+            return;   // sin respuesta: se vuelve a preguntar en el siguiente barrido, sin reenviar
+        }
+        if (resultado.get().noEncontrada()) {
             cupones.consumir(codigo, p.getCodigoCupon().trim(), p.getIdCliente(), p.getCanal().name(), p.getCreadoEn(),
                     p.getReservaId());
             return;

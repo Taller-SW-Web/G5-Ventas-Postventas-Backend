@@ -43,6 +43,13 @@ public class CuponesClient {
 
     /** Snapshot H5 de una operación de cupón: status ACCEPTED, PROCESSING, COMPLETED o REJECTED. */
     public record ResultadoCupon(String status, String resultCode) {
+        /** Productos respondió 404: no conoce la operación (el POST nunca llegó). */
+        public static final ResultadoCupon NO_ENCONTRADA = new ResultadoCupon("NOT_FOUND", null);
+
+        public boolean noEncontrada() {
+            return NO_ENCONTRADA.status().equals(status);
+        }
+
         public boolean completada() {
             return "COMPLETED".equals(status);
         }
@@ -154,8 +161,8 @@ public class CuponesClient {
     }
 
     /**
-     * Resultado durable de una operación de cupón (H5 §7.3). Vacío si Productos no la conoce (404) o no respondió.
-     * Solo con transporte http; en rabbit y en simulado siempre vacío.
+     * Resultado durable de una operación de cupón (H5 §7.3). NO_ENCONTRADA si Productos no la conoce (404); vacío si
+     * no respondió (un error de red no dice nada del cupón). Solo con transporte http; en rabbit y simulado, vacío.
      */
     public Optional<ResultadoCupon> consultar(String operationId, String pedidoId) {
         if (simulado || !porHttp) {
@@ -173,7 +180,7 @@ public class CuponesClient {
             String codigo = r != null && r.hasNonNull("result_code") ? r.get("result_code").asText() : null;
             return Optional.of(new ResultadoCupon(n.hasNonNull("status") ? n.get("status").asText() : null, codigo));
         } catch (HttpClientErrorException.NotFound e) {
-            return Optional.empty();
+            return Optional.of(ResultadoCupon.NO_ENCONTRADA);
         } catch (RestClientException e) {
             tokens.revisar(e);
             log.warn("No se pudo consultar la operación de cupón {} de {}: {}", operationId, pedidoId, e.getMessage());

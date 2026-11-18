@@ -56,10 +56,16 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long>, JpaSpecif
 
     /**
      * Contrato H5 con Productos (G6): pedidos que pueden tener una reserva, un consumo o un cupón pendiente de
-     * resultado, o una reserva que puede vencer. Lo recorre SeguimientoProductos en cada barrido.
+     * resultado, o una reserva que puede vencer: CREADO y PAGADO, y las órdenes de reemplazo EN_PREPARACION (la venta
+     * normal EN_PREPARACION ya consumió su reserva y no tiene nada pendiente). Del más nuevo al más antiguo, para que
+     * un lote lleno de pedidos viejos nunca deje sin seguimiento a los recién creados. Lo recorre SeguimientoProductos.
      */
-    @Query("select p from Pedido p where p.estado in :estados and p.canal <> :excluido and p.creadoEn >= :desde order by p.id")
+    @Query("select p from Pedido p where p.canal <> :excluido and p.creadoEn >= :desde"
+            + " and (p.estado in :estados or (p.estado = :enPreparacion and p.tipo = :reemplazo))"
+            + " order by p.id desc")
     List<Pedido> enSeguimientoProductos(@Param("estados") List<EstadoPedido> estados,
+                                        @Param("enPreparacion") EstadoPedido enPreparacion,
+                                        @Param("reemplazo") TipoPedido reemplazo,
                                         @Param("excluido") CanalVenta excluido,
                                         @Param("desde") OffsetDateTime desde,
                                         Pageable pagina);
