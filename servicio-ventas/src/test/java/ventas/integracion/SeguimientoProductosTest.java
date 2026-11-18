@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -33,6 +34,7 @@ import ventas.pedido.EstadoPedido;
 import ventas.pedido.MensajesProductosService;
 import ventas.pedido.Pedido;
 import ventas.pedido.PedidoRepository;
+import ventas.pedido.TipoPedido;
 
 /** Contrato H5: los resultados consultados por HTTP se convierten en el mismo MensajeInventario que llegaba por RabbitMQ. */
 class SeguimientoProductosTest {
@@ -55,7 +57,8 @@ class SeguimientoProductosTest {
         cupones = mock(CuponesClient.class);
         mensajes = mock(MensajesProductosService.class);
         Clock reloj = Clock.fixed(Instant.parse("2026-11-18T12:00:00Z"), ZoneOffset.UTC);
-        seguimiento = new SeguimientoProductos(pedidos, recibidos, productos, cupones, mensajes, reloj, Duration.ofHours(72), 100);
+        seguimiento = new SeguimientoProductos(pedidos, recibidos, productos, cupones, mensajes, reloj, Duration.ofHours(72), 100,
+                Duration.ofSeconds(60));
     }
 
     Pedido pedido(EstadoPedido estado, String reservaId, String cupon) {
@@ -78,10 +81,55 @@ class SeguimientoProductosTest {
 
     @Test
     void elBarridoExcluyeRetailYUsaLaVentana() {
-        when(pedidos.enSeguimientoProductos(any(), any(), any(), any())).thenReturn(List.of());
+        when(pedidos.enSeguimientoProductos(any(), any(), any(), any(), any(), any())).thenReturn(List.of());
         seguimiento.barrer();
-        verify(pedidos).enSeguimientoProductos(eq(SeguimientoProductos.ESTADOS), eq(CanalVenta.RETAIL),
-                eq(OffsetDateTime.parse("2026-11-15T12:00Z")), any());
+        verify(pedidos).enSeguimientoProductos(eq(SeguimientoProductos.ESTADOS), eq(EstadoPedido.EN_PREPARACION),
+                eq(TipoPedido.REEMPLAZO), eq(CanalVenta.RETAIL), eq(OffsetDateTime.parse("2026-11-15T12:00Z")), any());
+    }
+
+    @Test
+    void laVigenciaDeLasReservasSeRevisaCada60sYLosResultadosEnCadaBarrido() {
+        MutableClock reloj = new MutableClock(Instant.parse("2026-11-18T12:00:00Z"));
+        seguimiento = new SeguimientoProductos(pedidos, recibidos, productos, cupones, mensajes, reloj, Duration.ofHours(72),
+                100, Duration.ofSeconds(60));
+        Pedido p = pedido(EstadoPedido.CREADO, RESERVA, null);
+        when(pedidos.enSeguimientoProductos(any(), any(), any(), any(), any(), any())).thenReturn(List.of(p));
+        when(productos.consultarReserva(RESERVA, CODIGO)).thenReturn(Optional.of(new EstadoReserva("ACTIVA", "VIGENTE")));
+
+        seguimiento.barrer();                       // 12:00:00 revisa vigencia
+        reloj.avanzar(Duration.ofSeconds(5));
+        seguimiento.barrer();                       // 12:00:05 todavía no
+        reloj.avanzar(Duration.ofSeconds(55));
+        seguimiento.barrer();                       // 12:01:00 otra vez
+
+        verify(productos, times(2)).consultarReserva(RESERVA, CODIGO);
+    }
+
+    static final class MutableClock extends Clock {
+        private Instant ahora;
+
+        MutableClock(Instant inicio) {
+            this.ahora = inicio;
+        }
+
+        void avanzar(Duration d) {
+            ahora = ahora.plus(d);
+        }
+
+        @Override
+        public java.time.ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(java.time.ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return ahora;
+        }
     }
 
     @Test
@@ -166,13 +214,24 @@ class SeguimientoProductosTest {
 
     @Test
     void siProductosNoConoceElConsumoDelCuponSeReenviaConLaMismaIdentidad() {
-        when(cupones.consultar(any(), any())).thenReturn(Optional.empty());
+        when(cupones.consultar(any(), any())).thenReturn(Optional.of(ResultadoCupon.NO_ENCONTRADA));
         when(productos.consultarReserva(RESERVA, CODIGO)).thenReturn(Optional.empty());
         Pedido p = pedido(EstadoPedido.CREADO, RESERVA, "DESC10");
 
         seguimiento.seguir(p);
 
         verify(cupones).consumir(CODIGO, "DESC10", p.getIdCliente(), "MARKETPLACE", p.getCreadoEn(), RESERVA);
+        verify(mensajes, never()).procesar(any());
+    }
+
+    @Test
+    void siProductosNoRespondeNoSeReenviaElCupon() {
+        when(cupones.consultar(any(), any())).thenReturn(Optional.empty());   // error de red, no 404
+        when(productos.consultarReserva(RESERVA, CODIGO)).thenReturn(Optional.empty());
+
+        seguimiento.seguir(pedido(EstadoPedido.CREADO, RESERVA, "DESC10"));
+
+        verify(cupones, never()).consumir(any(), any(), any(), any(), any(), any());
         verify(mensajes, never()).procesar(any());
     }
 
@@ -233,7 +292,7 @@ class SeguimientoProductosTest {
         Pedido bueno = mock(Pedido.class);
         when(bueno.getCodigo()).thenReturn("PED-2026-00982");
         when(bueno.getEstado()).thenReturn(EstadoPedido.CREADO);
-        when(pedidos.enSeguimientoProductos(any(), any(), any(), any())).thenReturn(List.of(malo, bueno));
+        when(pedidos.enSeguimientoProductos(any(), any(), any(), any(), any(), any())).thenReturn(List.of(malo, bueno));
         when(productos.consultarOperacion(ProductosClient.operacionId(Operacion.RESERVAR, CODIGO)))
                 .thenThrow(new IllegalStateException("caída"));
 

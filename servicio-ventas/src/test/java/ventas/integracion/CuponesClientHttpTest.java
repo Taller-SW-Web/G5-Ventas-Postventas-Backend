@@ -111,6 +111,6 @@ class CuponesClientHttpTest {
     void operacionDesconocidaDevuelveVacio() {
         servidor.expect(requestTo(BASE + "/api/v1/cupones/operaciones/x?order_id=" + PEDIDO))
                 .andRespond(withStatus(HttpStatus.NOT_FOUND));
-        assertThat(cliente.consultar("x", PEDIDO)).isEmpty();
+        assertThat(cliente.consultar("x", PEDIDO)).get().matches(CuponesClient.ResultadoCupon::noEncontrada);
     }
 }
