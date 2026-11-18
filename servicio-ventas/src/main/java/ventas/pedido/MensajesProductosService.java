@@ -188,7 +188,8 @@ public class MensajesProductosService {
     }
 
     private void consumirCupon(Pedido p) {
-        cupones.consumir(p.getCodigo(), p.getCodigoCupon().trim(), p.getIdCliente(), p.getCanal().name(), p.getCreadoEn())
+        cupones.consumir(p.getCodigo(), p.getCodigoCupon().trim(), p.getIdCliente(), p.getCanal().name(), p.getCreadoEn(),
+                        p.getReservaId())
                 .ifPresent(this::procesar);   // modo simulado: el "completed" se aplica al instante
     }
 
