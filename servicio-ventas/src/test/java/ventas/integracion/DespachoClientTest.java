@@ -138,9 +138,11 @@ class DespachoClientTest {
         String clave = DespachoClient.uuidV4("CANCELACION:PED-2026-00981");
         servidor.expect(requestTo(ruta)).andExpect(method(HttpMethod.POST))
                 .andExpect(header("Idempotency-Key", clave))
-                .andExpect(jsonPath("$.motivo").value("SOLICITUD_CLIENTE"))
+                .andExpect(jsonPath("$.motivo").value("PEDIDO_ANULADO"))
+                .andExpect(jsonPath("$.observacion").value("Anulación aprobada por Ventas: SOLICITUD_CLIENTE"))
                 .andRespond(withStatus(HttpStatus.ACCEPTED));
-        servidor.expect(requestTo(ruta)).andRespond(withStatus(HttpStatus.CONFLICT));
+        servidor.expect(requestTo(ruta)).andRespond(withStatus(HttpStatus.CONFLICT).contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body("{\"code\":\"DESP_ERROR_ESTADO_INCOMPATIBLE\",\"estadoActual\":\"EN_CAMINO\"}"));
         servidor.expect(requestTo(ruta)).andRespond(withStatus(HttpStatus.NOT_FOUND));
         servidor.expect(requestTo(ruta)).andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
 
@@ -151,6 +153,19 @@ class DespachoClientTest {
         servidor.verify();
         assertThat(UUID.fromString(clave).version()).isEqualTo(4);
         assertThat(clave).isNotEqualTo(DespachoClient.claveIdempotencia("PED-2026-00981"));
+    }
+
+    @Test
+    void conflictosDeCancelacionSegunCodeYEstadoActual() {
+        assertThat(DespachoClient.conflictoCancelacion("{\"code\":\"DESP_ERROR_ESTADO_INCOMPATIBLE\",\"estadoActual\":\"CANCELADO\"}"))
+                .isEqualTo(DespachoClient.Cancelacion.CANCELADO);
+        assertThat(DespachoClient.conflictoCancelacion("{\"code\":\"DESP_ERROR_ESTADO_INCOMPATIBLE\",\"estadoActual\":\"DEVUELTO_A_ORIGEN\"}"))
+                .isEqualTo(DespachoClient.Cancelacion.CANCELADO);
+        assertThat(DespachoClient.conflictoCancelacion("{\"code\":\"DESP_ERROR_ESTADO_INCOMPATIBLE\",\"estadoActual\":\"ENTREGADO\"}"))
+                .isEqualTo(DespachoClient.Cancelacion.EN_CAMINO);
+        assertThat(DespachoClient.conflictoCancelacion("{\"code\":\"DESP_ERROR_ASIGNACION_EN_PROCESO\"}"))
+                .isEqualTo(DespachoClient.Cancelacion.FALLO);
+        assertThat(DespachoClient.conflictoCancelacion("no-json")).isEqualTo(DespachoClient.Cancelacion.FALLO);
     }
 
     @Test

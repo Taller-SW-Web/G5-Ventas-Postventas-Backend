@@ -4,6 +4,11 @@ server:
 spring:
   application:
     name: servicio-ventas
+  # Timeouts de todos los clientes HTTP (Despacho, Productos, M2, G7...). G2 pide >= 15 s porque su gateway tarda hasta 10 s
+  http:
+    client:
+      connect-timeout: ${HTTP_CONNECT_TIMEOUT:10s}
+      read-timeout: ${HTTP_READ_TIMEOUT:20s}
   config:
     # Lee el .env de la raíz (o del módulo) si existe
     import: "optional:file:../.env[.properties],optional:file:.env[.properties]"

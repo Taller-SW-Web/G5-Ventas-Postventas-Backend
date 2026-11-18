@@ -57,13 +57,13 @@ class DespachoEventosControllerTest {
     }
 
     @Test
-    void sinIdempotencyKeyOConUnaQueNoEsUuidV4Responde400() throws Exception {
+    void despachoNoEnviaIdempotencyKeyYSeAceptaIgual() throws Exception {
+        when(eventos.procesar(any())).thenReturn(new EventoDespachoResponse("evt-desp-001", "PED-2026-00981",
+                EstadoPedido.DESPACHADO, false, "Pedido DESPACHADO"));
         mvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(EVENTO))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.codigo").value("CABECERA_FALTANTE"));
+                .andExpect(status().isOk());
         mvc.perform(post(URL).header("Idempotency-Key", "abc").contentType(MediaType.APPLICATION_JSON).content(EVENTO))
-                .andExpect(status().isBadRequest());
-        verifyNoInteractions(eventos);
+                .andExpect(status().isOk());
     }
 
     @Test

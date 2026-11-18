@@ -50,8 +50,11 @@ public class DespachoClient {
      */
     public enum Cancelacion { CANCELADO, SIN_DESPACHO, EN_CAMINO, FALLO, SIMULADO }
 
-    /** Cuerpo de la cancelación: solo el motivo de la anulación (pendiente de confirmar el contrato exacto con G2). */
-    private record SolicitudCancelacion(String motivo) {}
+    /** Motivo acordado con G2 (18/11); el motivo interno de la anulación va en observacion (máx. 500). */
+    static final String MOTIVO_CANCELACION = "PEDIDO_ANULADO";
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record SolicitudCancelacion(String motivo, String observacion) {}
 
     /** Cuerpo de 7.1. Código postal y coordenadas son opcionales y M1 no los tiene: no se mandan. */
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -115,7 +118,7 @@ public class DespachoClient {
             http.post().uri("/api/v1/despachos/pedidos/{idPedido}/cancelacion", idPedido)
                     .headers(tokens.autorizacion())
                     .header("Idempotency-Key", uuidV4("CANCELACION:" + idPedido))
-                    .body(new SolicitudCancelacion(motivo))
+                    .body(new SolicitudCancelacion(MOTIVO_CANCELACION, observacion(motivo)))
                     .retrieve()
                     .toBodilessEntity();
             return Cancelacion.CANCELADO;
@@ -126,7 +129,10 @@ public class DespachoClient {
                 return Cancelacion.SIN_DESPACHO;
             }
             if (status == 409) {
-                return Cancelacion.EN_CAMINO;
+                Cancelacion c = conflictoCancelacion(e.getResponseBodyAsString());
+                if (c != Cancelacion.FALLO) {
+                    return c;
+                }
             }
             log.warn("Cancelación del despacho de {}: {} {}", idPedido, status, code(e.getResponseBodyAsString()));
             return Cancelacion.FALLO;
@@ -134,6 +140,36 @@ public class DespachoClient {
             log.warn("Cancelación del despacho de {}: sin respuesta ({})", idPedido, e.getMessage());
             return Cancelacion.FALLO;
         }
+    }
+
+    /**
+     * 409 de la cancelación (G2, 18/11): DESP_ERROR_ESTADO_INCOMPATIBLE trae estadoActual. CANCELADO o
+     * DEVUELTO_A_ORIGEN: ya no se entregará (= cancelado). EN_CAMINO o ENTREGADO: no se puede cancelar.
+     * Los demás 409 (asignación o cancelación en proceso, despacho desactualizado, clave reutilizada) son
+     * transitorios: FALLO, y la anulación se reintenta.
+     */
+    static Cancelacion conflictoCancelacion(String cuerpo) {
+        try {
+            JsonNode n = JSON.readTree(cuerpo == null ? "" : cuerpo);
+            if (!"DESP_ERROR_ESTADO_INCOMPATIBLE".equals(n.path("code").asText())) {
+                return Cancelacion.FALLO;
+            }
+            String estado = n.path("estadoActual").asText(n.path("details").path("estadoActual").asText(""));
+            return switch (estado) {
+                case "CANCELADO", "DEVUELTO_A_ORIGEN" -> Cancelacion.CANCELADO;
+                default -> Cancelacion.EN_CAMINO;   // EN_CAMINO, ENTREGADO o sin dato: el paquete ya salió
+            };
+        } catch (Exception ex) {
+            return Cancelacion.FALLO;
+        }
+    }
+
+    private static String observacion(String motivo) {
+        if (motivo == null || motivo.isBlank()) {
+            return null;
+        }
+        String texto = "Anulación aprobada por Ventas: " + motivo;
+        return texto.length() > 500 ? texto.substring(0, 500) : texto;
     }
 
     static Resultado clasificar(int status, String code) {
