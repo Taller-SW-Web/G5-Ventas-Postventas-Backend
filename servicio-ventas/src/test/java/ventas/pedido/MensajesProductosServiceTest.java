@@ -280,11 +280,11 @@ class MensajesProductosServiceTest {
         pedido.setIdCliente(java.util.UUID.fromString("3f9a2b7e-6c1d-4e2a-9b3f-7a1d2c4e5f6a"));
         pedido.setCreadoEn(java.time.OffsetDateTime.parse("2026-10-13T10:00:00Z"));
         pedidoExiste();
-        when(cupones.consumir(any(), any(), any(), any(), any())).thenReturn(Optional.empty());   // modo real: llega después
+        when(cupones.consumir(any(), any(), any(), any(), any(), any())).thenReturn(Optional.empty());   // modo real: llega después
 
         servicio.procesar(creada());
 
-        verify(cupones).consumir(CODIGO, "DESC10", pedido.getIdCliente(), "MARKETPLACE", pedido.getCreadoEn());
+        verify(cupones).consumir(CODIGO, "DESC10", pedido.getIdCliente(), "MARKETPLACE", pedido.getCreadoEn(), pedido.getReservaId());
         verifyNoInteractions(pasarela);   // todavía no se cobra
     }
 
@@ -309,7 +309,7 @@ class MensajesProductosServiceTest {
         Pago pago = new Pago();
         pago.setMetodo("TARJETA_CREDITO");
         when(pagos.findByPedidoId(981L)).thenReturn(Optional.of(pago));
-        when(cupones.consumir(any(), any(), any(), any(), any())).thenReturn(Optional.of(new MensajeInventario(
+        when(cupones.consumir(any(), any(), any(), any(), any(), any())).thenReturn(Optional.of(new MensajeInventario(
                 "SIM-cupon", MensajeInventario.CUPON_CONSUMIDO, "op", Map.of("order_id", CODIGO))));
 
         servicio.procesar(creada());
@@ -353,11 +353,11 @@ class MensajesProductosServiceTest {
         pedido.setCreadoEn(java.time.OffsetDateTime.parse("2026-10-13T10:00:00Z"));
         pedidoExiste();
         when(productos.confirmar(CODIGO, "RES-778")).thenReturn(ResultadoConfirmacion.ACEPTADA);
-        when(cupones.consumir(any(), any(), any(), any(), any())).thenReturn(Optional.empty());
+        when(cupones.consumir(any(), any(), any(), any(), any(), any())).thenReturn(Optional.empty());
 
         servicio.procesar(creada());
 
-        verify(cupones).consumir(eq(CODIGO), eq("DESC10"), any(), eq("CHATBOT"), any());
+        verify(cupones).consumir(eq(CODIGO), eq("DESC10"), any(), eq("CHATBOT"), any(), any());
     }
 
     @Test

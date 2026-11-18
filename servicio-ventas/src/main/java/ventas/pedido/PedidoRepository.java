@@ -54,6 +54,16 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long>, JpaSpecif
     List<FilaKpi> findByTipoAndCanalAndCreadoEnGreaterThanEqualAndCreadoEnLessThan(
             TipoPedido tipo, CanalVenta canal, OffsetDateTime inicio, OffsetDateTime fin);
 
+    /**
+     * Contrato H5 con Productos (G6): pedidos que pueden tener una reserva, un consumo o un cupón pendiente de
+     * resultado, o una reserva que puede vencer. Lo recorre SeguimientoProductos en cada barrido.
+     */
+    @Query("select p from Pedido p where p.estado in :estados and p.canal <> :excluido and p.creadoEn >= :desde order by p.id")
+    List<Pedido> enSeguimientoProductos(@Param("estados") List<EstadoPedido> estados,
+                                        @Param("excluido") CanalVenta excluido,
+                                        @Param("desde") OffsetDateTime desde,
+                                        Pageable pagina);
+
     /** 1.15: Pedidos asignados a una tienda física listos para retiro (Pickup). */
     @EntityGraph(attributePaths = "detalles")
     @Query("select p from Pedido p where p.tiendaId = :tiendaId and (p.modalidadEnvio = 'RECOJO_TIENDA' or p.modalidadEnvio = 'TIENDA' or p.modalidadEnvio is null) and p.estado in :estados order by p.creadoEn desc")

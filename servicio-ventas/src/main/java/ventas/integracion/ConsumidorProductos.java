@@ -11,7 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 
 import ventas.pedido.MensajesProductosService;
@@ -19,13 +19,14 @@ import ventas.pedido.MensajesProductosService.Desenlace;
 
 /**
  * Lee po.sales.q del RabbitMQ de Productos (vhost g6-productos-ofertas, rabbitmq-topologia.md) y se lo pasa a
- * MensajesProductosService. Solo existe con integracion.simulado=false: en modo simulado no se conecta a nada.
+ * MensajesProductosService. Solo existe con integracion.simulado=false e integracion.productos-transporte=rabbit
+ * (contrato H4); con el transporte http (H5, por defecto) los resultados se consultan en SeguimientoProductos.
  * - Mensaje mal formado: se rechaza sin reintentar (va a la DLQ).
  * - Pedido todavía no guardado: se lanza error y el contenedor reintenta (spring.rabbitmq.listener.simple.retry).
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(name = "integracion.simulado", havingValue = "false")
+@ConditionalOnExpression("'${integracion.simulado:true}' == 'false' and '${integracion.productos-transporte:http}' == 'rabbit'")
 @RequiredArgsConstructor
 public class ConsumidorProductos {
 
