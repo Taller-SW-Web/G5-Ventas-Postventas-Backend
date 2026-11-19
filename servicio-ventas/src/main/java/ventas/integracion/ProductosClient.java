@@ -14,6 +14,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -48,6 +50,13 @@ public class ProductosClient {
      */
     public record ResultadoOperacion(String operationId, String operationType, String status,
                                      String reservationId, String resultCode) {
+        /** Productos respondió 404: no conoce la operación (el POST nunca llegó). */
+        public static final ResultadoOperacion NO_ENCONTRADA = new ResultadoOperacion(null, null, "NOT_FOUND", null, null);
+
+        public boolean noEncontrada() {
+            return "NOT_FOUND".equals(status);
+        }
+
         public boolean completada() {
             return "COMPLETED".equals(status);
         }
@@ -87,8 +96,8 @@ public class ProductosClient {
     }
 
     /**
-     * Consulta el resultado de una operación (reservar, confirmar o liberar). Vacío si Productos todavía no la
-     * conoce (404) o no respondió: el seguimiento vuelve a preguntar en el siguiente barrido.
+     * Consulta el resultado de una operación (reservar, confirmar o liberar). NO_ENCONTRADA si Productos no la conoce
+     * (404); vacío si no respondió (el seguimiento vuelve a preguntar). 429: LimiteProductosException.
      */
     public Optional<ResultadoOperacion> consultarOperacion(String operationId) {
         if (simulado) {
@@ -105,7 +114,9 @@ public class ProductosClient {
             return Optional.of(new ResultadoOperacion(texto(n, "operation_id"), texto(n, "operation_type"),
                     texto(n, "status"), texto(n, "reservation_id"), texto(n, "result_code")));
         } catch (HttpClientErrorException.NotFound e) {
-            return Optional.empty();
+            return Optional.of(ResultadoOperacion.NO_ENCONTRADA);
+        } catch (HttpClientErrorException.TooManyRequests e) {
+            throw LimiteProductosException.desde(e);
         } catch (RestClientException e) {
             tokens.revisar(e);
             log.warn("No se pudo consultar la operación {} en Productos: {}", operationId, e.getMessage());
@@ -125,11 +136,28 @@ public class ProductosClient {
                     .body(JsonNode.class);
             return n == null ? Optional.empty()
                     : Optional.of(new EstadoReserva(texto(n, "estado_persistido"), texto(n, "vigencia_efectiva")));
+        } catch (HttpClientErrorException.TooManyRequests e) {
+            throw LimiteProductosException.desde(e);
         } catch (RestClientException e) {
             tokens.revisar(e);
             log.warn("No se pudo consultar la reserva {} de {}: {}", reservaId, pedidoId, e.getMessage());
             return Optional.empty();
         }
+    }
+
+    /**
+     * Timeout, 5xx o respuesta perdida: Productos pudo haber persistido la operación (D-07). Un 4xx o no poder
+     * conectarse (conexión rechazada, host desconocido) significa que no la admitió.
+     */
+    static boolean sinRespuesta(RestClientException e) {
+        if (e instanceof HttpServerErrorException) {
+            return true;
+        }
+        if (e instanceof ResourceAccessException) {
+            Throwable c = e.getCause();
+            return !(c instanceof java.net.ConnectException || c instanceof java.net.UnknownHostException);
+        }
+        return false;
     }
 
     private static String texto(JsonNode n, String campo) {
@@ -169,6 +197,11 @@ public class ProductosClient {
             return Optional.empty();
         } catch (RestClientException e) {
             tokens.revisar(e);
+            if (sinRespuesta(e)) {
+                // D-07: Productos pudo haberla admitido; quien llama no debe perder el pedido
+                log.warn("Reserva de {} sin respuesta de Productos ({}): queda en seguimiento", pedidoId, e.getMessage());
+                throw new ReservaSinRespuestaException("Productos no respondió a la reserva; queda en seguimiento", e);
+            }
             log.error("Productos no admitió la reserva de {}: {}", pedidoId, e.getMessage());
             throw new DependenciaNoDisponibleException("PRODUCTOS_NO_DISPONIBLE",
                     "No se pudo reservar el stock en Productos; intente nuevamente", e);

@@ -18,6 +18,7 @@ import ventas.compartido.CodigoPublico;
 import ventas.compartido.ConflictoException;
 import ventas.integracion.MensajeInventario;
 import ventas.integracion.ProductosClient;
+import ventas.integracion.ReservaSinRespuestaException;
 import ventas.pedido.dto.CrearPedidoRequest;
 import ventas.pedido.dto.CrearPedidoResponse;
 
@@ -67,13 +68,22 @@ public class CrearPedidoService {
         try {
             registro = transaccion.execute(estado -> {
                 Pedido p = registrar(clave, req, clientIdCanal);
-                // Se reserva con el código ya asignado (order_id), dentro de la transacción: si Productos no admite
-                // el comando, el pedido no se guarda y la Idempotency-Key no se consume. Retail no reserva (G4, R9)
-                Optional<MensajeInventario> reserva = req.canal() == CanalVenta.RETAIL
-                        ? Optional.empty()
-                        : productos.reservar(p.getCodigo(), req.canal().name(), req.items().stream()
-                                .map(i -> new ProductosClient.LineaReserva(i.sku(), i.cantidad())).toList());
-                return new Registro(p, reserva);
+                // Se reserva con el código ya asignado (order_id), dentro de la transacción: si Productos rechaza el
+                // comando (4xx o sin conexión), el pedido no se guarda y la Idempotency-Key no se consume.
+                // Retail no reserva (G4, R9)
+                if (req.canal() == CanalVenta.RETAIL) {
+                    return new Registro(p, Optional.empty());
+                }
+                try {
+                    return new Registro(p, productos.reservar(p.getCodigo(), req.canal().name(), req.items().stream()
+                            .map(i -> new ProductosClient.LineaReserva(i.sku(), i.cantidad())).toList()));
+                } catch (ReservaSinRespuestaException e) {
+                    // Contrato H5 D-07: Productos pudo haberla admitido. El pedido se guarda (queda CREADO, sin reserva)
+                    // y SeguimientoProductos consulta el resultado o la reenvía con la misma identidad y líneas
+                    log.warn("Reserva de {} sin respuesta de Productos: el pedido se guarda y queda en seguimiento",
+                            p.getCodigo());
+                    return new Registro(p, Optional.empty());
+                }
             });
         } catch (DataIntegrityViolationException e) {
             // Otra petición con la misma clave ganó la carrera: se responde con su pedido

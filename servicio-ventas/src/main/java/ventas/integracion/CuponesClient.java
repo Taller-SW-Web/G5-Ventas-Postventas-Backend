@@ -181,6 +181,8 @@ public class CuponesClient {
             return Optional.of(new ResultadoCupon(n.hasNonNull("status") ? n.get("status").asText() : null, codigo));
         } catch (HttpClientErrorException.NotFound e) {
             return Optional.of(ResultadoCupon.NO_ENCONTRADA);
+        } catch (HttpClientErrorException.TooManyRequests e) {
+            throw LimiteProductosException.desde(e);
         } catch (RestClientException e) {
             tokens.revisar(e);
             log.warn("No se pudo consultar la operación de cupón {} de {}: {}", operationId, pedidoId, e.getMessage());

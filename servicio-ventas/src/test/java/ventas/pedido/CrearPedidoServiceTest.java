@@ -266,6 +266,21 @@ class CrearPedidoServiceTest {
     }
 
     @Test
+    void siLaReservaQuedaSinRespuestaElPedidoSeGuardaIgualYQuedaEnSeguimiento() {
+        // Contrato H5 D-07: timeout o 5xx, Productos pudo haberla admitido; el pedido no se pierde
+        when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
+        conIdGenerado(10);
+        doThrow(new ventas.integracion.ReservaSinRespuestaException("sin respuesta", null))
+                .when(productos).reservar(anyString(), anyString(), anyList());
+
+        var r = servicio.crear(CLAVE, ValidadorPedidoTest.chatbot(contacto()));
+
+        assertThat(r.creado()).isTrue();
+        assertThat(r.pedido().estado()).isEqualTo(EstadoPedido.CREADO);
+        verifyNoInteractions(mensajesProductos);
+    }
+
+    @Test
     void siFallaElGuardadoNoSeReserva() {
         // Primero se guarda y luego se reserva: si el guardado falla, Productos no se entera
         when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
