@@ -72,9 +72,25 @@ proceso al volver a iniciarse. No se volvio a publicar manualmente para recupera
 La captura 4A fue proporcionada por Johan. Captura 4B de la cola vacia y captura de
 la consulta del resultado local pendientes de incorporar a la presentacion.
 
+## Mensaje invalido hacia DLQ — comprobado
+
+Con M2 funcionando, Johan publico desde el administrador de RabbitMQ en
+`ventas.eventos`, routing key `pedido.pagado`, content_type `application/json`,
+el cuerpo `{"prueba":"J1-MENSAJE-INVALIDO"}`. Es un JSON valido pero no un evento
+valido: le faltan los campos obligatorios del contrato.
+
+La captura 5 proporcionada por Johan muestra `postventa.eventos-pedido.dlq`
+con Ready 1, Total 1 y Consumers 0. El mensaje queda separado para revision manual.
+No se comprobo en este caso el agotamiento de tres intentos ante un error temporal;
+ese comportamiento tiene pruebas unitarias en M2 y es distinto del rechazo de un mensaje invalido.
+
+La consulta posterior en PostgreSQL local confirmo 2 registros validos en
+`postventa.evento_recibido` y `pedidos_pagados = 2` para 2026-11-19 / MARKETPLACE.
+Por tanto, el mensaje invalido no agrego un evento valido ni incremento la metrica.
+Johan confirmo que incorporo a Canva las capturas 4B y 5.
+
 ## Pendiente
 
-- Enviar un mensaje inválido y comprobar su llegada a la DLQ.
 - Capturas del resultado local y del panel.
 - Prueba conjunta de compra real con Retail/G7 y revisión antes de cualquier PR o despliegue.
 
