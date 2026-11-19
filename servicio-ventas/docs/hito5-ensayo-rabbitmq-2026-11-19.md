@@ -54,9 +54,26 @@ El scheduler y el publicador lo entregaron nuevamente por RabbitMQ.
 El reenvio no incremento el agregado ni duplico el registro del receptor.
 Evidencia visual: captura 3, evento duplicado sin doble conteo.
 
+## Postventa detenido y recuperacion — comprobado
+
+Se detuvo M2 local, manteniendo M1 activo. Se inserto un segundo fixture local con
+pedido `PED-2026-00002` y UUID `c2b6b85a-407e-49e0-9caa-627095f7db17`.
+
+| Momento | Resultado |
+|---|---|
+| Publicacion con M2 detenido | Outbox enviado_en `2026-11-19T07:47:34.857411Z`, 0 intentos fallidos |
+| Antes de reiniciar M2 | 0 registros del segundo evento en M2; contador MARKETPLACE en 1 |
+| Captura 4A de RabbitMQ | Ready 1, Total 1, Consumers 0, Persistent 1 |
+| Recepcion tras reiniciar M2 | `2026-11-19T07:54:50.216706Z` |
+| Contador tras procesar | 2 pedidos pagados, fecha 2026-11-19 y canal MARKETPLACE |
+
+El mensaje se mantuvo pendiente mientras M2 estaba detenido y el consumidor real lo
+proceso al volver a iniciarse. No se volvio a publicar manualmente para recuperarlo.
+La captura 4A fue proporcionada por Johan. Captura 4B de la cola vacia y captura de
+la consulta del resultado local pendientes de incorporar a la presentacion.
+
 ## Pendiente
 
-- Detener M2, enviar otro evento y comprobar su permanencia en la cola y consumo posterior.
 - Enviar un mensaje inválido y comprobar su llegada a la DLQ.
 - Capturas del resultado local y del panel.
 - Prueba conjunta de compra real con Retail/G7 y revisión antes de cualquier PR o despliegue.
