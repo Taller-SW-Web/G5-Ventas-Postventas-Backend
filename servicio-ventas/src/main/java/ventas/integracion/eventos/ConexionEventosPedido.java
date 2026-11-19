@@ -13,6 +13,7 @@ public final class ConexionEventosPedido implements AutoCloseable {
         conexion = new CachingConnectionFactory();
         try {
             conexion.setUri(url);
+            conexion.setConnectionTimeout(10000);
             conexion.setPublisherConfirmType(CachingConnectionFactory.ConfirmType.CORRELATED);
             conexion.setPublisherReturns(true);
             plantilla = new RabbitTemplate(conexion);
@@ -30,6 +31,7 @@ public final class ConexionEventosPedido implements AutoCloseable {
 
     @Override
     public void close() {
+        plantilla.destroy();
         conexion.destroy();
     }
 }

@@ -15,6 +15,37 @@ class EventosPedidoRabbitConfigTest {
             .withUserConfiguration(EventosPedidoRabbitConfig.class);
 
     @Test
+    void cuponesYConsumidorDeProductosConservanSuConexionConEventosActivados() {
+        contexto.withUserConfiguration(ventas.integracion.CuponesClient.class,
+                        ventas.integracion.ConsumidorProductos.class)
+                .withBean(com.fasterxml.jackson.databind.ObjectMapper.class, com.fasterxml.jackson.databind.ObjectMapper::new)
+                .withBean(org.springframework.web.client.RestClient.Builder.class, org.springframework.web.client.RestClient::builder)
+                .withBean(ventas.integracion.TokenServicio.class, () -> org.mockito.Mockito.mock(ventas.integracion.TokenServicio.class))
+                .withBean(ventas.pedido.MensajesProductosService.class,
+                        () -> org.mockito.Mockito.mock(ventas.pedido.MensajesProductosService.class))
+                .withPropertyValues("integracion.eventos.asincronos=true", "integracion.simulado=false",
+                        "integracion.productos-transporte=rabbit", "spring.rabbitmq.listener.simple.auto-startup=false",
+                        "integracion.eventos.rabbitmq-url=amqp://guest:guest@localhost:5672/eventos")
+                .run(ctx -> {
+                    assertThat(ctx).hasNotFailed().hasSingleBean(ventas.integracion.ConsumidorProductos.class);
+                    var productos = ctx.getBean(ConnectionFactory.class);
+                    var plantillaProductos = ctx.getBean(org.springframework.amqp.rabbit.core.RabbitTemplate.class);
+                    var cliente = ctx.getBean(ventas.integracion.CuponesClient.class);
+                    var proveedor = (org.springframework.beans.factory.ObjectProvider<?>)
+                            org.springframework.test.util.ReflectionTestUtils.getField(cliente, "rabbit");
+                    assertThat(proveedor.getObject()).isSameAs(plantillaProductos);
+                    assertThat(plantillaProductos.getConnectionFactory()).isSameAs(productos);
+                    var registro = ctx.getBean(org.springframework.amqp.rabbit.listener.RabbitListenerEndpointRegistry.class);
+                    assertThat(registro.getListenerContainers()).hasSize(1);
+                    var contenedor = (org.springframework.amqp.rabbit.listener.AbstractMessageListenerContainer)
+                            registro.getListenerContainers().iterator().next();
+                    assertThat(contenedor.getConnectionFactory()).isSameAs(productos);
+                    assertThat(contenedor.isRunning()).isFalse();
+                    assertThat(ctx.getBean(ConexionEventosPedido.class).plantilla().getConnectionFactory())
+                            .isNotSameAs(productos);
+                });
+    }
+    @Test
     void desactivadoPorDefectoConservaLaConexionDeProductos() {
         contexto.run(ctx -> {
             assertThat(ctx).hasNotFailed().doesNotHaveBean(ConexionEventosPedido.class);
