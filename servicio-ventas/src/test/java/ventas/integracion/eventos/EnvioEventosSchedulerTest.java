@@ -16,23 +16,22 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import ventas.integracion.PostventaClient;
 import ventas.integracion.PostventaClient.Envio;
 
 @ExtendWith(MockitoExtension.class)
 class EnvioEventosSchedulerTest {
 
     @Mock OutboxEventoRepository outbox;
-    @Mock PostventaClient postventa;
+    @Mock TransporteEventosPedido transporte;
     @InjectMocks EnvioEventosScheduler scheduler;
 
     @Test
     void marcaEnviadosLosAceptadosYSigueSiUnoEsRechazado() {
         OutboxEvento a = evento(), b = evento(), c = evento();
         when(outbox.findTop50ByEnviadoEnIsNullAndIntentosLessThanOrderByCreadoEnAsc(EnvioEventosScheduler.MAXIMO_INTENTOS)).thenReturn(List.of(a, b, c));
-        when(postventa.enviarEvento(a.getIdEvento(), a.getPayload())).thenReturn(Envio.ACEPTADO);
-        when(postventa.enviarEvento(b.getIdEvento(), b.getPayload())).thenReturn(Envio.RECHAZADO);
-        when(postventa.enviarEvento(c.getIdEvento(), c.getPayload())).thenReturn(Envio.ACEPTADO);
+        when(transporte.enviar(a)).thenReturn(Envio.ACEPTADO);
+        when(transporte.enviar(b)).thenReturn(Envio.RECHAZADO);
+        when(transporte.enviar(c)).thenReturn(Envio.ACEPTADO);
 
         scheduler.enviarPendientes();
 
@@ -49,13 +48,13 @@ class EnvioEventosSchedulerTest {
     void siM2NoEstaDisponibleCortaLaVuelta() {
         OutboxEvento a = evento(), b = evento();
         when(outbox.findTop50ByEnviadoEnIsNullAndIntentosLessThanOrderByCreadoEnAsc(EnvioEventosScheduler.MAXIMO_INTENTOS)).thenReturn(List.of(a, b));
-        when(postventa.enviarEvento(a.getIdEvento(), a.getPayload())).thenReturn(Envio.NO_DISPONIBLE);
+        when(transporte.enviar(a)).thenReturn(Envio.NO_DISPONIBLE);
 
         scheduler.enviarPendientes();
 
         assertThat(a.getEnviadoEn()).isNull();
         assertThat(a.getIntentos()).isEqualTo(1);
-        verify(postventa, never()).enviarEvento(b.getIdEvento(), b.getPayload());
+        verify(transporte, never()).enviar(b);
         verify(outbox, never()).save(b);
     }
 
@@ -64,20 +63,20 @@ class EnvioEventosSchedulerTest {
         OutboxEvento a = evento(), b = evento();
         when(outbox.findTop50ByEnviadoEnIsNullAndIntentosLessThanOrderByCreadoEnAsc(EnvioEventosScheduler.MAXIMO_INTENTOS))
                 .thenReturn(List.of(a, b));
-        when(postventa.enviarEvento(a.getIdEvento(), a.getPayload())).thenReturn(Envio.SIMULADO);
+        when(transporte.enviar(a)).thenReturn(Envio.SIMULADO);
 
         scheduler.enviarPendientes();
 
         assertThat(a.getIntentos()).isZero();
         verify(outbox, never()).save(any());
-        verify(postventa, never()).enviarEvento(b.getIdEvento(), b.getPayload());
+        verify(transporte, never()).enviar(b);
     }
 
     @Test
     void sinPendientesNoLlamaAM2() {
         when(outbox.findTop50ByEnviadoEnIsNullAndIntentosLessThanOrderByCreadoEnAsc(EnvioEventosScheduler.MAXIMO_INTENTOS)).thenReturn(List.of());
         scheduler.enviarPendientes();
-        verify(postventa, never()).enviarEvento(any(), any());
+        verify(transporte, never()).enviar(any());
     }
 
     private static OutboxEvento evento() {
