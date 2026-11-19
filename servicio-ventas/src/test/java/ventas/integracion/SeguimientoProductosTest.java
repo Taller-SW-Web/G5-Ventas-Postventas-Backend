@@ -30,6 +30,7 @@ import ventas.integracion.ProductosClient.ResultadoOperacion;
 import ventas.integracion.eventos.EventoRecibidoRepository;
 import ventas.integracion.eventos.OrigenEvento;
 import ventas.pedido.CanalVenta;
+import ventas.pedido.DetallePedido;
 import ventas.pedido.EstadoPedido;
 import ventas.pedido.MensajesProductosService;
 import ventas.pedido.Pedido;
@@ -48,6 +49,14 @@ class SeguimientoProductosTest {
     CuponesClient cupones;
     MensajesProductosService mensajes;
     SeguimientoProductos seguimiento;
+    MutableClock reloj;
+
+    /** Primera pasada: solo arma el plan (primera consulta a los 2 s, D-02). La segunda, 3 s después, ya consulta. */
+    void seguir(Pedido p) {
+        seguimiento.seguir(p, false);
+        reloj.avanzar(Duration.ofSeconds(3));
+        seguimiento.seguir(p);
+    }
 
     @BeforeEach
     void armar() {
@@ -56,7 +65,7 @@ class SeguimientoProductosTest {
         productos = mock(ProductosClient.class);
         cupones = mock(CuponesClient.class);
         mensajes = mock(MensajesProductosService.class);
-        Clock reloj = Clock.fixed(Instant.parse("2026-11-18T12:00:00Z"), ZoneOffset.UTC);
+        reloj = new MutableClock(Instant.parse("2026-11-18T12:00:00Z"));
         seguimiento = new SeguimientoProductos(pedidos, recibidos, productos, cupones, mensajes, reloj, Duration.ofHours(72), 100,
                 Duration.ofSeconds(60));
     }
@@ -89,9 +98,6 @@ class SeguimientoProductosTest {
 
     @Test
     void laVigenciaDeLasReservasSeRevisaCada60sYLosResultadosEnCadaBarrido() {
-        MutableClock reloj = new MutableClock(Instant.parse("2026-11-18T12:00:00Z"));
-        seguimiento = new SeguimientoProductos(pedidos, recibidos, productos, cupones, mensajes, reloj, Duration.ofHours(72),
-                100, Duration.ofSeconds(60));
         Pedido p = pedido(EstadoPedido.CREADO, RESERVA, null);
         when(pedidos.enSeguimientoProductos(any(), any(), any(), any(), any(), any())).thenReturn(List.of(p));
         when(productos.consultarReserva(RESERVA, CODIGO)).thenReturn(Optional.of(new EstadoReserva("ACTIVA", "VIGENTE")));
@@ -138,7 +144,7 @@ class SeguimientoProductosTest {
         when(productos.consultarOperacion(op))
                 .thenReturn(Optional.of(new ResultadoOperacion(op, "RESERVAR", "COMPLETED", RESERVA, null)));
 
-        seguimiento.seguir(pedido(EstadoPedido.CREADO, null, null));
+        seguir(pedido(EstadoPedido.CREADO, null, null));
 
         MensajeInventario m = aplicado();
         assertThat(m.name()).isEqualTo(MensajeInventario.RESERVA_CREADA);
@@ -154,7 +160,7 @@ class SeguimientoProductosTest {
         when(productos.consultarOperacion(op))
                 .thenReturn(Optional.of(new ResultadoOperacion(op, "RESERVAR", "REJECTED", null, "STOCK_INSUFICIENTE")));
 
-        seguimiento.seguir(pedido(EstadoPedido.CREADO, null, null));
+        seguir(pedido(EstadoPedido.CREADO, null, null));
 
         MensajeInventario m = aplicado();
         assertThat(m.name()).isEqualTo(MensajeInventario.CONSUMO_RECHAZADO);
@@ -167,10 +173,10 @@ class SeguimientoProductosTest {
         String op = ProductosClient.operacionId(Operacion.RESERVAR, CODIGO);
         when(productos.consultarOperacion(op))
                 .thenReturn(Optional.of(new ResultadoOperacion(op, "RESERVAR", "PROCESSING", null, null)));
-        seguimiento.seguir(pedido(EstadoPedido.CREADO, null, null));
+        seguir(pedido(EstadoPedido.CREADO, null, null));
 
-        when(productos.consultarOperacion(op)).thenReturn(Optional.empty());   // 404 o sin respuesta
-        seguimiento.seguir(pedido(EstadoPedido.CREADO, null, null));
+        when(productos.consultarOperacion(op)).thenReturn(Optional.empty());   // sin respuesta
+        seguir(pedido(EstadoPedido.CREADO, null, null));
 
         verify(mensajes, never()).procesar(any());
     }
@@ -180,7 +186,7 @@ class SeguimientoProductosTest {
         String op = ProductosClient.operacionId(Operacion.RESERVAR, CODIGO);
         when(recibidos.existsByIdEventoAndOrigen("H5:" + op + ":COMPLETED", OrigenEvento.SISTEMA_PRODUCTOS)).thenReturn(true);
 
-        seguimiento.seguir(pedido(EstadoPedido.CREADO, null, null));
+        seguir(pedido(EstadoPedido.CREADO, null, null));
 
         verify(productos, never()).consultarOperacion(anyString());
         verify(mensajes, never()).procesar(any());
@@ -192,7 +198,7 @@ class SeguimientoProductosTest {
         when(cupones.consultar(op, CODIGO)).thenReturn(Optional.of(new ResultadoCupon("COMPLETED", null)));
         when(productos.consultarReserva(RESERVA, CODIGO)).thenReturn(Optional.of(new EstadoReserva("ACTIVA", "VIGENTE")));
 
-        seguimiento.seguir(pedido(EstadoPedido.CREADO, RESERVA, "DESC10"));
+        seguir(pedido(EstadoPedido.CREADO, RESERVA, "DESC10"));
 
         MensajeInventario m = aplicado();
         assertThat(m.name()).isEqualTo(MensajeInventario.CUPON_CONSUMIDO);
@@ -205,7 +211,7 @@ class SeguimientoProductosTest {
         when(cupones.consultar(op, CODIGO)).thenReturn(Optional.of(new ResultadoCupon("REJECTED", "CUPON_AGOTADO")));
         when(productos.consultarReserva(RESERVA, CODIGO)).thenReturn(Optional.of(new EstadoReserva("ACTIVA", "VIGENTE")));
 
-        seguimiento.seguir(pedido(EstadoPedido.CREADO, RESERVA, "DESC10"));
+        seguir(pedido(EstadoPedido.CREADO, RESERVA, "DESC10"));
 
         MensajeInventario m = aplicado();
         assertThat(m.name()).isEqualTo(MensajeInventario.CUPON_RECHAZADO);
@@ -218,7 +224,7 @@ class SeguimientoProductosTest {
         when(productos.consultarReserva(RESERVA, CODIGO)).thenReturn(Optional.empty());
         Pedido p = pedido(EstadoPedido.CREADO, RESERVA, "DESC10");
 
-        seguimiento.seguir(p);
+        seguir(p);
 
         verify(cupones).consumir(CODIGO, "DESC10", p.getIdCliente(), "MARKETPLACE", p.getCreadoEn(), RESERVA);
         verify(mensajes, never()).procesar(any());
@@ -229,7 +235,7 @@ class SeguimientoProductosTest {
         when(cupones.consultar(any(), any())).thenReturn(Optional.empty());   // error de red, no 404
         when(productos.consultarReserva(RESERVA, CODIGO)).thenReturn(Optional.empty());
 
-        seguimiento.seguir(pedido(EstadoPedido.CREADO, RESERVA, "DESC10"));
+        seguir(pedido(EstadoPedido.CREADO, RESERVA, "DESC10"));
 
         verify(cupones, never()).consumir(any(), any(), any(), any(), any(), any());
         verify(mensajes, never()).procesar(any());
@@ -239,7 +245,7 @@ class SeguimientoProductosTest {
     void reservaActivaPeroVencidaAnulaElPedidoPendiente() {
         when(productos.consultarReserva(RESERVA, CODIGO)).thenReturn(Optional.of(new EstadoReserva("ACTIVA", "VENCIDA")));
 
-        seguimiento.seguir(pedido(EstadoPedido.CREADO, RESERVA, null));
+        seguir(pedido(EstadoPedido.CREADO, RESERVA, null));
 
         MensajeInventario m = aplicado();
         assertThat(m.name()).isEqualTo(MensajeInventario.RESERVA_EXPIRADA);
@@ -250,14 +256,14 @@ class SeguimientoProductosTest {
     @Test
     void reservaExpiradaPersistidaTambienSeAplica() {
         when(productos.consultarReserva(RESERVA, CODIGO)).thenReturn(Optional.of(new EstadoReserva("EXPIRADA", "NO_APLICA")));
-        seguimiento.seguir(pedido(EstadoPedido.CREADO, RESERVA, null));
+        seguir(pedido(EstadoPedido.CREADO, RESERVA, null));
         assertThat(aplicado().name()).isEqualTo(MensajeInventario.RESERVA_EXPIRADA);
     }
 
     @Test
     void reservaVigenteNoHaceNada() {
         when(productos.consultarReserva(RESERVA, CODIGO)).thenReturn(Optional.of(new EstadoReserva("ACTIVA", "VIGENTE")));
-        seguimiento.seguir(pedido(EstadoPedido.CREADO, RESERVA, null));
+        seguir(pedido(EstadoPedido.CREADO, RESERVA, null));
         verify(mensajes, never()).procesar(any());
     }
 
@@ -267,7 +273,7 @@ class SeguimientoProductosTest {
         when(productos.consultarOperacion(op))
                 .thenReturn(Optional.of(new ResultadoOperacion(op, "CONFIRMAR_CONSUMO", "REJECTED", RESERVA, "RESERVA_EXPIRADA")));
 
-        seguimiento.seguir(pedido(EstadoPedido.PAGADO, RESERVA, null));
+        seguir(pedido(EstadoPedido.PAGADO, RESERVA, null));
 
         MensajeInventario m = aplicado();
         assertThat(m.name()).isEqualTo(MensajeInventario.CONSUMO_RECHAZADO);
@@ -281,7 +287,7 @@ class SeguimientoProductosTest {
         when(productos.consultarOperacion(op))
                 .thenReturn(Optional.of(new ResultadoOperacion(op, "RESERVAR", "COMPLETED", RESERVA, null)));
 
-        seguimiento.seguir(pedido(EstadoPedido.PAGADO, null, null));   // el Chatbot cobró antes de la reserva
+        seguir(pedido(EstadoPedido.PAGADO, null, null));   // el Chatbot cobró antes de la reserva
 
         assertThat(aplicado().name()).isEqualTo(MensajeInventario.RESERVA_CREADA);
     }
@@ -297,7 +303,130 @@ class SeguimientoProductosTest {
                 .thenThrow(new IllegalStateException("caída"));
 
         seguimiento.barrer();
+        reloj.avanzar(Duration.ofSeconds(3));
+        seguimiento.barrer();
 
         verify(productos).consultarOperacion(ProductosClient.operacionId(Operacion.RESERVAR, "PED-2026-00982"));
+    }
+
+    // ---------- D-07: reenvío con la misma identidad ----------
+
+    @Test
+    void siProductosNoConoceLaReservaSeReenviaConLasMismasLineas() {
+        String op = ProductosClient.operacionId(Operacion.RESERVAR, CODIGO);
+        when(productos.consultarOperacion(op)).thenReturn(Optional.of(ResultadoOperacion.NO_ENCONTRADA));
+        Pedido guardado = new Pedido();
+        guardado.setCodigo(CODIGO);
+        guardado.agregarDetalle(detalle(2L, "SKU-B", 1));
+        guardado.agregarDetalle(detalle(1L, "SKU-A", 2));
+        when(pedidos.findConDetallesByCodigo(CODIGO)).thenReturn(Optional.of(guardado));
+
+        seguir(pedido(EstadoPedido.CREADO, null, null));
+
+        verify(productos).reservar(CODIGO, "MARKETPLACE",
+                List.of(new ProductosClient.LineaReserva("SKU-A", 2), new ProductosClient.LineaReserva("SKU-B", 1)));
+        verify(mensajes, never()).procesar(any());
+    }
+
+    static DetallePedido detalle(Long id, String sku, int cantidad) {
+        DetallePedido d = new DetallePedido();
+        d.setId(id);
+        d.setSku(sku);
+        d.setCantidad(cantidad);
+        return d;
+    }
+
+    @Test
+    void siProductosNoConoceLaConfirmacionDeUnaVentaPagadaSeReenvia() {
+        String op = ProductosClient.operacionId(Operacion.CONFIRMAR, CODIGO);
+        when(productos.consultarOperacion(op)).thenReturn(Optional.of(ResultadoOperacion.NO_ENCONTRADA));
+        when(productos.confirmar(CODIGO, RESERVA)).thenReturn(ProductosClient.ResultadoConfirmacion.ACEPTADA);
+
+        seguir(pedido(EstadoPedido.PAGADO, RESERVA, null));
+
+        verify(productos).confirmar(CODIGO, RESERVA);
+        verify(mensajes, never()).procesar(any());
+    }
+
+    @Test
+    void siAlReenviarLaConfirmacionLaReservaYaVencioSeAnulaYReembolsa() {
+        String op = ProductosClient.operacionId(Operacion.CONFIRMAR, CODIGO);
+        when(productos.consultarOperacion(op)).thenReturn(Optional.of(ResultadoOperacion.NO_ENCONTRADA));
+        when(productos.confirmar(CODIGO, RESERVA)).thenReturn(ProductosClient.ResultadoConfirmacion.RESERVA_EXPIRADA);
+
+        seguir(pedido(EstadoPedido.PAGADO, RESERVA, null));
+
+        verify(mensajes).reservaExpiradaTrasPago(CODIGO);
+    }
+
+    @Test
+    void unReemplazoEnPreparacionNoReenviaLaConfirmacionPorqueSeConfirmaAlSellar() {
+        String op = ProductosClient.operacionId(Operacion.CONFIRMAR, CODIGO);
+        when(productos.consultarOperacion(op)).thenReturn(Optional.of(ResultadoOperacion.NO_ENCONTRADA));
+        when(productos.consultarReserva(RESERVA, CODIGO)).thenReturn(Optional.empty());
+        Pedido p = pedido(EstadoPedido.EN_PREPARACION, RESERVA, null);
+        when(p.esReemplazo()).thenReturn(true);
+
+        seguir(p);
+
+        verify(productos, never()).confirmar(any(), any());
+    }
+
+    // ---------- D-02: cadencia por operación, REQUIRES_REVIEW y 429 ----------
+
+    @Test
+    void primeraConsultaALos2sLuegoBackoffYCada60sTrasElDeadline() {
+        String op = ProductosClient.operacionId(Operacion.RESERVAR, CODIGO);
+        when(productos.consultarOperacion(op))
+                .thenReturn(Optional.of(new ResultadoOperacion(op, "RESERVAR", "PROCESSING", null, null)));
+        Pedido p = pedido(EstadoPedido.CREADO, null, null);
+
+        seguimiento.seguir(p, false);                 // t=0: solo plan
+        reloj.avanzar(Duration.ofSeconds(1));
+        seguimiento.seguir(p, false);                 // t=1: todavía no
+        verify(productos, never()).consultarOperacion(op);
+        reloj.avanzar(Duration.ofSeconds(1));
+        seguimiento.seguir(p, false);                 // t=2: primera consulta
+        verify(productos, times(1)).consultarOperacion(op);
+
+        var plan = seguimiento.plan(op);
+        long espera = Duration.between(OffsetDateTime.now(reloj), plan.proxima()).toMillis();
+        assertThat(espera).isBetween(2000L, 2999L);   // 2 s + jitter
+
+        assertThat(SeguimientoProductos.espera(plan.inicio(), 3, plan.inicio().plusSeconds(20)).toSeconds()).isEqualTo(8);
+        assertThat(SeguimientoProductos.espera(plan.inicio(), 9, plan.inicio().plusSeconds(100)).toSeconds()).isEqualTo(30);
+        assertThat(SeguimientoProductos.espera(plan.inicio(), 9, plan.inicio().plusSeconds(121))).isEqualTo(Duration.ofSeconds(60));
+    }
+
+    @Test
+    void requiresReviewNoEsExitoYNoSeVuelveAConsultar() {
+        String op = ProductosClient.operacionId(Operacion.RESERVAR, CODIGO);
+        when(productos.consultarOperacion(op))
+                .thenReturn(Optional.of(new ResultadoOperacion(op, "RESERVAR", "REQUIRES_REVIEW", null, null)));
+        Pedido p = pedido(EstadoPedido.CREADO, null, null);
+
+        seguir(p);
+        reloj.avanzar(Duration.ofMinutes(5));
+        seguimiento.seguir(p);
+
+        verify(productos, times(1)).consultarOperacion(op);
+        verify(mensajes, never()).procesar(any());
+    }
+
+    @Test
+    void un429PausaElSeguimientoLoQueDigaRetryAfter() {
+        String op = ProductosClient.operacionId(Operacion.RESERVAR, CODIGO);
+        Pedido p = pedido(EstadoPedido.CREADO, null, null);
+        when(pedidos.enSeguimientoProductos(any(), any(), any(), any(), any(), any())).thenReturn(List.of(p));
+        when(productos.consultarOperacion(op)).thenThrow(new LimiteProductosException(Duration.ofSeconds(40)));
+
+        seguimiento.barrer();                          // plan
+        reloj.avanzar(Duration.ofSeconds(3));
+        seguimiento.barrer();                          // 429
+        reloj.avanzar(Duration.ofSeconds(30));
+        seguimiento.barrer();                          // en pausa: no consulta la base ni Productos
+
+        verify(productos, times(1)).consultarOperacion(op);
+        verify(pedidos, times(2)).enSeguimientoProductos(any(), any(), any(), any(), any(), any());
     }
 }

@@ -19,6 +19,7 @@ import ventas.compartido.RecursoNoEncontradoException;
 import ventas.compartido.SolicitudInvalidaException;
 import ventas.integracion.MensajeInventario;
 import ventas.integracion.ProductosClient;
+import ventas.integracion.ReservaSinRespuestaException;
 import ventas.pedido.dto.CrearReemplazoRequest;
 import ventas.pedido.dto.CrearReemplazoResponse;
 
@@ -59,10 +60,15 @@ public class ReemplazoService {
             registro = transaccion.execute(estado -> {
                 Pedido p = registrar(req);
                 // Igual que 1.1: si Productos no admite el comando, el reemplazo no se guarda
-                Optional<MensajeInventario> reserva = productos.reservar(p.getCodigo(), p.getCanal().name(),
-                        p.getDetalles().stream()
-                                .map(d -> new ProductosClient.LineaReserva(d.getSku(), d.getCantidad())).toList());
-                return new Registro(p, reserva);
+                try {
+                    return new Registro(p, productos.reservar(p.getCodigo(), p.getCanal().name(),
+                            p.getDetalles().stream()
+                                    .map(d -> new ProductosClient.LineaReserva(d.getSku(), d.getCantidad())).toList()));
+                } catch (ReservaSinRespuestaException e) {
+                    // Contrato H5 D-07: se guarda igual y SeguimientoProductos consulta o reenvía la reserva
+                    log.warn("Reserva del reemplazo {} sin respuesta de Productos: queda en seguimiento", p.getCodigo());
+                    return new Registro(p, Optional.empty());
+                }
             });
         } catch (DataIntegrityViolationException e) {
             // Otra petición de la misma devolución ganó la carrera (índice único de reemplazo vigente)

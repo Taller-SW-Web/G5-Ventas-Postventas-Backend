@@ -1,6 +1,7 @@
 package ventas.integracion;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -12,12 +13,14 @@ import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+import ventas.compartido.DependenciaNoDisponibleException;
 import ventas.integracion.ProductosClient.LineaReserva;
 import ventas.integracion.ProductosClient.Operacion;
 
@@ -73,7 +76,7 @@ class ProductosClientH5Test {
         servidor.expect(requestTo(BASE + "/api/v1/inventario/operaciones/x")).andRespond(withStatus(HttpStatus.NOT_FOUND));
         servidor.expect(requestTo(BASE + "/api/v1/inventario/operaciones/y")).andRespond(withServerError());
 
-        assertThat(cliente.consultarOperacion("x")).isEmpty();
+        assertThat(cliente.consultarOperacion("x")).get().matches(ProductosClient.ResultadoOperacion::noEncontrada);
         assertThat(cliente.consultarOperacion("y")).isEmpty();   // un 5xx nunca es éxito ni rechazo (§9)
     }
 
@@ -95,5 +98,31 @@ class ProductosClientH5Test {
         ProductosClient simulado = new ProductosClient(true, BASE, RestClient.builder(), TokenServicio.sinCredenciales());
         assertThat(simulado.consultarOperacion("x")).isEmpty();
         assertThat(simulado.consultarReserva(RESERVA, PEDIDO)).isEmpty();
+    }
+
+    @Test
+    void reservaSinRespuestaOCon5xxSeMarcaComoPosiblementeAdmitida() {
+        servidor.expect(requestTo(BASE + "/api/v1/inventario/reservas")).andRespond(withServerError());
+        assertThatThrownBy(() -> cliente.reservar(PEDIDO, "MARKETPLACE", List.of(new LineaReserva("SKU-AUR-01", 1))))
+                .isInstanceOf(ReservaSinRespuestaException.class);
+    }
+
+    @Test
+    void reservaRechazadaCon4xxNoSeMarcaComoPosiblementeAdmitida() {
+        servidor.expect(requestTo(BASE + "/api/v1/inventario/reservas")).andRespond(withStatus(HttpStatus.BAD_REQUEST));
+        assertThatThrownBy(() -> cliente.reservar(PEDIDO, "MARKETPLACE", List.of(new LineaReserva("SKU-AUR-01", 1))))
+                .isInstanceOf(DependenciaNoDisponibleException.class)
+                .isNotInstanceOf(ReservaSinRespuestaException.class);
+    }
+
+    @Test
+    void un429EnLaConsultaTraeElRetryAfter() {
+        HttpHeaders h = new HttpHeaders();
+        h.set(HttpHeaders.RETRY_AFTER, "12");
+        servidor.expect(requestTo(BASE + "/api/v1/inventario/operaciones/z"))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS).headers(h));
+        assertThatThrownBy(() -> cliente.consultarOperacion("z"))
+                .isInstanceOf(LimiteProductosException.class)
+                .extracting("reintentarEn").isEqualTo(java.time.Duration.ofSeconds(12));
     }
 }

@@ -70,6 +70,10 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long>, JpaSpecif
                                         @Param("desde") OffsetDateTime desde,
                                         Pageable pagina);
 
+    /** Contrato H5 D-07: el pedido con sus ítems, para reenviar la reserva con las mismas líneas. */
+    @EntityGraph(attributePaths = "detalles")
+    Optional<Pedido> findConDetallesByCodigo(String codigo);
+
     /** 1.15: Pedidos asignados a una tienda física listos para retiro (Pickup). */
     @EntityGraph(attributePaths = "detalles")
     @Query("select p from Pedido p where p.tiendaId = :tiendaId and (p.modalidadEnvio = 'RECOJO_TIENDA' or p.modalidadEnvio = 'TIENDA' or p.modalidadEnvio is null) and p.estado in :estados order by p.creadoEn desc")

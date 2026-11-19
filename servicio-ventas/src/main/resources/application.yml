@@ -78,7 +78,7 @@ integracion:
   productos-transporte: ${PRODUCTOS_TRANSPORTE:http}
   productos-location-id: ${PRODUCTOS_LOCATION_ID:}          # almacén por entorno (ALM-LURIN); vacío = se omite
   productos-seguimiento:
-    intervalo-ms: ${PRODUCTOS_SEGUIMIENTO_MS:5000}          # barrido de resultados de operaciones (contrato H5 D-02, máx. 30 s)
+    intervalo-ms: ${PRODUCTOS_SEGUIMIENTO_MS:1000}          # barrido; cada operación tiene su plan: 2 s, backoff hasta 30 s, 60 s tras 2 min (H5 D-02)
     vencimiento-ms: 60000                                   # vigencia de reservas (contrato H5 §8.2)
     ventana-horas: 72                                       # pedidos más antiguos ya no se consultan
     lote: 100
