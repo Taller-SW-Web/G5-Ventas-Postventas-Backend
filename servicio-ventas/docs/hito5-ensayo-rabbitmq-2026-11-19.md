@@ -89,9 +89,32 @@ La consulta posterior en PostgreSQL local confirmo 2 registros validos en
 Por tanto, el mensaje invalido no agrego un evento valido ni incremento la metrica.
 Johan confirmo que incorporo a Canva las capturas 4B y 5.
 
+## Validacion final del backend — aprobada
+
+Johan ejecuto `mvn -B verify` el 19/11/2026, con `F5_POSTGRES_TEST=true`
+y `EVENTOS_ASINCRONOS=false` en la terminal de pruebas. Los servicios locales se
+detuvieron antes de empaquetar los JAR para evitar el bloqueo de archivos de Windows.
+El proceso termino a las 03:14:27 -05:00 con `BUILD SUCCESS`, todos los modulos en
+SUCCESS y 41.272 segundos de duracion.
+
+| Modulo | Pruebas | Fallos | Errores | Omitidas |
+|---|---:|---:|---:|---:|
+| api-gateway | 11 | 0 | 0 | 0 |
+| servicio-ventas | 401 | 0 | 0 | 0 |
+| servicio-postventa | 342 | 0 | 0 | 0 |
+| simulador-pasarela | 51 | 0 | 0 | 0 |
+| Total | 805 | 0 | 0 | 0 |
+
+Los totales se comprobaron contra los reportes XML de Surefire generados localmente.
+Las pruebas PostgreSQL utilizaron la base local de pruebas, no Supabase.
+La prueba real de transporte con CloudAMQP esta descrita por separado arriba.
+Captura 6: Reactor Summary y BUILD SUCCESS de esta ejecucion, pendiente de incorporar a Canva.
+
 ## Pendiente
 
 - Capturas del resultado local y del panel.
 - Prueba conjunta de compra real con Retail/G7 y revisión antes de cualquier PR o despliegue.
 
 La proyección de ventas por producto y vendedor del PR #41 no forma parte de esta rama.
+
+La configuracion de variables en Render, la revision del cambio, el push y la apertura del PR siguen pendientes de coordinacion y aprobacion. No se ha desplegado esta rama.
