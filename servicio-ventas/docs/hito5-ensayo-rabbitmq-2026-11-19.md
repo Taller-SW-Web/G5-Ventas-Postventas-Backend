@@ -37,9 +37,25 @@ El registro del evento y del agregado se verificó consultando PostgreSQL local 
 El arranque previo confirmó ambas colas durables, vacías, con DLX/DLK en la cola principal.
 La captura fue proporcionada por Johan desde el panel de RabbitMQ.
 
+## Reenvio del mismo evento — comprobado
+
+Johan volvio a poner pendiente exclusivamente el fixture local del primer ensayo,
+conservando su UUID y payload. No se borro el registro de idempotencia de Postventa.
+El scheduler y el publicador lo entregaron nuevamente por RabbitMQ.
+
+| Comprobacion | Resultado observado en la consulta y captura de Johan |
+|---|---|
+| UUID | `6e46b451-cd8a-4606-b5d5-f08ca12107aa` |
+| Nuevo enviado_en | `2026-11-19T07:35:07.853857Z` |
+| Intentos fallidos | `0` |
+| Registros del UUID en Postventa | `1` |
+| pedidos_pagados / MARKETPLACE / 2026-11-19 | `1` |
+
+El reenvio no incremento el agregado ni duplico el registro del receptor.
+Evidencia visual: captura 3, evento duplicado sin doble conteo.
+
 ## Pendiente
 
-- Repetir este fixture con el mismo UUID y comprobar que M2 mantiene el contador en 1.
 - Detener M2, enviar otro evento y comprobar su permanencia en la cola y consumo posterior.
 - Enviar un mensaje inválido y comprobar su llegada a la DLQ.
 - Capturas del resultado local y del panel.
