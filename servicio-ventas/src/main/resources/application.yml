@@ -85,6 +85,9 @@ integracion:
   productos-cola: po.sales.q
   productos-comandos: po.commands.x                         # cupones por RabbitMQ (solo con transporte rabbit)
   eventos:
+    # Conexion exclusiva a Postventa; independiente del RabbitMQ de Productos.
+    asincronos: ${EVENTOS_ASINCRONOS:false}
+    rabbitmq-url: ${EVENTOS_RABBITMQ_URL:}
     intervalo-ms: 5000          # envío del outbox a M2 (guía 5.8)
   reembolsos:
     intervalo-ms: 60000         # reintento de reembolsos pendientes (solicitud_reembolso)

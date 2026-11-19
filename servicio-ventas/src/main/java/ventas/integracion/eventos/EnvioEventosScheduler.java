@@ -9,13 +9,12 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import ventas.integracion.PostventaClient;
 import ventas.integracion.PostventaClient.Envio;
 
 /**
- * Guía 5.8: manda a M2 (POST /api/v2/eventos) los eventos de outbox_evento que aún no se enviaron,
+ * Guía 5.8: manda a M2 (HTTP o RabbitMQ, segun EVENTOS_ASINCRONOS) los eventos de outbox_evento que aún no se enviaron,
  * del más antiguo al más nuevo, hasta 50 por vuelta.
- * - ACEPTADO: marca enviado_en.
+ * - ACEPTADO: HTTP 2xx o confirm positivo y sin retorno AMQP; marca enviado_en.
  * - RECHAZADO (400/409): no se reintenta nunca (intentos = MAXIMO_INTENTOS) y queda en el log para que lo
  *   revise una persona; sigue con el siguiente (un evento malo no frena a los demás).
  * - NO_DISPONIBLE: suma un intento y corta la vuelta (M2 caído). Tras MAXIMO_INTENTOS deja de reintentarse.
@@ -31,12 +30,12 @@ public class EnvioEventosScheduler {
     static final int MAXIMO_INTENTOS = 10;
 
     private final OutboxEventoRepository outbox;
-    private final PostventaClient postventa;
+    private final TransporteEventosPedido transporte;
 
     @Scheduled(fixedDelayString = "${integracion.eventos.intervalo-ms:5000}")
     public void enviarPendientes() {
         for (OutboxEvento evento : outbox.findTop50ByEnviadoEnIsNullAndIntentosLessThanOrderByCreadoEnAsc(MAXIMO_INTENTOS)) {
-            Envio envio = postventa.enviarEvento(evento.getIdEvento(), evento.getPayload());
+            Envio envio = transporte.enviar(evento);
             switch (envio) {
                 case SIMULADO -> { return; }   // modo simulado: queda pendiente, sin contar intento
                 case ACEPTADO -> evento.setEnviadoEn(OffsetDateTime.now(ZoneOffset.UTC));
@@ -48,7 +47,7 @@ public class EnvioEventosScheduler {
             }
             outbox.save(evento);
             if (envio == Envio.NO_DISPONIBLE) {
-                log.warn("M2 no disponible: se reintenta el envío de eventos en la siguiente vuelta");
+                log.warn("Transporte a M2 no disponible: se reintenta el envio de eventos en la siguiente vuelta");
                 return;
             }
         }
