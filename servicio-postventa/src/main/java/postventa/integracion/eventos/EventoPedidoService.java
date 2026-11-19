@@ -6,6 +6,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import postventa.dashboard.ProyeccionesService;
+import postventa.dashboard.ProyeccionVentasService;
+import postventa.dashboard.ProyeccionVentasService.LineaVenta;
 import postventa.devolucion.DevolucionService;
 
 /**
@@ -21,26 +23,26 @@ public class EventoPedidoService {
     private final EventoRecibidoRepository eventos;
     private final ProyeccionesService proyecciones;
     private final DevolucionService devoluciones;
+    private final ProyeccionVentasService ventas;
 
     public EventoPedidoService(
             ValidadorEventoPedido validador,
             EventoRecibidoRepository eventos,
             ProyeccionesService proyecciones,
-            DevolucionService devoluciones) {
+            DevolucionService devoluciones,
+            ProyeccionVentasService ventas) {
 
         this.validador = Objects.requireNonNull(validador);
         this.eventos = Objects.requireNonNull(eventos);
         this.proyecciones = Objects.requireNonNull(proyecciones);
         this.devoluciones = Objects.requireNonNull(devoluciones);
+        this.ventas = Objects.requireNonNull(ventas);
     }
 
     /**
      * Devuelve true para un evento nuevo y false para un duplicado.
      * Un fallo al aplicar las proyecciones revierte también el registro,
      * permitiendo que M1 reintente el mismo UUID.
-     *
-     * No actualiza todavía el agregado de ventas por producto y vendedor,
-     * cuyo contrato está pendiente de acuerdo entre M1 y F6.
      */
     @Transactional
     public boolean recibir(EventoPedidoPayload evento) {
@@ -66,6 +68,14 @@ public class EventoPedidoService {
                 evento.tipo(),
                 evento.fecha(),
                 evento.datos().canal());
+
+        if ("pedido.pagado".equals(evento.tipo())) {
+            // El UUID ya fue registrado: un reintento no vuelve a sumar estas líneas.
+            ventas.pedidoPagado(evento.fecha(), evento.datos().canal(), evento.datos().vendedorId(),
+                    evento.datos().items().stream()
+                            .map(item -> new LineaVenta(item.productoId(), item.cantidad(), item.importe()))
+                            .toList());
+        }
 
         return true;
     }
