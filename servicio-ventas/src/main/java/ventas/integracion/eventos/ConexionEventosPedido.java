@@ -1,5 +1,8 @@
 package ventas.integracion.eventos;
 
+import java.net.URI;
+import javax.net.ssl.SSLContext;
+
 import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
@@ -10,18 +13,33 @@ public final class ConexionEventosPedido implements AutoCloseable {
     private final RabbitTemplate plantilla;
 
     ConexionEventosPedido(String url) {
-        conexion = new CachingConnectionFactory();
+        conexion = crearConexion(url);
+        conexion.setPublisherConfirmType(CachingConnectionFactory.ConfirmType.CORRELATED);
+        conexion.setPublisherReturns(true);
+        plantilla = new RabbitTemplate(conexion);
+        plantilla.setMandatory(true);
+    }
+
+    private static CachingConnectionFactory crearConexion(String url) {
         try {
-            conexion.setUri(url);
-            conexion.setConnectionTimeout(10000);
-            conexion.setPublisherConfirmType(CachingConnectionFactory.ConfirmType.CORRELATED);
-            conexion.setPublisherReturns(true);
-            plantilla = new RabbitTemplate(conexion);
-            plantilla.setMandatory(true);
+            URI destino = URI.create(url);
+            var cliente = new com.rabbitmq.client.ConnectionFactory();
+            if ("amqps".equals(destino.getScheme())) {
+                // Cargar credenciales/vhost sin invocar el TLS permisivo de setUri(amqps).
+                cliente.setUri("amqp" + url.substring("amqps".length()));
+                if (destino.getPort() == -1) {
+                    cliente.setPort(com.rabbitmq.client.ConnectionFactory.DEFAULT_AMQP_OVER_SSL_PORT);
+                }
+                cliente.useSslProtocol(SSLContext.getDefault());
+                cliente.enableHostnameVerification();
+            } else {
+                cliente.setUri(url);
+            }
+            cliente.setConnectionTimeout(10000);
+            return new CachingConnectionFactory(cliente);
         } catch (Exception e) {
-            conexion.destroy();
             // No incluir la URI ni la causa: pueden contener credenciales de CloudAMQP.
-            throw new IllegalArgumentException("EVENTOS_RABBITMQ_URL debe ser una URL AMQP valida");
+            throw new IllegalArgumentException("No se pudo configurar la conexion AMQP de eventos");
         }
     }
 

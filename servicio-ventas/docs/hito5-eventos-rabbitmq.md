@@ -40,7 +40,7 @@ El health de RabbitMQ permanece desactivado según el acuerdo.
 
 ## Comprobaciones locales — 19/11/2026
 
-`mvn -B -pl servicio-ventas verify`: **398 pruebas, 0 fallos, 0 errores, 0 omitidas**.
+`mvn -B -pl servicio-ventas test`: **401 pruebas, 0 fallos, 0 errores, 0 omitidas** (incluye tres casos TLS). El verify anterior del publicador aprobo 398 pruebas.
 
 Se comprobaron los tres tipos de evento, bytes y metadatos, ack, nack,
 mensaje sin ruta, timeout, broker no disponible, guardado del outbox después del confirm,
@@ -68,3 +68,13 @@ Conservar también el significado actual de `items.importe` como importe total d
 La proyección de ventas por producto/vendedor del PR #41 es un trabajo aparte y no está
 incluida en esta rama. La prueba conjunta debe comprobar los efectos disponibles en M2
 sin dar por integrada esa corrección.
+
+
+## Validacion TLS
+
+El primer arranque de M1 mostro que el cliente AMQP aceptaba cualquier certificado al
+configurar amqps directamente con setUri. Ahora utiliza SSLContext.getDefault()
+(confianza del JDK) y verifica el nombre del servidor. Se conservan el puerto TLS
+5671 por defecto, puertos explicitos y vhosts codificados. Las tres pruebas nuevas
+no abren conexiones y comprueban TLS, hostname, puerto y vhost.
+La confirmacion del primer envio real con esta configuracion queda pendiente del ensayo.
