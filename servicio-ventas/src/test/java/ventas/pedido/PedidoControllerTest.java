@@ -1,6 +1,7 @@
 package ventas.pedido;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -142,7 +143,7 @@ class PedidoControllerTest {
 
     @Test
     void consultarPedidoResponde200ConElContrato() throws Exception {
-        when(consultarPedidoService.consultar(eq("PED-2026-00981"), any())).thenReturn(new PedidoDetalle(
+        when(consultarPedidoService.consultar(eq("PED-2026-00981"), any(), anyBoolean())).thenReturn(new PedidoDetalle(
                 "PED-2026-00981", CanalVenta.CHATBOT, EstadoPedido.ENTREGADO, ventas.pedido.TipoPedido.VENTA,
                 new PedidoDetalle.Contacto(java.util.UUID.fromString("11111111-1111-1111-1111-111111111111"),
                         "Juan", "DNI", "72458912", "j@x.com", null),
@@ -178,7 +179,7 @@ class PedidoControllerTest {
 
     @Test
     void consultarPedidoInexistenteResponde404() throws Exception {
-        when(consultarPedidoService.consultar(eq("PED-2026-99999"), any()))
+        when(consultarPedidoService.consultar(eq("PED-2026-99999"), any(), anyBoolean()))
                 .thenThrow(new ventas.compartido.RecursoNoEncontradoException("PEDIDO_NO_ENCONTRADO", "No existe"));
 
         mvc.perform(get("/api/v1/pedidos/PED-2026-99999"))

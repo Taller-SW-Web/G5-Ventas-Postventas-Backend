@@ -143,14 +143,21 @@ public class PedidoController {
     }
 
     /**
-     * 1.3 Consultar pedido. Cliente (solo sus pedidos), Gestor o M2 con scope ventas:pedidos:consultar
-     * (lo exige SecurityConfig). La titularidad del cliente se valida contra el claim sub.
+     * 1.3 Consultar pedido. Cliente (solo sus pedidos), Gestor, M2 o Retail con scope ventas:pedidos:consultar
+     * (lo exige SecurityConfig). La titularidad del cliente se valida contra el claim sub. Retail (modulo-retail)
+     * solo ve sus pedidos: canal RETAIL o con retiro en tienda; los demás responden 404.
      */
     @GetMapping("/{pedidoId}")
     public ResponseEntity<PedidoDetalle> consultar(@PathVariable String pedidoId,
                                                    @AuthenticationPrincipal Jwt jwt,
                                                    Authentication autenticacion) {
-        return ResponseEntity.ok(consultarPedidoService.consultar(pedidoId, soloCliente(jwt, autenticacion)));
+        return ResponseEntity.ok(consultarPedidoService.consultar(pedidoId, soloCliente(jwt, autenticacion),
+                esRetail(jwt)));
+    }
+
+    /** Token de servicio de Retail (G4). */
+    static boolean esRetail(Jwt jwt) {
+        return jwt != null && "servicio".equals(jwt.getClaimAsString("tipo")) && "modulo-retail".equals(jwt.getSubject());
     }
 
     /**

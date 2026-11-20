@@ -229,7 +229,16 @@ class MisPedidosSeguridadTest {
                         .header("Authorization", "Bearer " + servicio("ventas:pedidos:consultar")))
                 .andExpect(status().isOk());
         // Token de servicio de M2: sin restricción de titular
-        verify(consultarPedidoService).consultar(eq("PED-2026-00001"), eq(Optional.empty()));
+        verify(consultarPedidoService).consultar(eq("PED-2026-00001"), eq(Optional.empty()), eq(false));
+    }
+
+    @Test
+    void retailConSuTokenConsultaSoloSusPedidos() throws Exception {
+        mvc.perform(get("/api/v1/pedidos/PED-2026-00001")
+                        .header("Authorization", "Bearer " + servicioDe("modulo-retail", "ventas:pedidos:consultar")))
+                .andExpect(status().isOk());
+        // Retail: sin restricción de titular, pero solo pedidos de tienda (lo resuelve ConsultarPedidoService)
+        verify(consultarPedidoService).consultar(eq("PED-2026-00001"), eq(Optional.empty()), eq(true));
     }
 
     @Test
@@ -343,14 +352,14 @@ class MisPedidosSeguridadTest {
     void clienteConsultaSoloComoTitular() throws Exception {
         mvc.perform(get("/api/v1/pedidos/PED-2026-00001").header("Authorization", "Bearer " + usuario(ISSUER, List.of("CLIENTE"))))
                 .andExpect(status().isOk());
-        verify(consultarPedidoService).consultar(eq("PED-2026-00001"), eq(Optional.of(CLIENTE)));
+        verify(consultarPedidoService).consultar(eq("PED-2026-00001"), eq(Optional.of(CLIENTE)), eq(false));
     }
 
     @Test
     void gestorConsultaCualquierPedido() throws Exception {
         mvc.perform(get("/api/v1/pedidos/PED-2026-00001").header("Authorization", "Bearer " + usuario(ISSUER, List.of("ADMIN_VENTAS"))))
                 .andExpect(status().isOk());
-        verify(consultarPedidoService).consultar(eq("PED-2026-00001"), eq(Optional.empty()));
+        verify(consultarPedidoService).consultar(eq("PED-2026-00001"), eq(Optional.empty()), eq(false));
     }
 
     @Test
