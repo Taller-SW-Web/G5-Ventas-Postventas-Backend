@@ -148,4 +148,39 @@ class ConsultarPedidoServiceTest {
 
         assertThat(servicio.consultar(CODIGO, Optional.empty()).ultimaActualizacion()).isEqualTo(CREADO);
     }
+
+    // ---------- Retail (modulo-retail) solo ve sus pedidos ----------
+
+    @Test
+    void retailVeSusVentasEnTienda() {
+        pedido.setCanal(CanalVenta.RETAIL);
+        when(pedidos.findByCodigo(CODIGO)).thenReturn(Optional.of(pedido));
+        assertThat(servicio.consultar(CODIGO, Optional.empty(), true).pedidoId()).isEqualTo(CODIGO);
+    }
+
+    @Test
+    void retailVeLosPedidosConRetiroEnTienda() {
+        pedido.setCanal(CanalVenta.MARKETPLACE);
+        pedido.setModalidadEnvio("RECOJO_TIENDA");
+        when(pedidos.findByCodigo(CODIGO)).thenReturn(Optional.of(pedido));
+        assertThat(servicio.consultar(CODIGO, Optional.empty(), true).pedidoId()).isEqualTo(CODIGO);
+    }
+
+    @Test
+    void retailNoVePedidosDeOtrosCanalesYRecibe404() {
+        pedido.setCanal(CanalVenta.MARKETPLACE);
+        pedido.setModalidadEnvio("DELIVERY");
+        when(pedidos.findByCodigo(CODIGO)).thenReturn(Optional.of(pedido));
+        assertThatThrownBy(() -> servicio.consultar(CODIGO, Optional.empty(), true))
+                .isInstanceOf(RecursoNoEncontradoException.class)
+                .extracting("codigo").isEqualTo("PEDIDO_NO_ENCONTRADO");
+    }
+
+    @Test
+    void m2SigueViendoCualquierPedido() {
+        pedido.setCanal(CanalVenta.MARKETPLACE);
+        pedido.setModalidadEnvio("DELIVERY");
+        when(pedidos.findByCodigo(CODIGO)).thenReturn(Optional.of(pedido));
+        assertThat(servicio.consultar(CODIGO, Optional.empty(), false).pedidoId()).isEqualTo(CODIGO);
+    }
 }

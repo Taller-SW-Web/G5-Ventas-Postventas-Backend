@@ -31,10 +31,23 @@ public class ConsultarPedidoService {
      */
     @Transactional(readOnly = true)
     public PedidoDetalle consultar(String pedidoId, Optional<UUID> soloCliente) {
+        return consultar(pedidoId, soloCliente, false);
+    }
+
+    /**
+     * @param soloTienda token de servicio de Retail (modulo-retail): solo ve sus pedidos, los de canal RETAIL o con
+     *                   retiro en tienda (1.15 y 1.16). Cualquier otro responde 404, como si no existiera, para no
+     *                   revelar datos de clientes de otros canales (acuerdo con G7, 2026-11-20).
+     */
+    @Transactional(readOnly = true)
+    public PedidoDetalle consultar(String pedidoId, Optional<UUID> soloCliente, boolean soloTienda) {
         Pedido p = pedidos.findByCodigo(pedidoId)
                 .orElseThrow(() -> new RecursoNoEncontradoException("PEDIDO_NO_ENCONTRADO", "No existe el pedido " + pedidoId));
         if (soloCliente.isPresent() && !Objects.equals(soloCliente.get(), p.getIdCliente())) {
             throw new AccessDeniedException("El pedido no pertenece al cliente autenticado");
+        }
+        if (soloTienda && !esDeTienda(p)) {
+            throw new RecursoNoEncontradoException("PEDIDO_NO_ENCONTRADO", "No existe el pedido " + pedidoId);
         }
 
         List<PedidoDetalle.Historial> hist = historial.findByPedidoIdOrderByFechaHoraAsc(p.getId()).stream()
@@ -59,4 +72,10 @@ public class ConsultarPedidoService {
                 hist);
     }
 
+    /** Venta en tienda o pedido con retiro en tienda: lo que Retail atiende (acuerdo G4, R4 y R12). */
+    static boolean esDeTienda(Pedido p) {
+        return p.getCanal() == CanalVenta.RETAIL
+                || "RECOJO_TIENDA".equals(p.getModalidadEnvio())
+                || "TIENDA".equals(p.getModalidadEnvio());
+    }
 }
