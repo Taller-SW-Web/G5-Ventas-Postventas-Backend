@@ -71,7 +71,9 @@ integracion:
   postventa-simulado: ${POSTVENTA_SIMULADO:${INTEGRACION_SIMULADA:true}}   # false: llama a M2 aunque Productos siga simulado
   despacho-url: ${DESPACHO_URL:http://localhost:8092}       # Módulo E (G2): POST /api/v1/despachos (contrato 7.1)
   despacho-simulado: ${DESPACHO_SIMULADO:${INTEGRACION_SIMULADA:true}}       # true: "paquete sellado" no llama a Despacho
-  marketplace-webhook-url: ${MARKETPLACE_WEBHOOK_URL:http://localhost:8095/api/v1/webhooks/ventas/envios}   # 1.10 (H-05); URL por confirmar con G1
+  marketplace-webhook-url: ${MARKETPLACE_WEBHOOK_URL:http://localhost:8095/api/v1/webhooks/ventas/envios}   # 1.10 (H-05): URL de staging de G1
+  marketplace-webhook-header: ${MARKETPLACE_WEBHOOK_HEADER:Authorization}   # cabecera del token de Marketplace (acuerdo con G1)
+  marketplace-webhook-token: ${MARKETPLACE_WEBHOOK_TOKEN:}                  # token de G1 (secreto, solo en Render); vacío = JWT de G7
   marketplace-simulado: ${MARKETPLACE_SIMULADO:${INTEGRACION_SIMULADA:true}}   # true: los avisos quedan guardados y no se envían
   pasarela-simulada: ${PASARELA_SIMULADA:true}             # true: solo log; false: llama al simulador
   # Contrato H5 con Productos: http (comandos por HTTP y resultados por GET) o rabbit (H4, po.sales.q / po.commands.x)
