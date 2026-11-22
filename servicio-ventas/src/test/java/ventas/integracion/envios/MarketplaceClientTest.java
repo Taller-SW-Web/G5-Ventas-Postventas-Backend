@@ -48,4 +48,46 @@ class MarketplaceClientTest {
         assertThat(new MarketplaceClient(true, URL, RestClient.builder(), TokenServicio.sinCredenciales())
                 .notificar(UUID.randomUUID(), "{}")).isEqualTo(Envio.SIMULADO);
     }
+
+    @Test
+    void conTokenDeMarketplaceLoMandaComoBearerEnAuthorization() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer servidor = MockRestServiceServer.bindTo(builder).build();
+        servidor.expect(requestTo(URL))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.header("Authorization", "Bearer tok-g1"))
+                .andRespond(withSuccess());
+        MarketplaceClient cliente = new MarketplaceClient(false, URL, builder, TokenServicio.sinCredenciales(),
+                "Authorization", "tok-g1");
+
+        assertThat(cliente.notificar(UUID.randomUUID(), "{}")).isEqualTo(Envio.ACEPTADO);
+        servidor.verify();
+    }
+
+    @Test
+    void conCabeceraPropiaMandaElTokenTalCual() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer servidor = MockRestServiceServer.bindTo(builder).build();
+        servidor.expect(requestTo(URL))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.header("X-Webhook-Token", "tok-g1"))
+                .andRespond(withSuccess());
+        MarketplaceClient cliente = new MarketplaceClient(false, URL, builder, TokenServicio.sinCredenciales(),
+                "X-Webhook-Token", "tok-g1");
+
+        assertThat(cliente.notificar(UUID.randomUUID(), "{}")).isEqualTo(Envio.ACEPTADO);
+        servidor.verify();
+    }
+
+    @Test
+    void unTokenQueYaTraeBearerNoSeDuplica() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer servidor = MockRestServiceServer.bindTo(builder).build();
+        servidor.expect(requestTo(URL))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.header("Authorization", "Bearer tok-g1"))
+                .andRespond(withSuccess());
+        MarketplaceClient cliente = new MarketplaceClient(false, URL, builder, TokenServicio.sinCredenciales(),
+                "Authorization", "Bearer tok-g1");
+
+        assertThat(cliente.notificar(UUID.randomUUID(), "{}")).isEqualTo(Envio.ACEPTADO);
+        servidor.verify();
+    }
 }
