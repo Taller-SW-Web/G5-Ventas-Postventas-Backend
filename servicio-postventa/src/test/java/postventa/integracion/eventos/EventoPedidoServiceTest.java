@@ -25,6 +25,8 @@ import org.springframework.dao.DataAccessResourceFailureException;
 import postventa.compartido.CanalVenta;
 import postventa.compartido.SolicitudInvalidaException;
 import postventa.dashboard.ProyeccionesService;
+import postventa.dashboard.ProyeccionVentasService;
+import postventa.dashboard.ProyeccionVentasService.LineaVenta;
 
 /**
  * Prueba las decisiones del receptor sin base de datos.
@@ -45,11 +47,14 @@ class EventoPedidoServiceTest {
     @Mock
     private postventa.devolucion.DevolucionService devoluciones;
 
+    @Mock
+    private ProyeccionVentasService ventas;
+
     private EventoPedidoService servicio;
 
     @BeforeEach
     void preparar() {
-        servicio = new EventoPedidoService(validador, eventos, proyecciones, devoluciones);
+        servicio = new EventoPedidoService(validador, eventos, proyecciones, devoluciones, ventas);
     }
 
     @ParameterizedTest
@@ -64,11 +69,17 @@ class EventoPedidoServiceTest {
 
         assertThat(servicio.recibir(evento)).isTrue();
 
-        InOrder orden = inOrder(validador, eventos, proyecciones);
+        InOrder orden = inOrder(validador, eventos, proyecciones, ventas);
         orden.verify(validador).validar(evento);
         orden.verify(eventos).registrarSiNuevo(evento.idEvento(), tipo);
         orden.verify(proyecciones).aplicarEventoPedido(
                 tipo, evento.fecha(), evento.datos().canal());
+        if ("pedido.pagado".equals(tipo)) {
+            orden.verify(ventas).pedidoPagado(evento.fecha(), evento.datos().canal(), null,
+                    List.of(new LineaVenta("prd-013-01", 1, new BigDecimal("129.90"))));
+        } else {
+            verifyNoInteractions(ventas);
+        }
         orden.verifyNoMoreInteractions();
     }
 
@@ -80,7 +91,7 @@ class EventoPedidoServiceTest {
 
         assertThat(servicio.recibir(evento)).isFalse();
 
-        verifyNoInteractions(proyecciones);
+        verifyNoInteractions(proyecciones, ventas);
     }
 
     @Test
@@ -93,7 +104,7 @@ class EventoPedidoServiceTest {
         assertThatThrownBy(() -> servicio.recibir(evento))
                 .isInstanceOf(SolicitudInvalidaException.class);
 
-        verifyNoInteractions(eventos, proyecciones);
+        verifyNoInteractions(eventos, proyecciones, ventas);
     }
 
     @Test
@@ -106,7 +117,7 @@ class EventoPedidoServiceTest {
         assertThatThrownBy(() -> servicio.recibir(evento))
                 .isInstanceOf(DataAccessResourceFailureException.class);
 
-        verifyNoInteractions(proyecciones);
+        verifyNoInteractions(proyecciones, ventas);
     }
 
     @Test
@@ -132,7 +143,7 @@ class EventoPedidoServiceTest {
         org.assertj.core.api.Assertions.assertThat(servicio.recibir(evento)).isTrue();
 
         org.mockito.Mockito.verify(devoluciones).reemplazoEntregado("DEV-2026-0042", "PED-2026-01002");
-        org.mockito.Mockito.verifyNoInteractions(proyecciones);
+        org.mockito.Mockito.verifyNoInteractions(proyecciones, ventas);
     }
 
     @Test
@@ -143,7 +154,7 @@ class EventoPedidoServiceTest {
         servicio.recibir(evento);
 
         org.mockito.Mockito.verify(devoluciones).reemplazoAnulado("DEV-2026-0042", "PED-2026-01002", "RESERVA_EXPIRADA");
-        org.mockito.Mockito.verifyNoInteractions(proyecciones);
+        org.mockito.Mockito.verifyNoInteractions(proyecciones, ventas);
     }
 
     @Test
@@ -153,7 +164,39 @@ class EventoPedidoServiceTest {
 
         servicio.recibir(evento);
 
-        org.mockito.Mockito.verifyNoInteractions(devoluciones, proyecciones);
+        org.mockito.Mockito.verifyNoInteractions(devoluciones, proyecciones, ventas);
+    }
+
+    @Test
+    void pagoConVendedorConservaTodasLasLineasYLosImportesDelEvento() {
+        UUID vendedor = UUID.randomUUID();
+        EventoPedidoPayload original = evento("pedido.pagado");
+        EventoPedidoPayload evento = new EventoPedidoPayload(original.idEvento(), original.tipo(),
+                original.pedidoId(), original.fecha(), new EventoPedidoPayload.Datos(
+                        CanalVenta.RETAIL, original.datos().clienteId(), vendedor, new BigDecimal("35.00"),
+                        "PEN", null, List.of(
+                                new EventoPedidoPayload.Item("PROD-1", 2, new BigDecimal("20.00")),
+                                new EventoPedidoPayload.Item("PROD-2", 3, new BigDecimal("15.00"))), null));
+        when(eventos.registrarSiNuevo(evento.idEvento(), evento.tipo())).thenReturn(true);
+
+        servicio.recibir(evento);
+
+        org.mockito.Mockito.verify(ventas).pedidoPagado(evento.fecha(), CanalVenta.RETAIL, vendedor,
+                List.of(new LineaVenta("PROD-1", 2, new BigDecimal("20.00")),
+                        new LineaVenta("PROD-2", 3, new BigDecimal("15.00"))));
+    }
+
+    @Test
+    void falloDeVentasSePropagaParaRevertirElEventoYLasMetricas() {
+        EventoPedidoPayload evento = evento("pedido.pagado");
+        when(eventos.registrarSiNuevo(evento.idEvento(), evento.tipo())).thenReturn(true);
+        doThrow(new IllegalStateException("Fallo del agregado de ventas"))
+                .when(ventas).pedidoPagado(evento.fecha(), evento.datos().canal(), null,
+                        List.of(new LineaVenta("prd-013-01", 1, new BigDecimal("129.90"))));
+
+        assertThatThrownBy(() -> servicio.recibir(evento))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Fallo del agregado de ventas");
     }
 
     private static EventoPedidoPayload reemplazo(String tipo, String motivo) {
