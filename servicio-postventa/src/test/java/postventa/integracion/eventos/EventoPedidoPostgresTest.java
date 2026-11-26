@@ -265,6 +265,11 @@ class EventoPedidoPostgresTest {
         }
 
         @Bean
+        postventa.integracion.ProductosClient productosClient() {
+            return org.mockito.Mockito.mock(postventa.integracion.ProductosClient.class);
+        }
+
+        @Bean
         DataSource dataSource() {
             DriverManagerDataSource fuente = new DriverManagerDataSource();
             fuente.setDriverClassName("org.postgresql.Driver");
