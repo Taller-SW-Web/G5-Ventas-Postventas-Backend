@@ -58,6 +58,11 @@ public record CrearPedidoRequest(
             @Size(max = 255) String referencia,
             @Size(max = 60) String tiendaId) {}   // solo RETAIL (acuerdo G4, R5)
 
+    /** Prenda que el cliente devuelve en un cambio en tienda: sku del pedido origen y unidades. */
+    public record ItemDevuelto(
+            @NotBlank @Size(max = 50) String sku,
+            @NotNull @Positive Integer cantidad) {}
+
     public record Pago(
             @NotBlank @Size(max = 30) String metodoPago,
             @NotNull @Pattern(regexp = "PEN|USD") String moneda,
@@ -68,8 +73,28 @@ public record CrearPedidoRequest(
             @Size(max = 100) String referenciaOperacion,   // RETAIL con TARJETA_POS o MIXTO
             @Size(max = 100) String comprobanteReferencia, // RETAIL boleta/factura térmica
             @PositiveOrZero BigDecimal montoEfectivo,      // RETAIL con MIXTO
-            @PositiveOrZero BigDecimal montoTarjeta,       // RETAIL con MIXTO
-            OffsetDateTime fechaVenta) {
+            @PositiveOrZero BigDecimal montoTarjeta,       // RETAIL con MIXTO o la diferencia de CREDITO_CAMBIO
+            OffsetDateTime fechaVenta,
+            @PositiveOrZero BigDecimal montoCreditoCambio, // RETAIL con CREDITO_CAMBIO (cambio de prenda)
+            @Size(max = 20) String pedidoOrigenId,         // RETAIL con CREDITO_CAMBIO: pedido de la prenda devuelta
+            @Valid List<@NotNull @Valid ItemDevuelto> itemsDevueltos) {   // RETAIL con CREDITO_CAMBIO
+
+        /** Constructor de compatibilidad (13 parámetros, sin itemsDevueltos). */
+        public Pago(String metodoPago, String moneda, BigDecimal subtotal, BigDecimal descuentoCupon,
+                    BigDecimal costoEnvio, BigDecimal total, String referenciaOperacion, String comprobanteReferencia,
+                    BigDecimal montoEfectivo, BigDecimal montoTarjeta, OffsetDateTime fechaVenta,
+                    BigDecimal montoCreditoCambio, String pedidoOrigenId) {
+            this(metodoPago, moneda, subtotal, descuentoCupon, costoEnvio, total, referenciaOperacion,
+                 comprobanteReferencia, montoEfectivo, montoTarjeta, fechaVenta, montoCreditoCambio, pedidoOrigenId, null);
+        }
+
+        /** Constructor de compatibilidad (11 parámetros, sin los datos del cambio de prenda). */
+        public Pago(String metodoPago, String moneda, BigDecimal subtotal, BigDecimal descuentoCupon,
+                    BigDecimal costoEnvio, BigDecimal total, String referenciaOperacion, String comprobanteReferencia,
+                    BigDecimal montoEfectivo, BigDecimal montoTarjeta, OffsetDateTime fechaVenta) {
+            this(metodoPago, moneda, subtotal, descuentoCupon, costoEnvio, total, referenciaOperacion,
+                 comprobanteReferencia, montoEfectivo, montoTarjeta, fechaVenta, null, null, null);
+        }
 
         /** Constructor de compatibilidad (10 parámetros, sin comprobanteReferencia). */
         public Pago(String metodoPago, String moneda, BigDecimal subtotal, BigDecimal descuentoCupon,

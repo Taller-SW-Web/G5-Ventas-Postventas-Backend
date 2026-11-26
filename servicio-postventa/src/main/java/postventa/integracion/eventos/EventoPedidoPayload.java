@@ -68,7 +68,36 @@ public record EventoPedidoPayload(
 
             // Solo en órdenes de reemplazo de un CAMBIO (F3, api-ventas 1.11)
             @Pattern(regexp = "DEV-\\d{4}-\\d{4,}")
-            String devolucionId) {
+            String devolucionId,
+
+            // Solo en pedido.entregado de un cambio de prenda en tienda (acuerdo G4, 26/11): M2 reintegra lo devuelto
+            @Valid
+            CambioTienda cambioTienda) {
+
+        public Datos(CanalVenta canal, String clienteId, UUID vendedorId, BigDecimal total, String moneda,
+                     String motivo, List<Item> items, String devolucionId) {
+            this(canal, clienteId, vendedorId, total, moneda, motivo, items, devolucionId, null);
+        }
+    }
+
+    public record CambioTienda(
+
+            @NotBlank
+            String pedidoOrigenId,
+
+            @NotNull
+            @Valid
+            List<@NotNull ItemDevuelto> itemsDevueltos) {
+    }
+
+    public record ItemDevuelto(
+
+            @NotBlank
+            String sku,
+
+            @NotNull
+            @Positive
+            Integer cantidad) {
     }
 
     public record Item(

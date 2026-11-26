@@ -142,6 +142,10 @@ public class MensajesProductosService {
             case PAGADO -> new Paso(Desenlace.APLICADO, Accion.CONFIRMAR, pedido, reservaId, null);
             // Se anuló mientras tanto (pago rechazado o F2): se devuelve el stock
             case ANULADO -> new Paso(Desenlace.APLICADO, Accion.LIBERAR, pedido, reservaId, null);
+            // Venta en tienda: el cliente ya se llevó el producto, se consume la reserva enseguida
+            case ENTREGADO -> pedido.esVentaTiendaEntregada()
+                    ? new Paso(Desenlace.APLICADO, Accion.CONFIRMAR, pedido, reservaId, null)
+                    : new Paso(Desenlace.APLICADO, Accion.NINGUNA, pedido, null, null);
             default -> new Paso(Desenlace.APLICADO, Accion.NINGUNA, pedido, null, null);
         };
     }
@@ -181,7 +185,7 @@ public class MensajesProductosService {
         };
     }
 
-    /** Retail no reserva ni consume cupones por M1 (el POS va directo con Productos, acuerdo G4). */
+    /** Retail reserva por M1 (acuerdo G4 + G6) pero no consume cupones por aquí. */
     static boolean tieneCupon(Pedido pedido) {
         return pedido.getCodigoCupon() != null && !pedido.getCodigoCupon().isBlank()
                 && pedido.getCanal() != CanalVenta.RETAIL;
@@ -213,6 +217,12 @@ public class MensajesProductosService {
                 log.info("Productos rechazó consumir la reserva del reemplazo {}: {}", codigo, m.codigo());
                 return anular(pedido, MOTIVO_RESERVA_EXPIRADA);
             }
+        }
+        if (pedido.esVentaTiendaEntregada()) {
+            // El producto ya salió de la tienda: no se anula; queda en el log para que Retail y Productos lo cuadren
+            log.warn("Productos rechazó ({}) el stock de la venta en tienda {}: revisar con Retail y Productos",
+                    m.codigo(), codigo);
+            return new Paso(Desenlace.APLICADO, Accion.NINGUNA, pedido, null, null);
         }
         log.warn("Rechazo {} de {} sin operación conocida (operation_id {})", m.codigo(), codigo, m.operationId());
         return new Paso(Desenlace.APLICADO, Accion.NINGUNA, pedido, null, null);
@@ -248,7 +258,8 @@ public class MensajesProductosService {
         switch (paso.accion()) {
             case COBRAR -> pasarela.iniciarCobro(p.getCodigo(), p.getTotal(), p.getMoneda().trim(), paso.dato());
             case CONFIRMAR -> {
-                if (productos.confirmar(p.getCodigo(), paso.dato()) == ResultadoConfirmacion.RESERVA_EXPIRADA) {
+                if (productos.confirmar(p.getCodigo(), paso.dato()) == ResultadoConfirmacion.RESERVA_EXPIRADA
+                        && !p.esVentaTiendaEntregada()) {
                     reservaExpiradaTrasPago(p.getCodigo());
                 } else if (tieneCupon(p)) {
                     consumirCupon(p);   // el Chatbot pagó antes de la reserva: el cupón se consume ahora

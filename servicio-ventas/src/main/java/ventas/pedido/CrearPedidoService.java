@@ -16,6 +16,7 @@ import org.springframework.transaction.support.TransactionOperations;
 
 import ventas.compartido.CodigoPublico;
 import ventas.compartido.ConflictoException;
+import ventas.compartido.NoProcesableException;
 import ventas.integracion.MensajeInventario;
 import ventas.integracion.ProductosClient;
 import ventas.integracion.ReservaSinRespuestaException;
@@ -27,7 +28,8 @@ import ventas.pedido.dto.CrearPedidoResponse;
  * Orden: validar -> ¿clave ya usada? -> en una transacción: guardar y reservar stock (con el código del pedido).
  * MARKETPLACE: nace CREADO; el cobro se pide cuando Productos avisa que la reserva quedó creada (MensajesProductosService).
  * CHATBOT: nace CREADO (el chatbot cobra y avisa por 1.2).
- * RETAIL: nace PAGADO y pasa a ENTREGADO en la misma transacción (acuerdo G4).
+ * RETAIL: nace PAGADO y pasa a ENTREGADO en la misma transacción (acuerdo G4); reserva y confirma el consumo en
+ * Productos como los demás canales (acuerdo G4 + G6, 26/11/2026, reemplaza R9).
  */
 @Slf4j
 @Service
@@ -63,6 +65,7 @@ public class CrearPedidoService {
         if (previo.isPresent()) {
             return repetido(previo.get(), req);
         }
+        validarPedidoOrigen(req);
 
         Registro registro;
         try {
@@ -70,10 +73,9 @@ public class CrearPedidoService {
                 Pedido p = registrar(clave, req, clientIdCanal);
                 // Se reserva con el código ya asignado (order_id), dentro de la transacción: si Productos rechaza el
                 // comando (4xx o sin conexión), el pedido no se guarda y la Idempotency-Key no se consume.
-                // Retail no reserva (G4, R9)
-                if (req.canal() == CanalVenta.RETAIL) {
-                    return new Registro(p, Optional.empty());
-                }
+                // Retail también reserva (acuerdo G4 + G6 del 26/11, reemplaza R9): nace PAGADO/ENTREGADO y la
+                // reserva creada se confirma al instante (MensajesProductosService). Si Productos no admite el
+                // comando responde 503 y el POS reintenta con la misma Idempotency-Key (cola offline de G4)
                 try {
                     return new Registro(p, productos.reservar(p.getCodigo(), req.canal().name(), req.items().stream()
                             .map(i -> new ProductosClient.LineaReserva(i.sku(), i.cantidad())).toList()));
@@ -103,6 +105,35 @@ public class CrearPedidoService {
         return new Resultado(respuesta(pedido), true);
     }
 
+    /** CREDITO_CAMBIO (acuerdo G4, 26/11): la prenda devuelta tiene que venir de un pedido entregado que exista. */
+    private void validarPedidoOrigen(CrearPedidoRequest req) {
+        if (req.canal() != CanalVenta.RETAIL || !"CREDITO_CAMBIO".equals(req.pago().metodoPago())) {
+            return;
+        }
+        String codigo = req.pago().pedidoOrigenId().trim().toUpperCase();
+        Pedido origen = pedidos.findByCodigo(codigo).orElseThrow(() -> new NoProcesableException(
+                "PEDIDO_ORIGEN_NO_ENCONTRADO", "El pedido de la prenda devuelta no existe: " + codigo));
+        if (origen.getEstado() != EstadoPedido.ENTREGADO) {
+            throw new NoProcesableException("PEDIDO_ORIGEN_NO_ENTREGADO",
+                    "Solo se puede cambiar una prenda de un pedido ENTREGADO");
+        }
+        // Cada prenda devuelta tiene que ser del pedido origen y no más unidades de las compradas
+        for (CrearPedidoRequest.ItemDevuelto d : req.pago().itemsDevueltos()) {
+            int compradas = origen.getDetalles().stream().filter(x -> d.sku().equals(x.getSku()))
+                    .mapToInt(DetallePedido::getCantidad).sum();
+            if (compradas < d.cantidad()) {
+                throw new NoProcesableException("ITEM_DEVUELTO_INVALIDO",
+                        "El sku " + d.sku() + " no está en " + codigo + " o se devuelven más unidades de las compradas");
+            }
+        }
+    }
+
+    /** "SKU:cantidad" separados por coma; se mandan a M2 en pedido.entregado para el reintegro. */
+    static String itemsDevueltos(List<CrearPedidoRequest.ItemDevuelto> items) {
+        return items.stream().map(i -> i.sku().trim() + ":" + i.cantidad())
+                .collect(java.util.stream.Collectors.joining(","));
+    }
+
     private Pedido registrar(String clave, CrearPedidoRequest req, String clientIdCanal) {
         OffsetDateTime ahora = OffsetDateTime.now(ZoneOffset.UTC);
         CrearPedidoRequest.Pago p = req.pago();
@@ -123,6 +154,7 @@ public class CrearPedidoService {
         pago.setMontoEfectivo(p.montoEfectivo());
         pago.setMontoTarjeta(p.montoTarjeta());
         pago.setFechaVenta(p.fechaVenta());
+        pago.setMontoCreditoCambio(p.montoCreditoCambio());
         if (pedido.getEstado() == EstadoPedido.PAGADO) {
             pago.setEstado(EstadoPago.CONFIRMADO);
             pago.setFechaProceso(fechaHora);
@@ -167,6 +199,10 @@ public class CrearPedidoService {
             // Venta en tienda (acuerdo G4, R5): sin envío a domicilio
             pedido.setModalidadEnvio("ENTREGA_EN_TIENDA");
             pedido.setTiendaId(e.tiendaId());
+            if ("CREDITO_CAMBIO".equals(p.metodoPago())) {
+                pedido.setCambioPedidoOrigen(p.pedidoOrigenId().trim().toUpperCase());
+                pedido.setCambioItemsDevueltos(itemsDevueltos(p.itemsDevueltos()));
+            }
         } else {
             pedido.setModalidadEnvio(e.modalidad());
             pedido.setTiendaId(e.tiendaId());

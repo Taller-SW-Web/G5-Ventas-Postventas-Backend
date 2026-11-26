@@ -134,7 +134,7 @@ public class SeguimientoProductos {
             proximoVencimiento = ahora.plus(cadaVencimiento);
         }
         List<Pedido> pendientes = pedidos.enSeguimientoProductos(ESTADOS, EstadoPedido.EN_PREPARACION,
-                TipoPedido.REEMPLAZO, CanalVenta.RETAIL, ahora.minus(ventana), PageRequest.of(0, lote));
+                TipoPedido.REEMPLAZO, CanalVenta.RETAIL, EstadoPedido.ENTREGADO, ahora.minus(ventana), PageRequest.of(0, lote));
         for (Pedido p : pendientes) {
             try {
                 seguir(p, revisarVencimientos);
@@ -159,9 +159,11 @@ public class SeguimientoProductos {
         String codigo = p.getCodigo();
         EstadoPedido estado = p.getEstado();
         boolean reemplazoEnPreparacion = p.esReemplazo() && estado == EstadoPedido.EN_PREPARACION;
+        // Venta en tienda entregada: se sigue como un pedido PAGADO (reserva y consumo), sin anular nunca
+        boolean pagadoOTienda = estado == EstadoPedido.PAGADO || p.esVentaTiendaEntregada();
 
         if (p.getReservaId() == null) {
-            if (estado == EstadoPedido.CREADO || estado == EstadoPedido.PAGADO) {
+            if (estado == EstadoPedido.CREADO || pagadoOTienda) {
                 resultadoReserva(p);
             }
             return;
@@ -172,7 +174,7 @@ public class SeguimientoProductos {
         if (revisarVencimiento && (estado == EstadoPedido.CREADO || reemplazoEnPreparacion)) {
             vencimiento(codigo, p.getReservaId());
         }
-        if (estado == EstadoPedido.PAGADO || reemplazoEnPreparacion) {
+        if (pagadoOTienda || reemplazoEnPreparacion) {
             resultadoConsumo(p);
         }
     }
@@ -225,9 +227,10 @@ public class SeguimientoProductos {
         }
         ResultadoOperacion r = resultado.get();
         if (r.noEncontrada()) {
-            if (p.getEstado() == EstadoPedido.PAGADO && !p.esReemplazo()) {
+            if ((p.getEstado() == EstadoPedido.PAGADO && !p.esReemplazo()) || p.esVentaTiendaEntregada()) {
                 log.info("Productos no conoce la confirmación de {}: se reenvía con la misma identidad", codigo);
-                if (productos.confirmar(codigo, p.getReservaId()) == ResultadoConfirmacion.RESERVA_EXPIRADA) {
+                if (productos.confirmar(codigo, p.getReservaId()) == ResultadoConfirmacion.RESERVA_EXPIRADA
+                        && !p.esVentaTiendaEntregada()) {
                     mensajes.reservaExpiradaTrasPago(codigo);
                     marcarResuelta(op);
                     return;

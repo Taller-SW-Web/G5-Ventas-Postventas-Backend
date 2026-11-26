@@ -166,6 +166,18 @@ public class MaquinaEstados {
         }
     }
 
+    /** Cambio en tienda: "SKU:cantidad,..." guardado al crear el pedido, para que M2 reintegre lo devuelto. */
+    static EventoPedidoPayload.CambioTienda cambioTienda(Pedido pedido) {
+        if (pedido.getCambioPedidoOrigen() == null || pedido.getCambioItemsDevueltos() == null) {
+            return null;
+        }
+        List<EventoPedidoPayload.ItemDevuelto> items = java.util.Arrays.stream(pedido.getCambioItemsDevueltos().split(","))
+                .map(t -> t.split(":"))
+                .map(t -> new EventoPedidoPayload.ItemDevuelto(t[0], Integer.valueOf(t[1])))
+                .toList();
+        return new EventoPedidoPayload.CambioTienda(pedido.getCambioPedidoOrigen(), items);
+    }
+
     private EventoPedidoPayload payload(Pedido pedido, TipoEvento tipo, String motivo, OffsetDateTime fecha) {
         List<EventoPedidoPayload.Item> items = tipo == TipoEvento.PEDIDO_PAGADO
                 ? pedido.getDetalles().stream()
@@ -177,7 +189,8 @@ public class MaquinaEstados {
         EventoPedidoPayload.Datos datos = new EventoPedidoPayload.Datos(
                 pedido.getCanal().name(), clienteId, pedido.getIdVendedor(),
                 pedido.getTotal(), pedido.getMoneda(),
-                tipo == TipoEvento.PEDIDO_ANULADO ? motivo : null, items, pedido.getDevolucionId());
+                tipo == TipoEvento.PEDIDO_ANULADO ? motivo : null, items, pedido.getDevolucionId(),
+                tipo == TipoEvento.PEDIDO_ENTREGADO ? cambioTienda(pedido) : null);
         return new EventoPedidoPayload(UUID.randomUUID(), tipo.getValor(), pedido.getCodigo(), fecha, datos);
     }
 }

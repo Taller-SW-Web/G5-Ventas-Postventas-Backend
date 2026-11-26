@@ -60,13 +60,15 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long>, JpaSpecif
      * normal EN_PREPARACION ya consumió su reserva y no tiene nada pendiente). Del más nuevo al más antiguo, para que
      * un lote lleno de pedidos viejos nunca deje sin seguimiento a los recién creados. Lo recorre SeguimientoProductos.
      */
-    @Query("select p from Pedido p where p.canal <> :excluido and p.creadoEn >= :desde"
-            + " and (p.estado in :estados or (p.estado = :enPreparacion and p.tipo = :reemplazo))"
+    @Query("select p from Pedido p where p.creadoEn >= :desde and ("
+            + "(p.canal <> :tienda and (p.estado in :estados or (p.estado = :enPreparacion and p.tipo = :reemplazo)))"
+            + " or (p.canal = :tienda and p.estado = :entregado))"
             + " order by p.id desc")
     List<Pedido> enSeguimientoProductos(@Param("estados") List<EstadoPedido> estados,
                                         @Param("enPreparacion") EstadoPedido enPreparacion,
                                         @Param("reemplazo") TipoPedido reemplazo,
-                                        @Param("excluido") CanalVenta excluido,
+                                        @Param("tienda") CanalVenta tienda,
+                                        @Param("entregado") EstadoPedido entregado,
                                         @Param("desde") OffsetDateTime desde,
                                         Pageable pagina);
 

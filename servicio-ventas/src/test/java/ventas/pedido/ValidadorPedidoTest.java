@@ -130,6 +130,64 @@ class ValidadorPedidoTest {
                 .extracting("codigo").isEqualTo("DATOS_INVALIDOS");
     }
 
+    // ---------- Cambio de prenda en tienda (CREDITO_CAMBIO, acuerdo G4 26/11) ----------
+
+    @Test
+    void cambioDeIgualValorSoloConCredito() {
+        assertThatCode(() -> validador.validar(cambio("129.90", null, null, null, "PED-2026-00076")))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void cambioDeMayorValorConDiferenciaEnEfectivoOTarjeta() {
+        assertThatCode(() -> validador.validar(cambio("100.00", "29.90", null, null, "PED-2026-00076")))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> validador.validar(cambio("100.00", null, "29.90", "VOU-9", "PED-2026-00076")))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void cambioConTarjetaSinReferenciaSeRechaza() {
+        assertThatThrownBy(() -> validador.validar(cambio("100.00", null, "29.90", null, "PED-2026-00076")))
+                .extracting("codigo").isEqualTo("DATOS_INVALIDOS");
+    }
+
+    @Test
+    void cambioDebeSumarElTotal() {
+        assertThatThrownBy(() -> validador.validar(cambio("100.00", "10.00", null, null, "PED-2026-00076")))
+                .extracting("codigo").isEqualTo("MONTOS_INCONSISTENTES");
+    }
+
+    @Test
+    void cambioSinCreditoOSinPedidoOrigenSeRechaza() {
+        assertThatThrownBy(() -> validador.validar(cambio(null, "129.90", null, null, "PED-2026-00076")))
+                .extracting("codigo").isEqualTo("DATOS_INVALIDOS");
+        assertThatThrownBy(() -> validador.validar(cambio("129.90", null, null, null, null)))
+                .extracting("codigo").isEqualTo("DATOS_INVALIDOS");
+        assertThatThrownBy(() -> validador.validar(cambio("129.90", null, null, null, "76")))
+                .extracting("codigo").isEqualTo("DATOS_INVALIDOS");
+    }
+
+    @Test
+    void cambioSinPrendasDevueltasSeRechaza() {
+        Pago p = new Pago("CREDITO_CAMBIO", "PEN", new BigDecimal("129.90"), BigDecimal.ZERO, BigDecimal.ZERO,
+                new BigDecimal("129.90"), null, null, null, null, null, new BigDecimal("129.90"), "PED-2026-00076");
+        Envio tienda = new Envio(null, null, null, null, null, null, null, null, "TIENDA-MIRAFLORES");
+        CrearPedidoRequest r = new CrearPedidoRequest(CanalVenta.RETAIL, contacto(TipoDocumento.DNI, "72458912"),
+                items(), null, tienda, p);
+        assertThatThrownBy(() -> validador.validar(r)).extracting("codigo").isEqualTo("DATOS_INVALIDOS");
+    }
+
+    @Test
+    void losDatosDelCambioSoloVanConCreditoCambio() {
+        Pago p = new Pago("EFECTIVO", "PEN", new BigDecimal("129.90"), BigDecimal.ZERO, BigDecimal.ZERO,
+                new BigDecimal("129.90"), null, null, null, null, null, new BigDecimal("10.00"), "PED-2026-00076");
+        Envio tienda = new Envio(null, null, null, null, null, null, null, null, "TIENDA-MIRAFLORES");
+        CrearPedidoRequest r = new CrearPedidoRequest(CanalVenta.RETAIL, contacto(TipoDocumento.DNI, "72458912"),
+                items(), null, tienda, p);
+        assertThatThrownBy(() -> validador.validar(r)).extracting("codigo").isEqualTo("DATOS_INVALIDOS");
+    }
+
     @Test
     void retailMixtoDebeSumarElTotal() {
         assertThatCode(() -> validador.validar(retail("MIXTO", "VOU-1", "29.90", "100.00", null))).doesNotThrowAnyException();
@@ -198,6 +256,17 @@ class ValidadorPedidoTest {
     static CrearPedidoRequest chatbot(Contacto c) {
         return new CrearPedidoRequest(CanalVenta.CHATBOT, c, items(), null, envio(),
                 pago("TARJETA_CREDITO", "129.90", "10.00", "10.00", "129.90"));
+    }
+
+    static CrearPedidoRequest cambio(String credito, String efectivo, String tarjeta, String referencia,
+                                     String pedidoOrigen) {
+        Pago p = new Pago("CREDITO_CAMBIO", "PEN", new BigDecimal("129.90"), BigDecimal.ZERO, BigDecimal.ZERO,
+                new BigDecimal("129.90"), referencia, null,
+                efectivo == null ? null : new BigDecimal(efectivo), tarjeta == null ? null : new BigDecimal(tarjeta),
+                null, credito == null ? null : new BigDecimal(credito), pedidoOrigen,
+                List.of(new CrearPedidoRequest.ItemDevuelto("SKU-AUR-01", 1)));
+        Envio tienda = new Envio(null, null, null, null, null, null, null, null, "TIENDA-MIRAFLORES");
+        return new CrearPedidoRequest(CanalVenta.RETAIL, contacto(TipoDocumento.DNI, "72458912"), items(), null, tienda, p);
     }
 
     static CrearPedidoRequest retail(String metodo, String referencia, String efectivo, String tarjeta, OffsetDateTime fechaVenta) {

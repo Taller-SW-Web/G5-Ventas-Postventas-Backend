@@ -45,11 +45,14 @@ class EventoPedidoServiceTest {
     @Mock
     private postventa.devolucion.DevolucionService devoluciones;
 
+    @Mock
+    private postventa.integracion.ProductosClient productos;
+
     private EventoPedidoService servicio;
 
     @BeforeEach
     void preparar() {
-        servicio = new EventoPedidoService(validador, eventos, proyecciones, devoluciones);
+        servicio = new EventoPedidoService(validador, eventos, proyecciones, devoluciones, productos);
     }
 
     @ParameterizedTest
@@ -154,6 +157,53 @@ class EventoPedidoServiceTest {
         servicio.recibir(evento);
 
         org.mockito.Mockito.verifyNoInteractions(devoluciones, proyecciones);
+    }
+
+    @Test
+    void laEntregaDeUnCambioEnTiendaReintegraLaPrendaDevuelta() {
+        EventoPedidoPayload evento = cambioTienda("pedido.entregado");
+        when(eventos.registrarSiNuevo(evento.idEvento(), "pedido.entregado")).thenReturn(true);
+
+        servicio.recibir(evento);
+
+        org.mockito.Mockito.verify(productos).reintegrar(
+                EventoPedidoService.operacionCambioTienda("PED-2026-01002"), "PED-2026-00076", "PED-2026-01002",
+                List.of(new postventa.integracion.ProductosClient.LineaReintegro("SKU-AUR-01", 1)));
+        // Sigue siendo una venta: cuenta en el dashboard
+        org.mockito.Mockito.verify(proyecciones).aplicarEventoPedido(org.mockito.ArgumentMatchers.eq("pedido.entregado"),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(CanalVenta.RETAIL));
+    }
+
+    @Test
+    void siProductosNoRespondeElEventoFallaParaQueM1Reintente() {
+        EventoPedidoPayload evento = cambioTienda("pedido.entregado");
+        when(eventos.registrarSiNuevo(evento.idEvento(), "pedido.entregado")).thenReturn(true);
+        org.mockito.Mockito.doThrow(new IllegalStateException("503")).when(productos)
+                .reintegrar(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> servicio.recibir(evento))
+                .isInstanceOf(IllegalStateException.class);
+        org.mockito.Mockito.verifyNoInteractions(proyecciones);
+    }
+
+    @Test
+    void elPagoDeUnCambioEnTiendaNoReintegra() {
+        EventoPedidoPayload evento = cambioTienda("pedido.pagado");
+        when(eventos.registrarSiNuevo(evento.idEvento(), "pedido.pagado")).thenReturn(true);
+
+        servicio.recibir(evento);
+
+        org.mockito.Mockito.verifyNoInteractions(productos);
+    }
+
+    private static EventoPedidoPayload cambioTienda(String tipo) {
+        return new EventoPedidoPayload(UUID.randomUUID(), tipo, "PED-2026-01002",
+                OffsetDateTime.parse("2026-11-28T12:00:00Z"),
+                new EventoPedidoPayload.Datos(CanalVenta.RETAIL, "11111111-1111-1111-1111-111111111111", null,
+                        new BigDecimal("129.90"), "PEN", null, null, null,
+                        new EventoPedidoPayload.CambioTienda("PED-2026-00076",
+                                List.of(new EventoPedidoPayload.ItemDevuelto("SKU-AUR-01", 1)))));
     }
 
     private static EventoPedidoPayload reemplazo(String tipo, String motivo) {

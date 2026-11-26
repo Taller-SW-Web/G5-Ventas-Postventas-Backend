@@ -157,13 +157,15 @@ class CrearPedidoServiceTest {
     }
 
     @Test
-    void retailNacePagadoSeEntregaEnTiendaYNoReservaStock() {
+    void retailNacePagadoSeEntregaEnTiendaYReservaStock() {
         when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
         conIdGenerado(12);
 
-        servicio.crear(CLAVE, ValidadorPedidoTest.retail("TARJETA_POS", "VOU-778", null, null, null));
+        CrearPedidoService.Resultado r = servicio.crear(CLAVE,
+                ValidadorPedidoTest.retail("TARJETA_POS", "VOU-778", null, null, null));
 
-        verifyNoInteractions(productos, mensajesProductos);
+        // Acuerdo G4 + G6 (26/11, reemplaza R9): Retail también reserva con su canal
+        verify(productos).reservar(eq(r.pedido().pedidoId()), eq("RETAIL"), anyList());
         ArgumentCaptor<Pedido> captor = ArgumentCaptor.forClass(Pedido.class);
         verify(maquina).registrarInicial(captor.capture(), eq(ActorHistorial.CLIENTE), anyString(), any());
         assertThat(captor.getValue().getEstado()).isEqualTo(EstadoPedido.PAGADO);
@@ -176,6 +178,58 @@ class CrearPedidoServiceTest {
         verify(pagos).save(pago.capture());
         assertThat(pago.getValue().getEstado()).isEqualTo(EstadoPago.CONFIRMADO);
         assertThat(pago.getValue().getReferencia()).isEqualTo("VOU-778");
+    }
+
+    @Test
+    void cambioDePrendaGuardaElCreditoYElPedidoOrigen() {
+        when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
+        when(pedidos.findByCodigo("PED-2026-00076")).thenReturn(Optional.of(origenEntregado("SKU-AUR-01", 1)));
+        conIdGenerado(15);
+
+        servicio.crear(CLAVE, ValidadorPedidoTest.cambio("100.00", "29.90", null, null, "ped-2026-00076"));
+
+        ArgumentCaptor<Pago> pago = ArgumentCaptor.forClass(Pago.class);
+        verify(pagos).save(pago.capture());
+        assertThat(pago.getValue().getMetodo()).isEqualTo("CREDITO_CAMBIO");
+        assertThat(pago.getValue().getMontoCreditoCambio()).isEqualByComparingTo("100.00");
+        assertThat(pago.getValue().getMontoEfectivo()).isEqualByComparingTo("29.90");
+        assertThat(pago.getValue().getPedido().getCambioPedidoOrigen()).isEqualTo("PED-2026-00076");
+        assertThat(pago.getValue().getPedido().getCambioItemsDevueltos()).isEqualTo("SKU-AUR-01:1");
+        // La prenda nueva reserva y consume stock como cualquier venta en tienda
+        verify(productos).reservar(anyString(), eq("RETAIL"), anyList());
+    }
+
+    @Test
+    void cambioConPedidoOrigenInexistenteONoEntregadoSeRechaza() {
+        when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
+        when(pedidos.findByCodigo("PED-2026-00076")).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> servicio.crear(CLAVE,
+                ValidadorPedidoTest.cambio("129.90", null, null, null, "PED-2026-00076")))
+                .extracting("codigo").isEqualTo("PEDIDO_ORIGEN_NO_ENCONTRADO");
+
+        Pedido pagado = new Pedido();
+        pagado.setEstado(EstadoPedido.PAGADO);
+        when(pedidos.findByCodigo("PED-2026-00076")).thenReturn(Optional.of(pagado));
+        assertThatThrownBy(() -> servicio.crear(CLAVE,
+                ValidadorPedidoTest.cambio("129.90", null, null, null, "PED-2026-00076")))
+                .extracting("codigo").isEqualTo("PEDIDO_ORIGEN_NO_ENTREGADO");
+
+        // La prenda devuelta no es de ese pedido
+        when(pedidos.findByCodigo("PED-2026-00076")).thenReturn(Optional.of(origenEntregado("OTRO-SKU", 1)));
+        assertThatThrownBy(() -> servicio.crear(CLAVE,
+                ValidadorPedidoTest.cambio("129.90", null, null, null, "PED-2026-00076")))
+                .extracting("codigo").isEqualTo("ITEM_DEVUELTO_INVALIDO");
+        verifyNoInteractions(productos);
+    }
+
+    private static Pedido origenEntregado(String sku, int cantidad) {
+        Pedido origen = new Pedido();
+        origen.setEstado(EstadoPedido.ENTREGADO);
+        DetallePedido d = new DetallePedido();
+        d.setSku(sku);
+        d.setCantidad(cantidad);
+        origen.agregarDetalle(d);
+        return origen;
     }
 
     @Test
@@ -292,7 +346,7 @@ class CrearPedidoServiceTest {
     }
 
     @Test
-    void retailQueFallaNoLiberaPorqueNoReservo() {
+    void retailQueFallaAntesDeGuardarNoReserva() {
         when(pedidos.findByIdempotencyKey(CLAVE)).thenReturn(Optional.empty());
         when(pedidos.saveAndFlush(any(Pedido.class))).thenThrow(new IllegalStateException("base caída"));
 
