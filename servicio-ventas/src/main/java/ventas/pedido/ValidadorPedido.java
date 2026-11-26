@@ -25,7 +25,8 @@ import ventas.pedido.dto.CrearPedidoRequest.Pago;
 public class ValidadorPedido {
 
     static final Duration ANTIGUEDAD_MAXIMA_VENTA = Duration.ofHours(72);
-    private static final Set<String> METODOS_RETAIL = Set.of("EFECTIVO", "TARJETA_POS", "MIXTO");
+    private static final java.util.regex.Pattern CODIGO_PEDIDO = java.util.regex.Pattern.compile("(?i)PED-\\d{4}-\\d+");
+    private static final Set<String> METODOS_RETAIL = Set.of("EFECTIVO", "TARJETA_POS", "MIXTO", "CREDITO_CAMBIO");
 
     private final Clock reloj;
 
@@ -108,7 +109,45 @@ public class ValidadorPedido {
         Pago pago = req.pago();
         String metodo = pago.metodoPago();
         if (!METODOS_RETAIL.contains(metodo)) {
-            throw invalido("pago.metodoPago", "Para RETAIL debe ser EFECTIVO, TARJETA_POS o MIXTO");
+            throw invalido("pago.metodoPago", "Para RETAIL debe ser EFECTIVO, TARJETA_POS, MIXTO o CREDITO_CAMBIO");
+        }
+        if (metodo.equals("CREDITO_CAMBIO")) {
+            validarCreditoCambio(pago);
+        } else {
+            validarCobroPos(pago, metodo);
+        }
+        validarFechaVenta(pago);
+    }
+
+    /**
+     * Cambio de prenda en tienda (acuerdo G4, 26/11): el crédito de la prenda devuelta cubre todo o parte; la
+     * diferencia va en efectivo o tarjeta (con referenciaOperacion). montoCreditoCambio + efectivo + tarjeta = total.
+     */
+    private void validarCreditoCambio(Pago pago) {
+        if (pago.montoCreditoCambio() == null || pago.montoCreditoCambio().signum() <= 0) {
+            throw invalido("pago.montoCreditoCambio", "Con CREDITO_CAMBIO es obligatorio y mayor que 0");
+        }
+        if (vacio(pago.pedidoOrigenId()) || !CODIGO_PEDIDO.matcher(pago.pedidoOrigenId().trim()).matches()) {
+            throw invalido("pago.pedidoOrigenId", "Con CREDITO_CAMBIO es obligatorio, con formato PED-AAAA-NNNNN");
+        }
+        if (pago.itemsDevueltos() == null || pago.itemsDevueltos().isEmpty()) {
+            throw invalido("pago.itemsDevueltos", "Con CREDITO_CAMBIO indique las prendas devueltas (sku y cantidad)");
+        }
+        if (cero(pago.montoTarjeta()).signum() > 0 && vacio(pago.referenciaOperacion())) {
+            throw invalido("pago.referenciaOperacion", "Es obligatorio si la diferencia se paga con tarjeta");
+        }
+        BigDecimal suma = pago.montoCreditoCambio().add(cero(pago.montoEfectivo())).add(cero(pago.montoTarjeta()));
+        if (dinero(suma).compareTo(dinero(pago.total())) != 0) {
+            throw new SolicitudInvalidaException("MONTOS_INCONSISTENTES",
+                    "montoCreditoCambio + montoEfectivo + montoTarjeta debe ser igual a total",
+                    List.of(new Detalle("pago.total", "esperado " + dinero(suma))));
+        }
+    }
+
+    private void validarCobroPos(Pago pago, String metodo) {
+        if (pago.montoCreditoCambio() != null || !vacio(pago.pedidoOrigenId())
+                || (pago.itemsDevueltos() != null && !pago.itemsDevueltos().isEmpty())) {
+            throw invalido("pago.montoCreditoCambio", "Solo se envía con metodoPago CREDITO_CAMBIO");
         }
         boolean tieneReferencia = !vacio(pago.referenciaOperacion()) || !vacio(pago.comprobanteReferencia());
         if (!metodo.equals("EFECTIVO") && !tieneReferencia) {
@@ -124,6 +163,9 @@ public class ValidadorPedido {
                         List.of(new Detalle("pago.total", "esperado " + pago.montoEfectivo().add(pago.montoTarjeta()))));
             }
         }
+    }
+
+    private void validarFechaVenta(Pago pago) {
         if (pago.fechaVenta() != null) {
             OffsetDateTime ahora = OffsetDateTime.now(reloj);
             if (pago.fechaVenta().isAfter(ahora) || pago.fechaVenta().isBefore(ahora.minus(ANTIGUEDAD_MAXIMA_VENTA))) {

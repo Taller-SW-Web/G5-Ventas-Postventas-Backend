@@ -162,6 +162,7 @@ public class PedidoController {
 
     /**
      * 1.4 Listar pedidos (Gestor, rol ADMIN_VENTAS, lo exige SecurityConfig). Sin clienteId lista todos.
+     * 1.4c: con token de servicio y scope ventas:pedidos:buscar-documento (Retail) es una búsqueda acotada.
      * canal, buscar y orden van además del contrato (bandeja del mockup 02).
      */
     @GetMapping
@@ -174,9 +175,19 @@ public class PedidoController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,
             @RequestParam(required = false) PedidosFiltro.Orden orden,
             @RequestParam(defaultValue = "0") int pagina,
-            @RequestParam(defaultValue = "10") int tamano) {
+            @RequestParam(defaultValue = "10") int tamano,
+            @AuthenticationPrincipal Jwt jwt) {
+        if (esServicio(jwt)) {
+            // 1.4c: Retail (scope ventas:pedidos:buscar-documento) busca por DNI/RUC o código, solo sus pedidos
+            return ResponseEntity.ok(pedidoService.buscarParaTienda(buscar, estado, desde, hasta, orden, pagina, tamano));
+        }
         return ResponseEntity.ok(pedidoService.listar(clienteId, estado, canal, buscar, desde, hasta, orden,
                 pagina, tamano));
+    }
+
+    /** Token de servicio (client_credentials de G7); los tokens de usuario traen tipo "acceso". */
+    static boolean esServicio(Jwt jwt) {
+        return jwt != null && "servicio".equals(jwt.getClaimAsString("tipo"));
     }
 
     /** 1.14 KPIs de ventas del Dashboard (Gestor, rol ADMIN_VENTAS, lo exige SecurityConfig). desde y hasta obligatorios. */

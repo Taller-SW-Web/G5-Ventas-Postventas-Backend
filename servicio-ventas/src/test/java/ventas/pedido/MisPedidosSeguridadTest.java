@@ -2,6 +2,9 @@ package ventas.pedido;
 
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -245,6 +248,16 @@ class MisPedidosSeguridadTest {
     void elScopeConsultarNoSirveParaListar() throws Exception {
         mvc.perform(get("/api/v1/pedidos").header("Authorization", "Bearer " + servicio("ventas:pedidos:consultar")))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void retailConScopeBuscarDocumentoBuscaSoloEnSusPedidos() throws Exception {
+        mvc.perform(get("/api/v1/pedidos").param("buscar", "45678912")
+                        .header("Authorization", "Bearer " + servicioDe("modulo-retail", "ventas:pedidos:buscar-documento")))
+                .andExpect(status().isOk());
+        // Con token de servicio va a la búsqueda acotada (1.4c), nunca al listado completo del Gestor
+        verify(pedidoService).buscarParaTienda(eq("45678912"), isNull(), isNull(), isNull(), isNull(), eq(0), eq(10));
+        verify(pedidoService, never()).listar(any(), any(), any(), any(), any(), any(), any(), anyInt(), anyInt());
     }
 
     @Test

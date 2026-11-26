@@ -90,16 +90,17 @@ class SeguimientoProductosTest {
 
     @Test
     void elBarridoExcluyeRetailYUsaLaVentana() {
-        when(pedidos.enSeguimientoProductos(any(), any(), any(), any(), any(), any())).thenReturn(List.of());
+        when(pedidos.enSeguimientoProductos(any(), any(), any(), any(), any(), any(), any())).thenReturn(List.of());
         seguimiento.barrer();
         verify(pedidos).enSeguimientoProductos(eq(SeguimientoProductos.ESTADOS), eq(EstadoPedido.EN_PREPARACION),
-                eq(TipoPedido.REEMPLAZO), eq(CanalVenta.RETAIL), eq(OffsetDateTime.parse("2026-11-15T12:00Z")), any());
+                eq(TipoPedido.REEMPLAZO), eq(CanalVenta.RETAIL), eq(EstadoPedido.ENTREGADO),
+                eq(OffsetDateTime.parse("2026-11-15T12:00Z")), any());
     }
 
     @Test
     void laVigenciaDeLasReservasSeRevisaCada60sYLosResultadosEnCadaBarrido() {
         Pedido p = pedido(EstadoPedido.CREADO, RESERVA, null);
-        when(pedidos.enSeguimientoProductos(any(), any(), any(), any(), any(), any())).thenReturn(List.of(p));
+        when(pedidos.enSeguimientoProductos(any(), any(), any(), any(), any(), any(), any())).thenReturn(List.of(p));
         when(productos.consultarReserva(RESERVA, CODIGO)).thenReturn(Optional.of(new EstadoReserva("ACTIVA", "VIGENTE")));
 
         seguimiento.barrer();                       // 12:00:00 revisa vigencia
@@ -298,7 +299,7 @@ class SeguimientoProductosTest {
         Pedido bueno = mock(Pedido.class);
         when(bueno.getCodigo()).thenReturn("PED-2026-00982");
         when(bueno.getEstado()).thenReturn(EstadoPedido.CREADO);
-        when(pedidos.enSeguimientoProductos(any(), any(), any(), any(), any(), any())).thenReturn(List.of(malo, bueno));
+        when(pedidos.enSeguimientoProductos(any(), any(), any(), any(), any(), any(), any())).thenReturn(List.of(malo, bueno));
         when(productos.consultarOperacion(ProductosClient.operacionId(Operacion.RESERVAR, CODIGO)))
                 .thenThrow(new IllegalStateException("caída"));
 
@@ -417,7 +418,7 @@ class SeguimientoProductosTest {
     void un429PausaElSeguimientoLoQueDigaRetryAfter() {
         String op = ProductosClient.operacionId(Operacion.RESERVAR, CODIGO);
         Pedido p = pedido(EstadoPedido.CREADO, null, null);
-        when(pedidos.enSeguimientoProductos(any(), any(), any(), any(), any(), any())).thenReturn(List.of(p));
+        when(pedidos.enSeguimientoProductos(any(), any(), any(), any(), any(), any(), any())).thenReturn(List.of(p));
         when(productos.consultarOperacion(op)).thenThrow(new LimiteProductosException(Duration.ofSeconds(40)));
 
         seguimiento.barrer();                          // plan
@@ -427,6 +428,6 @@ class SeguimientoProductosTest {
         seguimiento.barrer();                          // en pausa: no consulta la base ni Productos
 
         verify(productos, times(1)).consultarOperacion(op);
-        verify(pedidos, times(2)).enSeguimientoProductos(any(), any(), any(), any(), any(), any());
+        verify(pedidos, times(2)).enSeguimientoProductos(any(), any(), any(), any(), any(), any(), any());
     }
 }

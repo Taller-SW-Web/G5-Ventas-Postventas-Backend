@@ -60,4 +60,8 @@ public class Pago {
     /** Solo RETAIL sin conexión: fecha real de la venta, hasta 72 h atrás (acuerdo G4, R8). */
     @Column(name = "fecha_venta")
     private OffsetDateTime fechaVenta;
+
+    /** Solo RETAIL con CREDITO_CAMBIO: parte cubierta con el crédito de la prenda devuelta (acuerdo G4, 26/11). */
+    @Column(name = "monto_credito_cambio")
+    private BigDecimal montoCreditoCambio;
 }

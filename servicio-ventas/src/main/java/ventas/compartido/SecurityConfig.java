@@ -97,7 +97,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/v1/pedidos/*/anulaciones")
                     .hasAnyAuthority("SCOPE_ventas:pedidos:anular", "ROLE_ADMIN_VENTAS")
                 // Lecturas con token de usuario
-                .requestMatchers(HttpMethod.GET, "/api/v1/pedidos").hasRole("ADMIN_VENTAS")
+                // 1.4 (Gestor) y 1.4c: búsqueda por documento de Retail (G4) con su scope
+                .requestMatchers(HttpMethod.GET, "/api/v1/pedidos")
+                    .hasAnyAuthority("ROLE_ADMIN_VENTAS", "SCOPE_ventas:pedidos:buscar-documento")
                 // 1.14: KPIs del Dashboard. Va antes de /pedidos/* para que "kpis" no se tome como un pedidoId
                 .requestMatchers(HttpMethod.GET, "/api/v1/pedidos/kpis").hasRole("ADMIN_VENTAS")
                 // 1.15: Bandeja pickup para retiro en tienda (Retail con scope o Gestor con rol)

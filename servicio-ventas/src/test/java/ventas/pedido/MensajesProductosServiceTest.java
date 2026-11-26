@@ -361,6 +361,33 @@ class MensajesProductosServiceTest {
     }
 
     @Test
+    void laReservaDeUnaVentaEnTiendaSeConfirmaEnseguida() {
+        pedido.setCanal(CanalVenta.RETAIL);
+        pedido.setEstado(EstadoPedido.ENTREGADO);
+        pedidoExiste();
+        when(productos.confirmar(CODIGO, "RES-778")).thenReturn(ResultadoConfirmacion.ACEPTADA);
+
+        servicio.procesar(creada());
+
+        verify(productos).confirmar(CODIGO, "RES-778");
+        verifyNoInteractions(pasarela);
+        assertThat(pedido.getEstado()).isEqualTo(EstadoPedido.ENTREGADO);
+    }
+
+    @Test
+    void unaVentaEnTiendaConReservaExpiradaNoSeAnula() {
+        pedido.setCanal(CanalVenta.RETAIL);
+        pedido.setEstado(EstadoPedido.ENTREGADO);
+        pedidoExiste();
+        when(productos.confirmar(CODIGO, "RES-778")).thenReturn(ResultadoConfirmacion.RESERVA_EXPIRADA);
+
+        servicio.procesar(creada());
+
+        assertThat(pedido.getEstado()).isEqualTo(EstadoPedido.ENTREGADO);
+        verify(maquina, never()).cambiar(any(), any(), any(), any());
+    }
+
+    @Test
     void retailNoConsumeCuponPorM1() {
         pedido.setCanal(CanalVenta.RETAIL);
         pedido.setCodigoCupon("DESC10");

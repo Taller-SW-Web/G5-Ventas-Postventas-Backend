@@ -305,4 +305,16 @@ class MaquinaEstadosTest {
         assertThat(captor.getAllValues()).extracting(e -> e.datos().devolucionId())
                 .containsExactly("DEV-2026-0042", null);
     }
+
+    @Test
+    void elCambioEnTiendaViajaEnPedidoEntregado() {
+        Pedido p = new Pedido();
+        p.setCambioPedidoOrigen("PED-2026-00076");
+        p.setCambioItemsDevueltos("SKU-AUR-01:1,SKU-POL-02:2");
+        var cambio = MaquinaEstados.cambioTienda(p);
+        assertThat(cambio.pedidoOrigenId()).isEqualTo("PED-2026-00076");
+        assertThat(cambio.itemsDevueltos()).extracting(i -> i.sku() + "=" + i.cantidad())
+                .containsExactly("SKU-AUR-01=1", "SKU-POL-02=2");
+        assertThat(MaquinaEstados.cambioTienda(new Pedido())).isNull();
+    }
 }

@@ -103,6 +103,33 @@ public class PedidoService {
     }
 
     /**
+     * 1.4c: búsqueda de Retail (G4) por DNI/RUC exacto o código de pedido, limitada a sus pedidos (PedidosFiltro).
+     * Misma respuesta y paginación que 1.4; sin buscar responde 400 para no listar toda la tienda.
+     */
+    @Transactional(readOnly = true)
+    public ListadoPedidosResponse buscarParaTienda(String buscar, EstadoPedido estado, LocalDate desde, LocalDate hasta,
+                                                   PedidosFiltro.Orden orden, int pagina, int tamano) {
+        if (buscar == null || buscar.isBlank()) {
+            throw new SolicitudInvalidaException("PARAMETRO_INVALIDO",
+                    "buscar es obligatorio: número de documento o código de pedido");
+        }
+        if (pagina < 0) {
+            throw new SolicitudInvalidaException("PAGINACION_INVALIDA", "pagina debe ser 0 o mayor");
+        }
+        if (tamano < 1 || tamano > TAMANO_MAXIMO) {
+            throw new SolicitudInvalidaException("PAGINACION_INVALIDA", "tamano debe estar entre 1 y " + TAMANO_MAXIMO);
+        }
+        if (desde != null && hasta != null && desde.isAfter(hasta)) {
+            throw new SolicitudInvalidaException("PARAMETRO_INVALIDO", "desde no puede ser posterior a hasta");
+        }
+        Page<Pedido> resultado = pedidos.findAll(PedidosFiltro.paraTienda(buscar, estado, desde, hasta),
+                PageRequest.of(pagina, tamano, PedidosFiltro.orden(orden)));
+        return new ListadoPedidosResponse(null,
+                resultado.getContent().stream().map(PedidoService::resumen).toList(),
+                pagina, resultado.getTotalPages(), resultado.getTotalElements());
+    }
+
+    /**
      * 1.14: KPIs de ventas del Dashboard (mockup 01), sumados aquí para que el navegador no pagine toda la bandeja.
      * Mismo criterio que la bandeja: pedidos de venta (no reemplazos) creados entre desde y hasta (UTC, inclusive).
      * Vendido = PAGADO, EN_PREPARACION, DESPACHADO o ENTREGADO; los CREADO (sin pagar) no cuentan en pedidosTotal.

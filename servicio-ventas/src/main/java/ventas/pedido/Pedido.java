@@ -125,6 +125,14 @@ public class Pedido {
     @Column(name = "devolucion_id", length = 30)
     private String devolucionId;
 
+    /** Solo RETAIL con CREDITO_CAMBIO: código del pedido de la prenda devuelta (acuerdo G4, 26/11). */
+    @Column(name = "cambio_pedido_origen", length = 20)
+    private String cambioPedidoOrigen;
+
+    /** Solo RETAIL con CREDITO_CAMBIO: prendas devueltas como "SKU:cantidad" separadas por coma. */
+    @Column(name = "cambio_items_devueltos", length = 1000)
+    private String cambioItemsDevueltos;
+
     private BigDecimal descuento;
 
     @JdbcTypeCode(SqlTypes.CHAR)
@@ -146,6 +154,11 @@ public class Pedido {
 
     public boolean esReemplazo() {
         return tipo == TipoPedido.REEMPLAZO;
+    }
+
+    /** Venta en tienda ya entregada: su reserva se confirma igual que la de un pedido PAGADO (acuerdo G4 + G6). */
+    public boolean esVentaTiendaEntregada() {
+        return canal == CanalVenta.RETAIL && estado == EstadoPedido.ENTREGADO;
     }
 
     public void agregarDetalle(DetallePedido detalle) {

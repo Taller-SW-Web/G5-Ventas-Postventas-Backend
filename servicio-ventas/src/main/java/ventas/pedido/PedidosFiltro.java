@@ -59,6 +59,24 @@ final class PedidosFiltro {
     }
 
     /**
+     * 1.4c búsqueda de Retail: solo ventas en tienda (canal RETAIL) o pedidos con retiro en tienda (la misma regla
+     * que 1.3 con modulo-retail). buscar es obligatorio: un código PED-AAAA-NNNNN o el número de documento exacto.
+     */
+    static Specification<Pedido> paraTienda(String buscar, EstadoPedido estado, LocalDate desde, LocalDate hasta) {
+        String texto = buscar.trim();
+        Specification<Pedido> spec = (r, q, cb) -> cb.or(
+                cb.equal(r.get("canal"), CanalVenta.RETAIL),
+                r.get("modalidadEnvio").in("RECOJO_TIENDA", "TIENDA"));
+        if (CODIGO_PEDIDO.matcher(texto).matches()) {
+            String codigo = texto.toUpperCase();
+            spec = spec.and((r, q, cb) -> cb.equal(r.get("codigo"), codigo));
+        } else {
+            spec = spec.and((r, q, cb) -> cb.equal(r.get("numeroDocumento"), texto));
+        }
+        return spec.and(de(null, estado, null, null, desde, hasta));
+    }
+
+    /**
      * 1.4b /pedidos/me con rango de fechas (acuerdo con G1 Marketplace, 2026-11-02): desde y hasta son días
      * inclusivos en hora de Perú (America/Lima), el mismo día que ve el cliente en la pantalla del canal.
      */
