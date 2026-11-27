@@ -61,7 +61,7 @@ spring:
             - id: servicio-ventas
               uri: ${VENTAS_URL:http://localhost:8081}
               predicates:
-                - Path=/api/*/pedidos/**,/api/*/integraciones/despachos/**
+                - Path=/api/*/pedidos/**,/api/*/integraciones/despachos/**,/api/*/integraciones/productos/**
             # M2: F3 a F6. POST /api/v2/eventos no pasa por aquí (M1 llama directo a M2)
             - id: servicio-postventa
               uri: ${POSTVENTA_URL:http://localhost:8082}
