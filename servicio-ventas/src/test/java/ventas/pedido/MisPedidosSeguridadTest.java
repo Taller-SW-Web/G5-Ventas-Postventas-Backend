@@ -57,7 +57,7 @@ import ventas.pedido.dto.MisPedidosResponse;
  * Prueba de punta a punta de la seguridad de /pedidos/me con tokens RS256 firmados de verdad
  * (el mock Prism de Seguridad no firma tokens, kit §2 "Qué prueban los mocks").
  */
-@WebMvcTest(controllers = {PedidoController.class, DespachoEventosController.class, ReemplazoController.class}, properties = {
+@WebMvcTest(controllers = {PedidoController.class, DespachoEventosController.class, ReemplazoController.class, EvidenciaCuponController.class}, properties = {
         "seguridad.habilitada=true",
         "seguridad.issuer=" + MisPedidosSeguridadTest.ISSUER,
         "seguridad.jwks-url=http://localhost:1/no-se-usa-en-pruebas"
@@ -78,6 +78,7 @@ class MisPedidosSeguridadTest {
     @MockitoBean DespachoPedidoService despachoPedidoService;
     @MockitoBean EventoDespachoService eventoDespachoService;
     @MockitoBean ReemplazoService reemplazoService;
+    @MockitoBean EvidenciaCuponService evidenciaCuponService;
     @MockitoBean PickupPedidoService pickupPedidoService;
 
     @TestConfiguration
@@ -258,6 +259,20 @@ class MisPedidosSeguridadTest {
         // Con token de servicio va a la búsqueda acotada (1.4c), nunca al listado completo del Gestor
         verify(pedidoService).buscarParaTienda(eq("45678912"), isNull(), isNull(), isNull(), isNull(), eq(0), eq(10));
         verify(pedidoService, never()).listar(any(), any(), any(), any(), any(), any(), any(), anyInt(), anyInt());
+    }
+
+    @Test
+    void laEvidenciaDeCuponSoloLaLeePromotionsConSuScope() throws Exception {
+        String ruta = "/api/v1/integraciones/productos/pedidos/PED-2026-00001/evidencia-cupon";
+        mvc.perform(get(ruta)).andExpect(status().isUnauthorized());
+        mvc.perform(get(ruta).header("Authorization", "Bearer " + servicioDe("promotions-svc", "ventas:pedidos:consultar")))
+                .andExpect(status().isForbidden());
+        // modulo-ventas con el scope correcto igual recibe 403: solo promotions-svc (contrato G6)
+        mvc.perform(get(ruta).header("Authorization", "Bearer " + servicioDe("modulo-ventas", "ventas:pedidos:evidencia-cupon:leer")))
+                .andExpect(status().isForbidden());
+        mvc.perform(get(ruta).header("Authorization", "Bearer " + servicioDe("promotions-svc", "ventas:pedidos:evidencia-cupon:leer")))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Cache-Control", "no-store"));
     }
 
     @Test
